@@ -286,10 +286,23 @@ impl Tab {
         }
     }
 
+    /// Replace the current location without adding a history entry
+    /// (used while typing a search).
+    pub fn replace(&mut self, loc: Location) {
+        if *self.location() != loc {
+            self.history[self.pos] = loc;
+            self.on_location_changed();
+        }
+    }
+
     fn on_location_changed(&mut self) {
         self.view = FolderView::default();
         self.search = None;
         self.filter.clear();
+        // The search box shows the query of a search tab.
+        if let Location::Search { query, .. } = self.location() {
+            self.filter = query.clone();
+        }
         self.stale = true;
     }
 

@@ -39,6 +39,16 @@ pub struct QuickAccess {
     pub favorites: Vec<Favorite>,
     pub recent_folders: Vec<RecentItem>,
     pub recent_files: Vec<RecentItem>,
+    pub saved_searches: Vec<SavedSearch>,
+}
+
+/// A search kept in the sidebar.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SavedSearch {
+    pub name: String,
+    pub query: String,
+    /// Folder to search in; `None` = everywhere.
+    pub root: Option<PathBuf>,
 }
 
 impl Default for QuickAccess {
@@ -54,6 +64,7 @@ impl Default for QuickAccess {
             favorites,
             recent_folders: Vec::new(),
             recent_files: Vec::new(),
+            saved_searches: Vec::new(),
         }
     }
 }
@@ -109,6 +120,22 @@ impl QuickAccess {
     pub fn forget(&mut self, path: &Path) {
         self.recent_folders.retain(|r| r.path != path);
         self.recent_files.retain(|r| r.path != path);
+    }
+
+    /// Save a search (replacing one with the same query and folder).
+    pub fn save_search(&mut self, query: &str, root: Option<PathBuf>) {
+        self.saved_searches
+            .retain(|s| !(s.query == query && s.root == root));
+        let place = root
+            .as_deref()
+            .map(display_name)
+            .map(|p| format!(" in {p}"))
+            .unwrap_or_default();
+        self.saved_searches.push(SavedSearch {
+            name: format!("{query}{place}"),
+            query: query.to_owned(),
+            root,
+        });
     }
 
     pub fn clear_recent(&mut self) {
@@ -253,6 +280,7 @@ mod tests {
             favorites: vec![],
             recent_folders: vec![],
             recent_files: vec![],
+            saved_searches: vec![],
         };
         qa.pin(Path::new("/a"));
         qa.pin(Path::new("/a"));

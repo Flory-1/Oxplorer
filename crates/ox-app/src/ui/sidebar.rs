@@ -130,6 +130,47 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 }
             }
 
+            if !app.quick.saved_searches.is_empty() {
+                section(ui, "Saved searches");
+                for (i, saved) in app.quick.saved_searches.clone().into_iter().enumerate() {
+                    let loc = Location::Search {
+                        root: saved.root.clone(),
+                        query: saved.query.clone(),
+                    };
+                    let resp = item(
+                        ui,
+                        Icon::Glyph("🔍"),
+                        &saved.name,
+                        None,
+                        current == loc,
+                        accent,
+                    )
+                    .on_hover_text(format!(
+                        "{}\nin {}",
+                        saved.query,
+                        saved
+                            .root
+                            .as_deref()
+                            .map(|r| r.display().to_string())
+                            .unwrap_or_else(|| "This PC".into())
+                    ));
+                    if resp.clicked() {
+                        actions.push(Action::Navigate(loc.clone()));
+                    }
+                    if resp.middle_clicked() {
+                        actions.push(Action::OpenInNewTab(loc.clone(), false));
+                    }
+                    resp.context_menu(|ui| {
+                        if ui.button("📑 Open in new tab").clicked() {
+                            actions.push(Action::OpenInNewTab(loc.clone(), true));
+                        }
+                        if ui.button("🗑 Remove").clicked() {
+                            actions.push(Action::RemoveSavedSearch(i));
+                        }
+                    });
+                }
+            }
+
             if ox_core::recycle::supported() {
                 ui.add_space(6.0);
                 let bin = item(

@@ -1,23 +1,27 @@
-//! Fast recursive search across folders and drives.
+//! Fast search across folders and drives.
 //!
-//! The walk runs on many threads (the `ignore` crate's parallel walker, the
-//! same one ripgrep uses) and streams results back in batches, so the first
-//! hits appear right away even while big drives are still being scanned.
+//! Two back ends share one query language: a multi-threaded directory walk
+//! (the `ignore` crate's parallel walker, the same one ripgrep uses) that
+//! streams results while it runs, and the persistent file index in
+//! [`crate::index`] that answers name queries over whole drives instantly.
 //!
 //! # Query syntax
 //!
-//! | Example            | Meaning                                               |
-//! |--------------------|-------------------------------------------------------|
-//! | `report`           | name contains "report" (case-insensitive)             |
-//! | `"annual report"`  | name contains the exact phrase                        |
-//! | `*.rs` / `img_??`  | wildcard match on the whole name                      |
-//! | `-tmp`             | name must *not* contain "tmp"                         |
-//! | `ext:pdf,docx`     | extension is one of the list                          |
-//! | `type:folder`      | only folders (`type:file` for files)                  |
-//! | `size:>10mb`       | size filter (`<`, `>`, units b/kb/mb/gb)              |
-//! | `modified:7d`      | modified in the last 7 days (`today`, `24h`, `2w`)    |
-//! | `content:"TODO"`   | file contents contain the text (small files only)     |
+//! | Example              | Meaning                                               |
+//! |----------------------|-------------------------------------------------------|
+//! | `report`             | name contains "report" (case-insensitive)             |
+//! | `"annual report"`    | name contains the exact phrase                        |
+//! | `*.rs` / `img_??`    | wildcard match on the whole name                      |
+//! | `/^IMG_\d+\.jpe?g$/` | regular expression on the name (also `regex:…`)       |
+//! | `-tmp`               | name must *not* contain "tmp"                         |
+//! | `ext:pdf,docx`       | extension is one of the list                          |
+//! | `type:folder`        | only folders (`type:file` for files)                  |
+//! | `kind:image,video`   | by file kind (image, video, audio, document, archive, code, app) |
+//! | `size:>10mb`         | size filter (`<`, `>`, units b/kb/mb/gb)              |
+//! | `modified:7d`        | modified in the last 7 days (`today`, `24h`, `2w`)    |
+//! | `content:"TODO"`     | file contents contain the text (≤ 32 MB, text files)  |
 
+use std::cell::RefCell;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -27,18 +31,44 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crossbeam_channel::{Receiver, Sender};
 
-use crate::entry::FileEntry;
+use crate::entry::{FileEntry, FileKind};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 enum Term {
+    /// Substring, lower-cased unless the query is case-sensitive.
     Contains(String),
     Wildcard(Vec<char>),
+    Regex(regex::Regex),
+}
+
+impl PartialEq for Term {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Term::Contains(a), Term::Contains(b)) => a == b,
+            (Term::Wildcard(a), Term::Wildcard(b)) => a == b,
+            (Term::Regex(a), Term::Regex(b)) => a.as_str() == b.as_str(),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KindFilter {
     Files,
     Folders,
+}
+
+/// Text to find inside files, compiled once per query.
+#[derive(Debug, Clone)]
+struct ContentPattern {
+    text: String,
+    regex: regex::bytes::Regex,
+}
+
+impl PartialEq for ContentPattern {
+    fn eq(&self, other: &Self) -> bool {
+        self.text == other.text
+    }
 }
 
 /// A parsed search query.
@@ -48,11 +78,51 @@ pub struct Query {
     exclude: Vec<Term>,
     extensions: Vec<String>,
     kind: Option<KindFilter>,
+    kinds: Vec<FileKind>,
     min_size: Option<u64>,
     max_size: Option<u64>,
     modified_within: Option<Duration>,
-    content: Option<String>,
+    content: Option<ContentPattern>,
     case_sensitive: bool,
+}
+
+/// File kinds for `kind:` values.
+fn parse_kinds(value: &str) -> Vec<FileKind> {
+    let mut out = Vec::new();
+    for v in value
+        .split([',', ';', '|'])
+        .map(|v| v.trim().to_ascii_lowercase())
+    {
+        let kinds: &[FileKind] = match v.as_str() {
+            "image" | "images" | "picture" | "pictures" | "photo" | "photos" => &[FileKind::Image],
+            "video" | "videos" | "movie" | "movies" => &[FileKind::Video],
+            "audio" | "music" | "sound" => &[FileKind::Audio],
+            "doc" | "docs" | "document" | "documents" => &[
+                FileKind::Document,
+                FileKind::Pdf,
+                FileKind::Text,
+                FileKind::Spreadsheet,
+                FileKind::Presentation,
+            ],
+            "pdf" => &[FileKind::Pdf],
+            "spreadsheet" | "sheet" => &[FileKind::Spreadsheet],
+            "presentation" | "slides" => &[FileKind::Presentation],
+            "archive" | "archives" | "zip" => &[FileKind::Archive],
+            "code" | "source" => &[FileKind::Code],
+            "text" => &[FileKind::Text],
+            "app" | "apps" | "program" | "exe" | "executable" => &[FileKind::Executable],
+            _ => &[],
+        };
+        out.extend_from_slice(kinds);
+    }
+    out
+}
+
+fn regex_term(pattern: &str, case_sensitive: bool) -> Option<Term> {
+    let flags = if case_sensitive { "" } else { "(?i)" };
+    regex::Regex::new(&format!("{flags}{pattern}"))
+        .ok()
+        .map(Term::Regex)
 }
 
 impl Query {
@@ -66,6 +136,7 @@ impl Query {
                 Some(rest) if !rest.is_empty() => (true, rest.to_owned()),
                 _ => (false, token),
             };
+            let mut term = None;
             if let Some((key, value)) = token.split_once(':') {
                 let value = value.trim_matches('"');
                 match key.to_ascii_lowercase().as_str() {
@@ -79,11 +150,13 @@ impl Query {
                         continue;
                     }
                     "type" | "kind" => {
-                        q.kind = match value.to_ascii_lowercase().as_str() {
-                            "folder" | "folders" | "dir" | "directory" => Some(KindFilter::Folders),
-                            "file" | "files" => Some(KindFilter::Files),
-                            _ => None,
-                        };
+                        match value.to_ascii_lowercase().as_str() {
+                            "folder" | "folders" | "dir" | "directory" => {
+                                q.kind = Some(KindFilter::Folders)
+                            }
+                            "file" | "files" => q.kind = Some(KindFilter::Files),
+                            other => q.kinds.extend(parse_kinds(other)),
+                        }
                         continue;
                     }
                     "size" => {
@@ -101,13 +174,25 @@ impl Query {
                         continue;
                     }
                     "content" | "contains" => {
-                        q.content = Some(value.to_owned());
+                        let flags = if case_sensitive { "" } else { "(?i)" };
+                        if let Ok(regex) =
+                            regex::bytes::Regex::new(&format!("{flags}{}", regex::escape(value)))
+                        {
+                            q.content = Some(ContentPattern {
+                                text: value.to_owned(),
+                                regex,
+                            });
+                        }
                         continue;
                     }
+                    "regex" | "re" => term = regex_term(value, case_sensitive),
                     _ => {} // Not a filter, e.g. "C:" — treat as a normal term.
                 }
             }
-            let term = make_term(&token, case_sensitive);
+            if term.is_none() && token.len() > 2 && token.starts_with('/') && token.ends_with('/') {
+                term = regex_term(&token[1..token.len() - 1], case_sensitive);
+            }
+            let term = term.unwrap_or_else(|| make_term(&token, case_sensitive));
             if negate {
                 q.exclude.push(term);
             } else {
@@ -123,23 +208,99 @@ impl Query {
             && self.exclude.is_empty()
             && self.extensions.is_empty()
             && self.kind.is_none()
+            && self.kinds.is_empty()
             && self.min_size.is_none()
             && self.max_size.is_none()
             && self.modified_within.is_none()
             && self.content.is_none()
     }
 
+    /// The query looks inside files, so it can't be answered from names alone.
+    pub fn needs_content(&self) -> bool {
+        self.content.is_some()
+    }
+
     /// Does a file name match the name-based parts of the query?
     pub fn matches_name(&self, name: &str) -> bool {
-        let folded;
-        let name = if self.case_sensitive {
+        // ASCII names (almost all of them) are compared without allocating.
+        let ascii_ci = !self.case_sensitive && name.is_ascii();
+        let lowered;
+        let folded = if self.case_sensitive || ascii_ci {
             name
         } else {
-            folded = name.to_lowercase();
-            &folded
+            lowered = name.to_lowercase();
+            lowered.as_str()
         };
-        self.include.iter().all(|t| term_matches(t, name))
-            && !self.exclude.iter().any(|t| term_matches(t, name))
+        self.include
+            .iter()
+            .all(|t| term_matches(t, name, folded, ascii_ci))
+            && !self
+                .exclude
+                .iter()
+                .any(|t| term_matches(t, name, folded, ascii_ci))
+    }
+
+    /// Everything except the `content:` part, from already known metadata.
+    pub fn matches_meta(
+        &self,
+        name: &str,
+        is_dir: bool,
+        size: u64,
+        modified: Option<SystemTime>,
+    ) -> bool {
+        self.matches_type(name, is_dir)
+            && self.matches_name(name)
+            && self.matches_size_and_age(is_dir, size, modified)
+    }
+
+    fn matches_type(&self, name: &str, is_dir: bool) -> bool {
+        match self.kind {
+            Some(KindFilter::Files) if is_dir => return false,
+            Some(KindFilter::Folders) if !is_dir => return false,
+            _ => {}
+        }
+        if self.extensions.is_empty() && self.kinds.is_empty() {
+            return true;
+        }
+        if is_dir {
+            return false;
+        }
+        let ext = Path::new(name)
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        (self.extensions.is_empty() || self.extensions.contains(&ext))
+            && (self.kinds.is_empty() || self.kinds.contains(&FileKind::from_extension(&ext)))
+    }
+
+    fn needs_meta(&self) -> bool {
+        self.min_size.is_some() || self.max_size.is_some() || self.modified_within.is_some()
+    }
+
+    fn matches_size_and_age(&self, is_dir: bool, size: u64, modified: Option<SystemTime>) -> bool {
+        if self.min_size.is_some_and(|min| is_dir || size < min) {
+            return false;
+        }
+        if self.max_size.is_some_and(|max| is_dir || size > max) {
+            return false;
+        }
+        if let Some(within) = self.modified_within {
+            let fresh = modified
+                .and_then(|t| SystemTime::now().duration_since(t).ok())
+                .is_some_and(|age| age <= within);
+            if !fresh {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Does the file contain the `content:` text? (`true` if there is none.)
+    pub fn matches_content(&self, path: &Path) -> bool {
+        match &self.content {
+            Some(c) => file_contains(path, &c.regex),
+            None => true,
+        }
     }
 
     fn matches(
@@ -149,51 +310,17 @@ impl Query {
         meta: impl Fn() -> Option<fs::Metadata>,
         path: &Path,
     ) -> bool {
-        match self.kind {
-            Some(KindFilter::Files) if is_dir => return false,
-            Some(KindFilter::Folders) if !is_dir => return false,
-            _ => {}
-        }
-        if !self.extensions.is_empty() {
-            if is_dir {
-                return false;
-            }
-            let ext = Path::new(name)
-                .extension()
-                .map(|e| e.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            if !self.extensions.contains(&ext) {
-                return false;
-            }
-        }
-        if !self.matches_name(name) {
+        if !self.matches_type(name, is_dir) || !self.matches_name(name) {
             return false;
         }
-        let needs_meta =
-            self.min_size.is_some() || self.max_size.is_some() || self.modified_within.is_some();
-        if needs_meta {
+        if self.needs_meta() {
             let Some(m) = meta() else { return false };
-            if self.min_size.is_some_and(|min| is_dir || m.len() < min) {
+            if !self.matches_size_and_age(is_dir, m.len(), m.modified().ok()) {
                 return false;
-            }
-            if self.max_size.is_some_and(|max| is_dir || m.len() > max) {
-                return false;
-            }
-            if let Some(within) = self.modified_within {
-                let fresh = m
-                    .modified()
-                    .ok()
-                    .and_then(|t| SystemTime::now().duration_since(t).ok())
-                    .is_some_and(|age| age <= within);
-                if !fresh {
-                    return false;
-                }
             }
         }
-        if let Some(needle) = &self.content {
-            if is_dir || !file_contains(path, needle, self.case_sensitive) {
-                return false;
-            }
+        if self.content.is_some() && (is_dir || !self.matches_content(path)) {
+            return false;
         }
         true
     }
@@ -237,14 +364,45 @@ fn make_term(token: &str, case_sensitive: bool) -> Term {
     }
 }
 
-fn term_matches(term: &Term, name: &str) -> bool {
+/// `folded` is the lower-cased name for case-insensitive non-ASCII names,
+/// otherwise the name itself; `ascii_ci` asks for ASCII case folding on the fly.
+fn term_matches(term: &Term, original: &str, folded: &str, ascii_ci: bool) -> bool {
     match term {
-        Term::Contains(s) => name.contains(s.as_str()),
-        Term::Wildcard(p) => {
-            let n: Vec<char> = name.chars().collect();
+        Term::Contains(s) if ascii_ci => contains_ascii_ci(folded, s),
+        Term::Contains(s) => folded.contains(s.as_str()),
+        Term::Wildcard(p) if ascii_ci => {
+            let n: Vec<char> = folded
+                .bytes()
+                .map(|b| b.to_ascii_lowercase() as char)
+                .collect();
             wildcard(p, &n)
         }
+        Term::Wildcard(p) => {
+            let n: Vec<char> = folded.chars().collect();
+            wildcard(p, &n)
+        }
+        // The regex carries its own (?i) flag.
+        Term::Regex(r) => r.is_match(original),
     }
+}
+
+/// Substring search ignoring ASCII case; `needle` is already lower-case.
+fn contains_ascii_ci(hay: &str, needle: &str) -> bool {
+    let (h, n) = (hay.as_bytes(), needle.as_bytes());
+    if n.is_empty() {
+        return true;
+    }
+    if n.len() > h.len() {
+        return false;
+    }
+    let first = n[0];
+    (0..=h.len() - n.len()).any(|i| {
+        h[i].to_ascii_lowercase() == first
+            && h[i + 1..i + n.len()]
+                .iter()
+                .zip(&n[1..])
+                .all(|(a, b)| a.to_ascii_lowercase() == *b)
+    })
 }
 
 /// Iterative `*`/`?` matcher with backtracking (linear in practice).
@@ -318,7 +476,12 @@ fn parse_age(s: &str) -> Option<Duration> {
 /// Max file size scanned by `content:` searches.
 const CONTENT_LIMIT: u64 = 32 * 1024 * 1024;
 
-fn file_contains(path: &Path, needle: &str, case_sensitive: bool) -> bool {
+thread_local! {
+    /// Reused read buffer: content searches touch thousands of files.
+    static CONTENT_BUF: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+}
+
+fn file_contains(path: &Path, pattern: &regex::bytes::Regex) -> bool {
     let Ok(file) = fs::File::open(path) else {
         return false;
     };
@@ -329,20 +492,18 @@ fn file_contains(path: &Path, needle: &str, case_sensitive: bool) -> bool {
     {
         return false;
     }
-    let mut data = Vec::new();
-    if file.take(CONTENT_LIMIT).read_to_end(&mut data).is_err() {
-        return false;
-    }
-    // Skip binary files (a NUL byte in the first 8 KB).
-    if data.iter().take(8192).any(|&b| b == 0) {
-        return false;
-    }
-    let text = String::from_utf8_lossy(&data);
-    if case_sensitive {
-        text.contains(needle)
-    } else {
-        text.to_lowercase().contains(&needle.to_lowercase())
-    }
+    CONTENT_BUF.with(|buf| {
+        let mut data = buf.borrow_mut();
+        data.clear();
+        if file.take(CONTENT_LIMIT).read_to_end(&mut data).is_err() {
+            return false;
+        }
+        // Skip binary files (a NUL byte in the first 8 KB).
+        if data.iter().take(8192).any(|&b| b == 0) {
+            return false;
+        }
+        pattern.is_match(&data)
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -371,6 +532,8 @@ pub enum SearchEvent {
         elapsed: Duration,
         scanned: u64,
         truncated: bool,
+        /// Answered from the file index instead of walking the disk.
+        from_index: bool,
     },
 }
 
@@ -396,6 +559,80 @@ impl Drop for SearchHandle {
     fn drop(&mut self) {
         self.cancel();
     }
+}
+
+/// Add or remove a filter token in a query string (used by the filter chips).
+/// Tokens in the same `group` (e.g. `kind:` / `type:`) replace each other.
+pub fn toggle_filter(query: &str, token: &str, group: &[&str]) -> String {
+    let had = tokenize(query)
+        .iter()
+        .any(|t| t.eq_ignore_ascii_case(token));
+    let mut parts: Vec<String> = tokenize(query)
+        .into_iter()
+        .filter(|t| {
+            let lower = t.to_ascii_lowercase();
+            !group.iter().any(|g| lower.starts_with(g))
+        })
+        .collect();
+    if !had {
+        parts.push(token.to_owned());
+    }
+    parts.join(" ")
+}
+
+/// Is `token` part of the query string?
+pub fn has_filter(query: &str, token: &str) -> bool {
+    tokenize(query)
+        .iter()
+        .any(|t| t.eq_ignore_ascii_case(token))
+}
+
+/// Answer a query from the file index in the background (results arrive in
+/// one batch, usually within milliseconds). `within` limits it to a folder.
+pub fn start_indexed(
+    index: Arc<crate::index::FileIndex>,
+    within: Option<PathBuf>,
+    query: Query,
+    opts: SearchOptions,
+    notify: impl Fn() + Send + Sync + 'static,
+) -> SearchHandle {
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let handle = SearchHandle {
+        events: rx,
+        cancel: cancel.clone(),
+        scanned: Arc::new(AtomicU64::new(index.len() as u64)),
+    };
+    std::thread::Builder::new()
+        .name("search-index".into())
+        .spawn(move || {
+            let started = Instant::now();
+            let (ids, truncated) = index.search(
+                &query,
+                &crate::index::IndexQuery {
+                    include_hidden: opts.include_hidden,
+                    max_results: opts.max_results,
+                    within,
+                    cancel: Some(cancel.clone()),
+                },
+            );
+            if cancel.load(Ordering::Relaxed) {
+                return; // superseded by a newer search
+            }
+            let entries: Vec<FileEntry> = ids.into_iter().map(|i| index.file_entry(i)).collect();
+            if !entries.is_empty() {
+                let _ = tx.send(SearchEvent::Results(entries));
+            }
+            let _ = tx.send(SearchEvent::Done {
+                elapsed: started.elapsed(),
+                scanned: index.len() as u64,
+                truncated,
+                from_index: true,
+            });
+            notify();
+        })
+        .expect("failed to spawn search thread");
+    handle
 }
 
 /// Start searching `roots` in the background. `notify` is called whenever new
@@ -438,6 +675,7 @@ fn run(
             elapsed: started.elapsed(),
             scanned: 0,
             truncated: false,
+            from_index: false,
         });
         notify();
         return;
@@ -505,6 +743,7 @@ fn run(
         elapsed: started.elapsed(),
         scanned: scanned.load(Ordering::Relaxed),
         truncated: truncated.load(Ordering::Relaxed),
+        from_index: false,
     });
     notify();
 }
@@ -648,5 +887,109 @@ mod tests {
         assert_eq!(collect("ext:png"), vec!["image.png"]);
         assert_eq!(collect("type:folder"), vec!["a", "b", "c"]);
         assert_eq!(collect("content:todo"), vec!["notes.txt"]);
+        assert_eq!(collect("kind:image"), vec!["image.png"]);
+        assert_eq!(
+            collect(r"/^notes\.(md|txt)$/"),
+            vec!["notes.md", "notes.txt"]
+        );
+    }
+
+    #[test]
+    fn indexed_search_reports_results() {
+        use crate::index::{FileIndex, IndexConfig};
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("a/b")).unwrap();
+        fs::write(dir.path().join("a/b/report.pdf"), "x").unwrap();
+        fs::write(dir.path().join("a/other.pdf"), "x").unwrap();
+        let cfg = IndexConfig {
+            roots: vec![dir.path().to_path_buf()],
+            exclude: vec![],
+            threads: 2,
+        };
+        let idx = Arc::new(FileIndex::build(
+            &cfg,
+            &AtomicBool::new(false),
+            &AtomicU64::new(0),
+        ));
+        let h = start_indexed(
+            idx,
+            Some(dir.path().join("a/b")),
+            Query::parse("ext:pdf", false),
+            SearchOptions::default(),
+            || {},
+        );
+        let mut names = Vec::new();
+        for ev in h.events.iter() {
+            match ev {
+                SearchEvent::Results(r) => names.extend(r.into_iter().map(|e| e.path)),
+                SearchEvent::Done { from_index, .. } => {
+                    assert!(from_index);
+                    break;
+                }
+            }
+        }
+        assert_eq!(names, vec![dir.path().join("a/b/report.pdf")]);
+    }
+
+    #[test]
+    fn filter_chips_toggle_tokens() {
+        let kind = &["kind:", "type:"];
+        assert_eq!(
+            toggle_filter("report", "kind:image", kind),
+            "report kind:image"
+        );
+        assert_eq!(
+            toggle_filter("report kind:image", "kind:video", kind),
+            "report kind:video"
+        );
+        assert_eq!(
+            toggle_filter("report kind:image", "kind:image", kind),
+            "report"
+        );
+        assert_eq!(
+            toggle_filter("\"big file\" type:folder", "kind:image", kind),
+            "\"big file\" kind:image"
+        );
+        assert!(has_filter("a SIZE:>10mb", "size:>10mb"));
+    }
+
+    #[test]
+    fn regex_and_kind_terms() {
+        let q = Query::parse(r"/^img_\d{4}\.jpe?g$/", false);
+        assert!(q.matches_name("IMG_2041.JPG"));
+        assert!(!q.matches_name("IMG_204.jpg"));
+        let q = Query::parse(r"regex:^a.c$", true);
+        assert!(q.matches_name("abc") && !q.matches_name("ABC"));
+        // An invalid regex falls back to a plain substring.
+        assert!(Query::parse("/[/", false).matches_name("a/[/b"));
+
+        let q = Query::parse("kind:image,video", false);
+        assert!(q.matches_meta("cat.PNG", false, 1, None));
+        assert!(q.matches_meta("clip.mkv", false, 1, None));
+        assert!(!q.matches_meta("notes.txt", false, 1, None));
+        assert!(!q.matches_meta("Pictures", true, 0, None));
+        assert!(Query::parse("type:docs", false).matches_meta("a.pdf", false, 1, None));
+    }
+
+    #[test]
+    fn case_folding() {
+        // Non-ASCII names are folded with full Unicode rules.
+        let q = Query::parse("ÜBER", false);
+        assert!(q.matches_name("über-uns.txt"));
+        assert!(Query::parse("straße", false).matches_name("STRAßE.md"));
+        assert!(contains_ascii_ci("Annual Report.PDF", "report.pdf"));
+        assert!(!contains_ascii_ci("rep", "report"));
+        assert!(contains_ascii_ci("x", ""));
+    }
+
+    #[test]
+    fn meta_filters() {
+        let q = Query::parse("size:>1kb modified:1d", false);
+        let now = SystemTime::now();
+        assert!(q.matches_meta("a", false, 2048, Some(now)));
+        assert!(!q.matches_meta("a", false, 10, Some(now)));
+        assert!(!q.matches_meta("a", false, 2048, Some(now - Duration::from_secs(3 * 86400))));
+        assert!(!q.matches_meta("a", false, 2048, None));
+        assert!(Query::parse("content:x", false).needs_content());
     }
 }

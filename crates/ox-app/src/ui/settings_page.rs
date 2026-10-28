@@ -2,6 +2,7 @@
 
 use egui::{vec2, Color32, RichText, Ui};
 use ox_core::entry::{SortKey, SortOrder};
+use ox_core::index::IndexState;
 use ox_core::settings::{Settings, StartPage, Theme, ViewMode};
 use ox_core::transfer::ConflictPolicy;
 
@@ -57,7 +58,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                         2 => startup(ui, &mut app.settings),
                         3 => sidebar(ui, &mut app.settings),
                         4 => transfer(ui, &mut app.settings),
-                        5 => search(ui, &mut app.settings),
+                        5 => {
+                            search(ui, &mut app.settings);
+                            index_section(ui, app);
+                        }
                         6 => shortcuts(ui),
                         _ => about(ui),
                     }
@@ -448,9 +452,14 @@ fn search(ui: &mut Ui, s: &mut Settings) {
                 ("report", "name contains \"report\""),
                 ("\"annual report\"", "exact phrase"),
                 ("*.rs   img_??", "wildcards"),
+                ("/^IMG_\\d+\\.jpe?g$/", "regular expression (also regex:…)"),
                 ("-tmp", "exclude names containing \"tmp\""),
                 ("ext:pdf,docx", "by extension"),
                 ("type:folder / type:file", "only folders / files"),
+                (
+                    "kind:image,video",
+                    "by kind: image, video, audio, document, archive, code, app",
+                ),
                 ("size:>10mb   size:<1kb", "by size"),
                 ("modified:7d   modified:today", "recently modified"),
                 ("content:\"TODO\"", "text inside files (≤ 32 MB)"),
@@ -460,6 +469,145 @@ fn search(ui: &mut Ui, s: &mut Settings) {
                 ui.end_row();
             }
         });
+}
+
+fn index_section(ui: &mut Ui, app: &mut OxApp) {
+    ui.add_space(14.0);
+    ui.label(RichText::new("Search index").size(16.0).strong());
+    ui.label(
+        RichText::new(
+            "Keeps the names of all files in memory (about 50 MB per million files) so searching \
+             whole drives takes milliseconds. Built in the background and saved between runs.",
+        )
+        .weak(),
+    );
+    ui.add_space(8.0);
+    let se = &mut app.settings.search;
+    toggle(ui, &mut se.index_enabled, "Index file names", "");
+    if !se.index_enabled {
+        return;
+    }
+    toggle(
+        ui,
+        &mut se.search_as_you_type,
+        "Results while typing",
+        "On the Home page and in search tabs, results update with every key.",
+    );
+
+    let index = app.index.clone();
+    row(ui, "Status", "", |ui| {
+        ui.vertical(|ui| {
+            match index.state() {
+                IndexState::Loading => {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Loading the saved index…");
+                    });
+                }
+                IndexState::Building => {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(format!("Indexing… {} items so far", index.progress()));
+                    });
+                }
+                IndexState::Failed(e) => {
+                    ui.colored_label(Color32::from_rgb(0xe5, 0x48, 0x4d), e);
+                }
+                IndexState::Empty | IndexState::Ready => {}
+            }
+            if let Some(idx) = index.index() {
+                let age = std::time::SystemTime::now()
+                    .duration_since(idx.built_at())
+                    .unwrap_or_default();
+                let mut text = format!(
+                    "✔ {} items · {} in memory · updated {} ago",
+                    idx.len(),
+                    ox_core::format::size(idx.memory_bytes() as u64),
+                    ox_core::format::duration(age)
+                );
+                if let Some((_, took)) = index.last_build() {
+                    text.push_str(&format!(" · built in {:.1}s", took.as_secs_f32()));
+                }
+                ui.label(text);
+            } else if index.state() == IndexState::Empty {
+                ui.label("Not built yet.");
+            }
+            ui.horizontal(|ui| {
+                if index.is_building() {
+                    if ui.button("⏹ Stop").clicked() {
+                        index.cancel();
+                    }
+                } else if ui.button("🔄 Rebuild now").clicked() {
+                    app.actions.push(Action::RebuildIndex);
+                }
+            });
+        });
+    });
+
+    let se = &mut app.settings.search;
+    row(
+        ui,
+        "Indexed folders",
+        if cfg!(windows) {
+            "One per line. Empty = all drives."
+        } else {
+            "One per line. Empty = your home folder."
+        },
+        |ui| {
+            let mut text = se
+                .index_roots
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let edit = egui::TextEdit::multiline(&mut text)
+                .desired_rows(3)
+                .desired_width(280.0)
+                .hint_text(if cfg!(windows) {
+                    "C:\\\nD:\\Projects"
+                } else {
+                    "/home/me"
+                });
+            if ui.add(edit).changed() {
+                se.index_roots = text
+                    .lines()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty())
+                    .map(Into::into)
+                    .collect();
+            }
+        },
+    );
+    row(
+        ui,
+        "Skip folders named",
+        "Comma-separated, e.g. node_modules, .git",
+        |ui| {
+            let mut text = se.index_exclude.join(", ");
+            if ui
+                .add(egui::TextEdit::singleline(&mut text).desired_width(280.0))
+                .changed()
+            {
+                se.index_exclude = text
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .collect();
+            }
+        },
+    );
+    row(ui, "Refresh every", "", |ui| {
+        ui.add(
+            egui::Slider::new(&mut se.index_refresh_minutes, 0..=240).custom_formatter(|v, _| {
+                if v == 0.0 {
+                    "Only at start".into()
+                } else {
+                    format!("{v:.0} min")
+                }
+            }),
+        );
+    });
 }
 
 fn shortcuts(ui: &mut Ui) {

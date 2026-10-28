@@ -8,6 +8,7 @@ pub mod disk;
 pub mod entry;
 pub mod format;
 pub mod fsops;
+pub mod index;
 pub mod natural;
 pub mod places;
 pub mod recycle;

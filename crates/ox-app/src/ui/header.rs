@@ -578,7 +578,10 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
     let case = app.settings.search.case_sensitive;
     let instant = app.settings.search.instant_filter;
     let focus = std::mem::take(&mut app.ui.focus_search);
+    // With the index, Home and search tabs show results while typing.
+    let live = app.settings.search.search_as_you_type && app.index_ready();
     let tab = app.tabs.active_mut();
+    let live_here = live && matches!(tab.location(), Location::Home | Location::Search { .. });
     let (root, place) = match tab.location() {
         Location::Folder(p) => (Some(p.clone()), display_name(p)),
         Location::Search { root, .. } => (
@@ -607,8 +610,11 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
                 if focus {
                     resp.request_focus();
                 }
-                if resp.changed() && instant {
+                                if resp.changed() && instant {
                     tab.refresh_visible(folders_first, case);
+                }
+                if resp.changed() && live_here {
+                    actions.push(Action::SearchLive(root.clone(), tab.filter.clone()));
                 }
                 let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
                 let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
@@ -619,8 +625,9 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
                     tab.refresh_visible(folders_first, case);
                 }
                 resp.on_hover_text(
-                    "Type to filter this folder, press Enter to search all sub-folders.\n\
-                     Filters: *.ext  ext:pdf,docx  type:folder  size:>10mb  modified:7d  content:\"text\"  -exclude",
+                                        "Type to filter this folder, press Enter to search all sub-folders.\n\
+                     On Home, results appear while you type (with the search index).\n\
+                     Filters: *.ext  /regex/  ext:pdf,docx  kind:image  type:folder  size:>10mb  modified:7d  content:\"text\"  -exclude",
                 );
             });
         });

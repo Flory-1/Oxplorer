@@ -97,6 +97,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         return;
     }
 
+    if let Location::Search { root, query } = tab.location().clone() {
+        filter_chips(ui, &root, &query, &mut actions);
+    }
+
     // Background (empty space) interactions. Rows are added later and sit on top.
     let bg_rect = ui.available_rect_before_wrap();
     let bg = ui.interact(bg_rect, Id::unique(("files_bg", tab.id)), Sense::click());
@@ -188,6 +192,57 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     }
     tab.view.bin = bin;
     app.actions.extend(actions);
+}
+
+/// Quick filters above search results; each chip adds or removes a query token.
+fn filter_chips(ui: &mut Ui, root: &Option<PathBuf>, query: &str, actions: &mut Vec<Action>) {
+    const KIND: &[&str] = &["kind:", "type:"];
+    const DATE: &[&str] = &["modified:", "date:"];
+    const SIZE: &[&str] = &["size:"];
+    let chips: [(&str, &str, u8, &[&str]); 12] = [
+        ("📁 Folders", "type:folder", 0, KIND),
+        ("🖼 Images", "kind:image", 0, KIND),
+        ("🎬 Videos", "kind:video", 0, KIND),
+        ("🎵 Audio", "kind:audio", 0, KIND),
+        ("📄 Documents", "kind:document", 0, KIND),
+        ("📦 Archives", "kind:archive", 0, KIND),
+        ("Today", "modified:today", 1, DATE),
+        ("This week", "modified:week", 1, DATE),
+        ("This month", "modified:month", 1, DATE),
+        ("> 10 MB", "size:>10mb", 2, SIZE),
+        ("> 100 MB", "size:>100mb", 2, SIZE),
+        ("> 1 GB", "size:>1gb", 2, SIZE),
+    ];
+    egui::Frame::new()
+        .inner_margin(egui::Margin::symmetric(8, 6))
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                let mut last_group = 0;
+                for (label, token, group_id, group) in chips {
+                    if group_id != last_group {
+                        ui.separator();
+                        last_group = group_id;
+                    }
+                    let on = ox_core::search::has_filter(query, token);
+                    let chip = egui::Button::new(label)
+                        .selected(on)
+                        .corner_radius(CornerRadius::same(12));
+                    if ui.add(chip).clicked() {
+                        let q = ox_core::search::toggle_filter(query, token, group);
+                        actions.push(Action::SearchLive(root.clone(), q));
+                    }
+                }
+                ui.separator();
+                if ui
+                    .button("☆ Save search")
+                    .on_hover_text("Keep this search in the sidebar")
+                    .clicked()
+                {
+                    actions.push(Action::SaveSearch(root.clone(), query.to_owned()));
+                }
+            });
+        });
 }
 
 fn centered_message(ui: &mut Ui, icon: &str, text: &str) {
