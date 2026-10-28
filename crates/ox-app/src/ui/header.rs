@@ -464,7 +464,7 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) {
                     let text = app.ui.address_text.trim().trim_matches('"').to_owned();
                     let path = PathBuf::from(expand_env(&text));
                     if text.is_empty() {
-                    } else if path.is_dir() {
+                    } else if ox_core::network::is_dir(&path) {
                         actions.push(Action::Navigate(Location::Folder(path)));
                     } else if path.is_file() {
                         actions.push(Action::Open(path));
@@ -552,7 +552,10 @@ fn expand_env(text: &str) -> String {
 }
 
 fn breadcrumbs(ui: &mut Ui, path: &Path, actions: &mut Vec<Action>) {
+    let server = ox_core::network::server_of(path);
     let mut parts: Vec<&Path> = path.ancestors().collect();
+    // `\\server\share` paths start at the server, which lists its shares.
+    parts.extend(server.as_deref());
     parts.reverse();
     const MAX: usize = 5;
     let hidden = parts.len().saturating_sub(MAX);
@@ -651,6 +654,19 @@ fn archive_crumbs(ui: &mut Ui, archive: &Path, inner: &Path, actions: &mut Vec<A
 }
 
 fn crumb_name(p: &Path) -> String {
+    if let Some(server) = ox_core::network::server_name(p) {
+        return server.to_owned();
+    }
+    if p.parent().is_none() && ox_core::network::server_of(p).is_some() {
+        // A share's root: just the share, after the server crumb.
+        let s = p.to_string_lossy();
+        return s
+            .trim_end_matches('\\')
+            .rsplit('\\')
+            .next()
+            .unwrap_or("")
+            .to_owned();
+    }
     if p.parent().is_none() {
         let s = p.display().to_string();
         let s = s.trim_end_matches(['\\', '/']);
@@ -665,6 +681,10 @@ fn crumb_name(p: &Path) -> String {
 }
 
 fn subfolders(p: &Path) -> Vec<PathBuf> {
+    if let Some(server) = ox_core::network::server_name(p) {
+        let shares = ox_core::network::shares(server).unwrap_or_default();
+        return shares.into_iter().map(|e| e.path).collect();
+    }
     let mut dirs: Vec<PathBuf> = std::fs::read_dir(p)
         .map(|rd| {
             rd.flatten()

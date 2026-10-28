@@ -3,7 +3,7 @@
 use egui::{vec2, Color32, RichText, Ui};
 use ox_core::entry::{SortKey, SortOrder};
 use ox_core::index::IndexState;
-use ox_core::settings::{Settings, StartPage, Theme, ViewMode};
+use ox_core::settings::{Backdrop, Settings, StartPage, Theme, ViewMode};
 use ox_core::transfer::ConflictPolicy;
 
 use crate::app::{Action, OxApp};
@@ -58,7 +58,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                             theme_editor(ui, app);
                         }
                         1 => browsing(ui, &mut app.settings),
-                        2 => startup(ui, &mut app.settings),
+                        2 => {
+                            startup(ui, &mut app.settings);
+                            default_folder_handler(ui, app);
+                        }
                         3 => sidebar(ui, &mut app.settings),
                         4 => transfer(ui, &mut app.settings),
                         5 => {
@@ -344,7 +347,23 @@ fn appearance(ui: &mut Ui, app: &mut OxApp) {
         "Compact rows",
         "Smaller row height in the details view.",
     );
+    toggle(
+        ui,
+        &mut a.thumbnails,
+        "Thumbnails",
+        "Show previews of pictures and videos in the grid view.",
+    );
     if ox_core::shell::supported() {
+        row(
+            ui,
+            "Window backdrop",
+            "Windows 11 material behind the sidebar and header. Turning it on takes effect after restarting Oxplorer.",
+            |ui| {
+                ui.selectable_value(&mut a.backdrop, Backdrop::Off, "Off");
+                ui.selectable_value(&mut a.backdrop, Backdrop::Mica, "Mica");
+                ui.selectable_value(&mut a.backdrop, Backdrop::Acrylic, "Acrylic");
+            },
+        );
         toggle(
             ui,
             &mut a.system_icons,
@@ -501,6 +520,27 @@ fn startup(ui: &mut Ui, s: &mut Settings) {
                 st.start_folder = (!text.is_empty()).then(|| text.into());
             }
         });
+    }
+}
+
+/// "Open folders in Oxplorer" (Windows). Lives in the registry, not settings.toml.
+fn default_folder_handler(ui: &mut Ui, app: &mut OxApp) {
+    if !ox_core::default_app::supported() {
+        return;
+    }
+    let mut on = *app
+        .ui
+        .default_folder_handler
+        .get_or_insert_with(ox_core::default_app::is_enabled);
+    let was = on;
+    toggle(
+        ui,
+        &mut on,
+        "Open folders in Oxplorer",
+        "Folders and drives opened anywhere else (desktop, other programs, Win+E) open in Oxplorer instead of Explorer. Turn off to go back to Explorer.",
+    );
+    if on != was {
+        app.push(Action::SetDefaultFolderHandler(on));
     }
 }
 

@@ -47,7 +47,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: cargo build --release -p ox-app
+      - name: Build installer
+        shell: pwsh
+        run: installer/build.ps1 -Tag "v0.0.0-ci" -Repository "${{ github.repository }}"
       - uses: actions/upload-artifact@v4
         with:
           name: oxplorer-windows-x64
-          path: target/release/oxplorer.exe
+          path: |
+            target/release/oxplorer.exe
+            dist/oxplorer-*-setup-x64.exe

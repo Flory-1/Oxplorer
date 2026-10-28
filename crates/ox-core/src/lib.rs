@@ -5,6 +5,7 @@
 
 pub mod archive;
 pub mod clipboard;
+pub mod default_app;
 pub mod dirsize;
 pub mod disk;
 pub mod entry;
@@ -14,6 +15,7 @@ pub mod fuzzy;
 pub mod git;
 pub mod index;
 pub mod natural;
+pub mod network;
 pub mod pdf;
 pub mod places;
 pub mod recycle;

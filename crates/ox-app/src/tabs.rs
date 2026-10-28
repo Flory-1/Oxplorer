@@ -318,7 +318,8 @@ impl Tab {
 
     pub fn up(&mut self) {
         let parent = match self.location() {
-            Location::Folder(p) => p.parent().map(|p| Location::Folder(p.to_path_buf())),
+            // Up from a share's root goes to its server.
+            Location::Folder(p) => ox_core::network::parent(p).map(Location::Folder),
             Location::Search { root, .. } => root.clone().map(Location::Folder),
             // Up from an archive's top level leaves the archive.
             Location::Archive { archive, inner } => Some(match inner.parent() {
@@ -801,7 +802,7 @@ impl Tabs {
         tabs.next_id = tabs.groups.iter().map(|g| g.id + 1).max().unwrap_or(1);
         for st in session.tabs {
             let loc = match st.location {
-                Location::Folder(p) if !p.is_dir() => Location::Home,
+                Location::Folder(p) if !ox_core::network::is_dir(&p) => Location::Home,
                 other => other,
             };
             let id = tabs.alloc_id();

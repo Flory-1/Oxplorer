@@ -136,16 +136,22 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                         ui,
                         Icon::Drive,
                         &drive.title(),
-                        Some(drive.used_fraction()),
+                        (drive.total > 0).then(|| drive.used_fraction()),
                         selected,
                         accent,
                     );
-                    let resp = resp.on_hover_text(format!(
-                        "{}\n{} free of {}",
-                        drive.mount.display(),
-                        format::size(drive.available),
-                        format::size(drive.total)
-                    ));
+                    let resp = match &drive.remote {
+                        Some(remote) => resp.on_hover_text(format!(
+                            "{}\nNetwork drive: {remote}",
+                            drive.mount.display()
+                        )),
+                        None => resp.on_hover_text(format!(
+                            "{}\n{} free of {}",
+                            drive.mount.display(),
+                            format::size(drive.available),
+                            format::size(drive.total)
+                        )),
+                    };
                     super::open_link(&mut actions, &resp, &drive.mount);
                     highlight_drop(
                         ui,
@@ -155,7 +161,25 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                     );
                     let pinned = app.quick.is_favorite(&drive.mount);
                     resp.context_menu(|ui| {
-                        super::folder_link_menu(ui, &drive.mount, pinned, &mut actions)
+                        super::folder_link_menu(ui, &drive.mount, pinned, &mut actions);
+                        network_drive_menu(ui, &mut actions);
+                    });
+                }
+            }
+
+            let servers = network_servers(app);
+            if app.settings.sidebar.show_drives && !servers.is_empty() {
+                section(ui, "Network");
+                for server in servers {
+                    let selected = current.folder() == Some(server.as_path());
+                    let name = ox_core::network::server_name(&server).unwrap_or_default();
+                    let resp = item(ui, Icon::Glyph("🖧"), name, None, selected, accent)
+                        .on_hover_text(server.display().to_string());
+                    super::open_link(&mut actions, &resp, &server);
+                    let pinned = app.quick.is_favorite(&server);
+                    resp.context_menu(|ui| {
+                        super::folder_link_menu(ui, &server, pinned, &mut actions);
+                        network_drive_menu(ui, &mut actions);
                     });
                 }
             }
@@ -300,6 +324,41 @@ fn section(ui: &mut Ui, title: &str) {
     ui.add_space(10.0);
     ui.label(RichText::new(title.to_uppercase()).small().strong().weak());
     ui.add_space(2.0);
+}
+
+/// "Map network drive…" / "Disconnect network drive…" (Windows).
+fn network_drive_menu(ui: &mut Ui, actions: &mut Vec<Action>) {
+    if !ox_core::shell::supported() {
+        return;
+    }
+    ui.separator();
+    if ui.button("🖧 Map network drive…").clicked() {
+        actions.push(Action::NetworkDriveDialog(true));
+    }
+    if ui.button("🖧 Disconnect network drive…").clicked() {
+        actions.push(Action::NetworkDriveDialog(false));
+    }
+}
+
+/// Servers in use: those behind mapped drives, favorites and recent folders.
+fn network_servers(app: &OxApp) -> Vec<std::path::PathBuf> {
+    let mapped = app.drives.iter().filter_map(|d| d.remote.as_deref());
+    let folders = app
+        .quick
+        .favorites
+        .iter()
+        .map(|f| f.path.as_path())
+        .chain(app.quick.recent_folders.iter().map(|r| r.path.as_path()));
+    let mut servers: Vec<std::path::PathBuf> = mapped
+        .filter_map(|r| ox_core::network::server_of(Path::new(r)))
+        .chain(folders.filter_map(|p| {
+            ox_core::network::server_of(p)
+                .or_else(|| ox_core::network::server_name(p).map(|s| format!(r"\\{s}").into()))
+        }))
+        .collect();
+    servers.sort_by_key(|s| s.to_string_lossy().to_lowercase());
+    servers.dedup_by_key(|s| s.to_string_lossy().to_lowercase());
+    servers
 }
 
 /// A full-width sidebar row with optional usage bar (for drives).

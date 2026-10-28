@@ -191,6 +191,9 @@ pub(crate) fn is_hidden(name: &str, _meta: &fs::Metadata) -> bool {
 
 /// Read all entries of a directory. Entries whose metadata can't be read are skipped.
 pub fn list_dir(path: &Path, show_hidden: bool) -> io::Result<Vec<FileEntry>> {
+    if let Some(server) = crate::network::server_name(path) {
+        return crate::network::shares(server);
+    }
     let mut out = Vec::new();
     for item in fs::read_dir(path)? {
         let Ok(item) = item else { continue };

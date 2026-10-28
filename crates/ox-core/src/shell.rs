@@ -1,5 +1,5 @@
-//! Windows Shell integration: real file icons, the native context menu
-//! ("Show more options"), the native Properties dialog and "Open with…".
+//! Windows Shell integration: real file icons, thumbnails, the native context
+//! menu ("Show more options"), the native Properties dialog and "Open with…".
 //!
 //! All Shell calls run on one dedicated background thread that owns a hidden
 //! helper window and pumps its messages. The UI thread only sends requests,
@@ -65,6 +65,64 @@ impl IconKey {
 pub struct IconImage {
     pub size: u32,
     pub rgba: Vec<u8>,
+}
+
+/// A thumbnail: RGBA with premultiplied alpha.
+#[derive(Debug, Clone)]
+pub struct Thumbnail {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// The Shell's thumbnail of a file (pictures, videos, PDFs, … — whatever has
+/// a thumbnail handler), at most `size` pixels on the long side. Blocks, so
+/// call it from a background thread. `None` on other platforms, for files
+/// without a thumbnail and on errors.
+pub fn thumbnail(path: &Path, size: u32) -> Option<Thumbnail> {
+    #[cfg(windows)]
+    {
+        // SAFETY: COM is set up for the calling thread inside.
+        unsafe { imp::thumbnail(path, size) }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (path, size);
+        None
+    }
+}
+
+/// Start a Windows drag & drop of `paths` into other programs, as when files
+/// are dragged out of Explorer. Blocks until they are dropped (or the drag is
+/// cancelled) and returns whether they were dropped somewhere. Call it on the
+/// UI thread while the mouse button is held. Does nothing on other platforms.
+pub fn drag_out(paths: &[PathBuf]) -> bool {
+    #[cfg(windows)]
+    {
+        // SAFETY: called on the window's (OLE) thread, see above.
+        unsafe { imp::drag_out(paths) }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = paths;
+        false
+    }
+}
+
+/// Window look on Windows 11: the backdrop material behind see-through
+/// parts of the window (Mica, Acrylic or none), rounded corners and a dark
+/// or light title bar. `hwnd` is the window's handle. Older Windows ignore
+/// what they don't know; other platforms ignore it all.
+pub fn set_window_style(hwnd: isize, backdrop: crate::settings::Backdrop, dark: bool) {
+    #[cfg(windows)]
+    {
+        // SAFETY: only window attributes of the given window are set.
+        unsafe { imp::set_window_style(hwnd, backdrop, dark) }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (hwnd, backdrop, dark);
+    }
 }
 
 /// Is the Windows Shell available?
@@ -146,7 +204,7 @@ impl Shell {
 
 #[cfg(windows)]
 mod imp {
-    use super::{IconImage, IconKey, Request};
+    use super::{IconImage, IconKey, Request, Thumbnail};
     use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
     use std::cell::RefCell;
     use std::ffi::c_void;
@@ -154,29 +212,36 @@ mod imp {
     use std::path::{Path, PathBuf};
     use std::time::Duration;
     use windows::core::{w, Interface, PCSTR, PCWSTR};
-    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, SIZE, WPARAM};
     use windows::Win32::Graphics::Gdi::{
         CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO,
         BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
     };
     use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL};
+    use windows::Win32::System::Com::IDataObject;
     use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_APARTMENTTHREADED};
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::System::Ole::{
+        IDropSource, OleInitialize, DROPEFFECT_COPY, DROPEFFECT_LINK, DROPEFFECT_MOVE,
+        DROPEFFECT_NONE,
+    };
     use windows::Win32::UI::Controls::{IImageList, ILD_TRANSPARENT};
     use windows::Win32::UI::Shell::Common::ITEMIDLIST;
     use windows::Win32::UI::Shell::{
-        IContextMenu, IContextMenu2, IContextMenu3, IShellFolder, SHBindToParent, SHGetFileInfoW,
-        SHGetImageList, SHOpenWithDialog, SHParseDisplayName, ShellExecuteExW, CMF_EXPLORE,
-        CMF_NORMAL, CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX, OAIF_ALLOW_REGISTRATION, OAIF_EXEC,
-        OPENASINFO, SEE_MASK_INVOKEIDLIST, SHELLEXECUTEINFOW, SHFILEINFOW, SHGFI_SYSICONINDEX,
-        SHGFI_USEFILEATTRIBUTES, SHIL_EXTRALARGE,
+        BHID_DataObject, IContextMenu, IContextMenu2, IContextMenu3, IShellFolder, IShellItemArray,
+        IShellItemImageFactory, SHBindToParent, SHCreateItemFromParsingName,
+        SHCreateShellItemArrayFromIDLists, SHDoDragDrop, SHGetFileInfoW, SHGetImageList,
+        SHOpenWithDialog, SHParseDisplayName, ShellExecuteExW, CMF_EXPLORE, CMF_NORMAL,
+        CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX, OAIF_ALLOW_REGISTRATION, OAIF_EXEC, OPENASINFO,
+        SEE_MASK_INVOKEIDLIST, SHELLEXECUTEINFOW, SHFILEINFOW, SHGFI_SYSICONINDEX,
+        SHGFI_USEFILEATTRIBUTES, SHIL_EXTRALARGE, SIIGBF_THUMBNAILONLY,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu,
-        DispatchMessageW, GetCursorPos, GetIconInfo, PeekMessageW, PostMessageW, RegisterClassW,
-        SetForegroundWindow, TrackPopupMenuEx, TranslateMessage, HICON, ICONINFO, MSG, PM_REMOVE,
-        SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_DRAWITEM, WM_INITMENUPOPUP,
-        WM_MEASUREITEM, WM_MENUCHAR, WM_NULL, WNDCLASSW, WS_POPUP,
+        DispatchMessageW, GetCursorPos, GetForegroundWindow, GetIconInfo, PeekMessageW,
+        PostMessageW, RegisterClassW, SetForegroundWindow, TrackPopupMenuEx, TranslateMessage,
+        HICON, ICONINFO, MSG, PM_REMOVE, SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+        WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR, WM_NULL, WNDCLASSW, WS_POPUP,
     };
 
     const CMIC_MASK_UNICODE: u32 = 0x0000_4000;
@@ -356,10 +421,10 @@ mod imp {
                     return None;
                 }
                 let size = bm.bmWidth;
-                let mut pixels = read_bitmap(info.hbmColor, size)?;
+                let mut pixels = read_bitmap(info.hbmColor, size, size)?;
                 if pixels.as_chunks::<4>().0.iter().all(|p| p[3] == 0) {
                     // Old-style icon without alpha: use the AND mask instead.
-                    let mask = read_bitmap(info.hbmMask, size)?;
+                    let mask = read_bitmap(info.hbmMask, size, size)?;
                     let mask = mask.as_chunks::<4>().0;
                     for (p, m) in pixels.as_chunks_mut::<4>().0.iter_mut().zip(mask) {
                         p[3] = if m[0] == 0 { 255 } else { 0 };
@@ -383,15 +448,15 @@ mod imp {
         }
     }
 
-    /// 32-bit top-down BGRA pixels of a square bitmap.
-    unsafe fn read_bitmap(bitmap: HBITMAP, size: i32) -> Option<Vec<u8>> {
+    /// 32-bit top-down BGRA pixels of a bitmap.
+    unsafe fn read_bitmap(bitmap: HBITMAP, width: i32, height: i32) -> Option<Vec<u8>> {
         unsafe {
             let dc = CreateCompatibleDC(None);
             let mut bmi = BITMAPINFO {
                 bmiHeader: BITMAPINFOHEADER {
                     biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: size,
-                    biHeight: -size,
+                    biWidth: width,
+                    biHeight: -height,
                     biPlanes: 1,
                     biBitCount: 32,
                     biCompression: BI_RGB.0,
@@ -399,18 +464,62 @@ mod imp {
                 },
                 ..Default::default()
             };
-            let mut buf = vec![0u8; (size * size * 4) as usize];
+            let mut buf = vec![0u8; (width * height * 4) as usize];
             let lines = GetDIBits(
                 dc,
                 bitmap,
                 0,
-                size as u32,
+                height as u32,
                 Some(buf.as_mut_ptr() as *mut c_void),
                 &mut bmi,
                 DIB_RGB_COLORS,
             );
             let _ = DeleteDC(dc);
-            (lines == size).then_some(buf)
+            (lines == height).then_some(buf)
+        }
+    }
+
+    // ---- thumbnails --------------------------------------------------------------
+
+    pub(super) unsafe fn thumbnail(path: &Path, size: u32) -> Option<Thumbnail> {
+        unsafe {
+            // Once per thread; later calls just return S_FALSE.
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            let name = wide(std::path::absolute(path).ok()?);
+            let factory: IShellItemImageFactory =
+                SHCreateItemFromParsingName(PCWSTR(name.as_ptr()), None).ok()?;
+            let side = size as i32;
+            let bitmap = factory
+                .GetImage(SIZE { cx: side, cy: side }, SIIGBF_THUMBNAILONLY)
+                .ok()?;
+            let result = (|| {
+                let mut bm = BITMAP::default();
+                let n = GetObjectW(
+                    HGDIOBJ(bitmap.0),
+                    std::mem::size_of::<BITMAP>() as i32,
+                    Some(&mut bm as *mut BITMAP as *mut c_void),
+                );
+                let (w, h) = (bm.bmWidth, bm.bmHeight.abs());
+                if n == 0 || w <= 0 || h <= 0 || w > 4096 || h > 4096 {
+                    return None;
+                }
+                let mut pixels = read_bitmap(bitmap, w, h)?;
+                // Photos come without alpha (all zero): make them opaque.
+                let opaque = pixels.as_chunks::<4>().0.iter().all(|p| p[3] == 0);
+                for p in pixels.as_chunks_mut::<4>().0 {
+                    p.swap(0, 2); // BGRA -> RGBA
+                    if opaque {
+                        p[3] = 255;
+                    }
+                }
+                Some(Thumbnail {
+                    width: w as u32,
+                    height: h as u32,
+                    rgba: pixels,
+                })
+            })();
+            let _ = DeleteObject(HGDIOBJ(bitmap.0));
+            result
         }
     }
 
@@ -506,6 +615,92 @@ mod imp {
                 );
             }
             let _ = DestroyMenu(hmenu);
+        }
+    }
+
+    // ---- window style ----------------------------------------------------------------
+
+    pub(super) unsafe fn set_window_style(
+        hwnd: isize,
+        backdrop: crate::settings::Backdrop,
+        dark: bool,
+    ) {
+        use crate::settings::Backdrop;
+        use windows::Win32::Graphics::Dwm::{
+            DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMSBT_MAINWINDOW, DWMSBT_NONE,
+            DWMSBT_TRANSIENTWINDOW, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE,
+            DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DWMWINDOWATTRIBUTE,
+        };
+        use windows::Win32::UI::Controls::MARGINS;
+        unsafe {
+            let hwnd = HWND(hwnd as *mut c_void);
+            let set = |attr: DWMWINDOWATTRIBUTE, value: i32| {
+                let _ = DwmSetWindowAttribute(
+                    hwnd,
+                    attr,
+                    &value as *const i32 as *const c_void,
+                    std::mem::size_of::<i32>() as u32,
+                );
+            };
+            set(DWMWA_USE_IMMERSIVE_DARK_MODE, dark as i32);
+            set(DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND.0);
+            let kind = match backdrop {
+                Backdrop::Off => DWMSBT_NONE,
+                Backdrop::Mica => DWMSBT_MAINWINDOW,
+                Backdrop::Acrylic => DWMSBT_TRANSIENTWINDOW,
+            };
+            set(DWMWA_SYSTEMBACKDROP_TYPE, kind.0);
+            // The material shows through the client area only where the
+            // frame is extended into it (all of it, with -1 margins).
+            let m = if backdrop == Backdrop::Off { 0 } else { -1 };
+            let margins = MARGINS {
+                cxLeftWidth: m,
+                cxRightWidth: m,
+                cyTopHeight: m,
+                cyBottomHeight: m,
+            };
+            let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+        }
+    }
+
+    // ---- drag out ------------------------------------------------------------------
+
+    pub(super) unsafe fn drag_out(paths: &[PathBuf]) -> bool {
+        unsafe {
+            // winit has set up OLE on this thread already; this only adds a reference.
+            let _ = OleInitialize(None);
+            let mut pidls = Pidls(Vec::new());
+            for p in paths {
+                let Ok(abs) = std::path::absolute(p) else {
+                    continue;
+                };
+                let name = wide(abs);
+                let mut pidl = std::ptr::null_mut();
+                if SHParseDisplayName(PCWSTR(name.as_ptr()), None, &mut pidl, 0, None).is_ok() {
+                    pidls.0.push(pidl);
+                }
+            }
+            if pidls.0.is_empty() {
+                return false;
+            }
+            let ids: Vec<*const ITEMIDLIST> = pidls.0.iter().map(|&p| p as *const _).collect();
+            let Ok(items) = SHCreateShellItemArrayFromIDLists(&ids) else {
+                return false;
+            };
+            let items: IShellItemArray = items;
+            let Ok(data) = items.BindToHandler::<_, IDataObject>(None, &BHID_DataObject) else {
+                return false;
+            };
+            // No drop source of our own: the Shell's default one also draws
+            // the drag image. The target decides between copy and move.
+            let window = GetForegroundWindow();
+            let effect = SHDoDragDrop(
+                (!window.is_invalid()).then_some(window),
+                &data,
+                None::<&IDropSource>,
+                DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK,
+            );
+            matches!(effect, Ok(e) if e != DROPEFFECT_NONE)
         }
     }
 

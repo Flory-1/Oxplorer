@@ -20,7 +20,7 @@ use ox_core::index::{IndexService, IndexState};
 use ox_core::places::{self, Drive, QuickAccess};
 use ox_core::recycle::{self, TrashItem};
 use ox_core::search::{self, Query, SearchEvent, SearchOptions};
-use ox_core::settings::{Settings, StartPage};
+use ox_core::settings::{Backdrop, Settings, StartPage};
 use ox_core::tags::{TagColor, TagStore};
 use ox_core::transfer::{TransferEngine, TransferKind, TransferRequest};
 use ox_core::watcher::DirWatcher;
@@ -36,6 +36,10 @@ pub enum Action {
     Forward,
     Up,
     Refresh,
+    /// Windows' "Map network drive" (`true`) or "Disconnect" (`false`) dialog.
+    NetworkDriveDialog(bool),
+    /// Open folders in Oxplorer instead of Explorer (or stop doing so).
+    SetDefaultFolderHandler(bool),
     /// Open a folder (navigate) or file (default app).
     Open(PathBuf),
     CopyItems(Vec<PathBuf>),
@@ -183,6 +187,8 @@ pub struct UiState {
     pub focus_search: bool,
     pub show_transfers: bool,
     pub settings_section: usize,
+    /// Whether folders open in Oxplorer (read from the registry when needed).
+    pub default_folder_handler: Option<bool>,
     pub palette: Option<crate::ui::palette::PaletteState>,
     /// The settings page is waiting for keys for this command.
     pub recording: Option<crate::shortcuts::Command>,
@@ -215,6 +221,7 @@ pub struct OxApp {
     text_clipboard: Option<arboard::Clipboard>,
     applied_settings: Option<Settings>,
     pub icons: crate::icons::IconCache,
+    pub thumbs: crate::thumbs::Thumbnails,
     pub index: IndexService,
     pub preview: crate::ui::preview::PreviewState,
     pub folder_sizes: FolderSizes,
@@ -224,6 +231,13 @@ pub struct OxApp {
     pub themes: Vec<ox_core::themes::ColorTheme>,
     /// A scheme was edited; apply the look again.
     pub themes_changed: bool,
+    /// A native drag ended inside its own message loop, so egui never saw
+    /// the mouse button go up; tell it on the next frame.
+    release_pointer: bool,
+    /// The window is transparent, so a backdrop can show through it.
+    see_through: bool,
+    /// Backdrop and dark title bar last given to the window.
+    window_style: Option<(Backdrop, bool)>,
     /// The terminal panel's shell, started the first time the panel opens.
     pub terminal: Option<crate::terminal::Terminal>,
     /// Folder the terminal was last sent to (for "follow the folder").
@@ -249,7 +263,8 @@ pub struct OxApp {
 }
 
 impl OxApp {
-    pub fn new(cc: &eframe::CreationContext<'_>, open: Option<PathBuf>) -> Self {
+    /// `see_through`: the window was created transparent (for Mica/Acrylic).
+    pub fn new(cc: &eframe::CreationContext<'_>, open: Option<PathBuf>, see_through: bool) -> Self {
         let ctx = cc.egui_ctx.clone();
         let settings = Settings::load();
         let quick = QuickAccess::load();
@@ -298,6 +313,7 @@ impl OxApp {
                 focus_search: false,
                 show_transfers: true,
                 settings_section: 0,
+                default_folder_handler: None,
                 palette: None,
                 recording: None,
                 show_terminal: false,
@@ -315,6 +331,7 @@ impl OxApp {
             text_clipboard: None,
             applied_settings: None,
             icons: crate::icons::IconCache::new(&cc.egui_ctx),
+            thumbs: crate::thumbs::Thumbnails::new(&cc.egui_ctx),
             index: {
                 let repaint = cc.egui_ctx.clone();
                 IndexService::start(ox_core::index::default_cache_path(), move || {
@@ -330,6 +347,9 @@ impl OxApp {
             keymap: Default::default(),
             themes: ox_core::themes::load_all(),
             themes_changed: false,
+            release_pointer: false,
+            see_through,
+            window_style: None,
             terminal: None,
             terminal_dir: None,
             sizes_key: None,
@@ -374,7 +394,12 @@ impl OxApp {
     fn pre_frame(&mut self, ctx: &Context) {
         if self.applied_settings.as_ref() != Some(&self.settings) || self.themes_changed {
             self.themes_changed = false;
-            theme::apply(ctx, &self.settings, &self.themes);
+            theme::apply(
+                ctx,
+                &self.settings,
+                &self.themes,
+                self.backdrop() != Backdrop::Off,
+            );
             self.keymap = crate::shortcuts::Keymap::new(&self.settings.shortcuts);
             crate::shortcuts::set_current(&self.keymap);
             self.engine
@@ -383,6 +408,7 @@ impl OxApp {
         }
         self.remap_text_clipboard_keys(ctx);
         self.icons.poll(ctx);
+        self.thumbs.poll(ctx);
         self.manage_index();
         self.tabs.fix_panes();
         self.load_active_tab();
@@ -1100,7 +1126,7 @@ impl OxApp {
             Action::Open(path) => {
                 let in_archive = archive::split_virtual(&path)
                     .filter(|(_, inner)| !inner.as_os_str().is_empty());
-                if path.is_dir() {
+                if ox_core::network::is_dir(&path) {
                     self.navigate(Location::Folder(path));
                 } else if self.settings.browsing.open_archives && archive::is_archive(&path) {
                     self.quick.open_file(&path);
@@ -1291,6 +1317,24 @@ impl OxApp {
                 }
                 Err(e) => self.toast(format!("This isn't a theme file: {e}")),
             },
+            Action::SetDefaultFolderHandler(on) => {
+                match ox_core::default_app::set_enabled(on) {
+                    Ok(()) => self.toast(if on {
+                        "Folders now open in Oxplorer.".to_owned()
+                    } else {
+                        "Folders open in Explorer again.".to_owned()
+                    }),
+                    Err(e) => self.toast(format!("Couldn't change the default: {e}")),
+                }
+                self.ui.default_folder_handler = None;
+            }
+            Action::NetworkDriveDialog(map) => {
+                if map {
+                    ox_core::network::map_drive_dialog();
+                } else {
+                    ox_core::network::disconnect_drive_dialog();
+                }
+            }
             Action::ToggleTerminal => {
                 self.ui.show_terminal = !self.ui.show_terminal;
                 self.ui.terminal_focused = false;
@@ -1501,7 +1545,7 @@ impl OxApp {
 
     pub fn navigate(&mut self, loc: Location) {
         if let Location::Folder(p) = &loc {
-            if !p.is_dir() {
+            if !ox_core::network::is_dir(p) {
                 self.toast(format!(
                     "\"{}\" doesn't exist or isn't a folder.",
                     p.display()
@@ -1739,11 +1783,87 @@ impl OxApp {
     }
 }
 
+impl OxApp {
+    /// The backdrop in effect: turning one on needs a restart, as the window
+    /// must be created see-through.
+    fn backdrop(&self) -> Backdrop {
+        if self.see_through {
+            self.settings.appearance.backdrop
+        } else {
+            Backdrop::Off
+        }
+    }
+
+    /// Give the window its Windows 11 look (backdrop, corners, title bar).
+    fn style_window(&mut self, ctx: &Context, frame: &eframe::Frame) {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let style = (self.backdrop(), ctx.global_style().visuals.dark_mode);
+        if !ox_core::shell::supported() || self.window_style == Some(style) {
+            return;
+        }
+        if let Ok(handle) = frame.window_handle() {
+            if let RawWindowHandle::Win32(h) = handle.as_raw() {
+                ox_core::shell::set_window_style(h.hwnd.get(), style.0, style.1);
+                self.window_style = Some(style);
+            }
+        }
+    }
+
+    /// Files dragged past the window's edge go on as a Windows drag & drop,
+    /// so they can be dropped into other programs (Explorer, mail, editors…).
+    fn drag_out_of_window(&mut self, ctx: &Context) {
+        if !ox_core::shell::supported() {
+            return;
+        }
+        let Some(items) = egui::DragAndDrop::payload::<crate::ui::DragItems>(ctx) else {
+            return;
+        };
+        let window = ctx.content_rect();
+        let outside = ctx.input(|i| {
+            i.pointer.primary_down()
+                && (i.pointer.hover_pos().is_none()
+                    || i.pointer.latest_pos().is_some_and(|p| !window.contains(p)))
+        });
+        // Recycle Bin and archive items aren't files other programs can open.
+        let paths: Vec<PathBuf> = items.0.iter().filter(|p| p.exists()).cloned().collect();
+        if !outside || paths.is_empty() {
+            return;
+        }
+        egui::DragAndDrop::clear_payload(ctx);
+        ox_core::shell::drag_out(&paths);
+        self.release_pointer = true;
+        ctx.request_repaint();
+    }
+}
+
 impl eframe::App for OxApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if std::mem::take(&mut self.release_pointer) {
+            let pos = ctx.input(|i| i.pointer.latest_pos()).unwrap_or_default();
+            raw_input.events.push(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: ctx.input(|i| i.modifiers),
+            });
+            raw_input.events.push(egui::Event::PointerGone);
+        }
+    }
+
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        if self.backdrop() != Backdrop::Off {
+            [0.0; 4] // let the backdrop show through
+        } else {
+            visuals.panel_fill.to_normalized_gamma_f32()
+        }
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.pre_frame(&ctx);
+        self.style_window(&ctx, frame);
         ui::show(self, ui);
+        self.drag_out_of_window(&ctx);
         self.process_actions();
         if ctx.input(|i| i.viewport().close_requested()) {
             self.save_session();

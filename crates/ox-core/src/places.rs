@@ -204,6 +204,8 @@ pub struct Drive {
     pub total: u64,
     pub available: u64,
     pub removable: bool,
+    /// `\\server\share` for a mapped network drive.
+    pub remote: Option<String>,
 }
 
 impl Drive {
@@ -217,7 +219,9 @@ impl Drive {
     pub fn title(&self) -> String {
         let mount = self.mount.to_string_lossy();
         let mount = mount.trim_end_matches(['\\', '/']);
-        if self.label.is_empty() {
+        if let Some(remote) = &self.remote {
+            format!("{} ({mount})", crate::network::share_title(remote))
+        } else if self.label.is_empty() {
             if self.removable {
                 format!("USB Drive ({mount})")
             } else {
@@ -253,8 +257,19 @@ pub fn drives() -> Vec<Drive> {
             total: d.total_space(),
             available: d.available_space(),
             removable: d.is_removable(),
+            remote: None,
         })
         .collect();
+    // Space isn't asked for: a server that's offline can take long to answer.
+    out.extend(crate::network::mapped_drives().into_iter().map(|m| Drive {
+        mount: m.mount,
+        label: String::new(),
+        file_system: String::new(),
+        total: 0,
+        available: 0,
+        removable: false,
+        remote: Some(m.remote),
+    }));
     out.sort_by(|a, b| a.mount.cmp(&b.mount));
     out.dedup_by(|a, b| a.mount == b.mount);
     if out.is_empty() {
@@ -265,6 +280,7 @@ pub fn drives() -> Vec<Drive> {
             total: 0,
             available: 0,
             removable: false,
+            remote: None,
         });
     }
     out

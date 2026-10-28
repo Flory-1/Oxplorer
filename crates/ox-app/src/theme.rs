@@ -41,7 +41,9 @@ pub fn scheme<'a>(all: &'a [ColorTheme], name: &str, dark: bool) -> &'a ColorThe
         .expect("the built-in themes exist")
 }
 
-pub fn apply(ctx: &Context, settings: &Settings, all: &[ColorTheme]) {
+/// `see_through`: a Mica/Acrylic backdrop is on, so the panels are made
+/// translucent (the file list, menus and dialogs stay solid).
+pub fn apply(ctx: &Context, settings: &Settings, all: &[ColorTheme], see_through: bool) {
     ctx.set_theme(match settings.appearance.theme {
         settings::Theme::System => ThemePreference::System,
         settings::Theme::Light => ThemePreference::Light,
@@ -75,6 +77,10 @@ pub fn apply(ctx: &Context, settings: &Settings, all: &[ColorTheme]) {
             v.extreme_bg_color = color(t.background);
             v.text_edit_bg_color = None;
             v.faint_bg_color = color(t.faint);
+            if see_through {
+                let [r, g, b, _] = v.panel_fill.to_array();
+                v.panel_fill = Color32::from_rgba_unmultiplied(r, g, b, 90);
+            }
             if let Some(text) = t.text.map(color) {
                 // Buttons and lines are mixed from the panel and text colours.
                 let panel = color(t.panel);

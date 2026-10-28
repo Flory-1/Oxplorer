@@ -64,7 +64,7 @@ Windows in CI. The phase is finished once the app has been tried by hand on Wind
 - ✅ Browsing, startup, sidebar, copy engine and search options
 - ✅ Saved as TOML in `%APPDATA%\Oxplorer`
 
-## Phase 2 — Deep Windows integration 🚧
+## Phase 2 — Deep Windows integration ✅
 
 Items marked ✅ build and pass CI on Windows. The ones marked *(untested)* use
 Windows-only APIs and still need a manual check on a real Windows machine.
@@ -75,12 +75,12 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 - ✅ Recycle Bin view: browse, restore, delete permanently, empty, drop files onto it
 - ✅ App icon, version info and manifest (per-monitor DPI v2, long paths, modern common controls)
 - ✅ Portable zip on GitHub Releases (push a `v*` tag)
-- ⏳ Thumbnails for images and videos (`IShellItemImageFactory`)
-- ⏳ OLE drag & drop **out** of the app into other programs (`IDropSource`)
-- ⏳ Network locations: browse `\\server` shares, show mapped drives in the sidebar
-- ⏳ Mica/Acrylic window backdrop, Windows 11 rounded corners
-- ⏳ Option to "Open folders in Oxplorer" by default (Win+E / folder association)
-- ⏳ Installer: MSIX / winget
+- ✅ Thumbnails for pictures, videos and PDFs in the grid view (`IShellItemImageFactory`; the `image` crate elsewhere) *(Shell thumbnails untested)*
+- ✅ Drag & drop **out** of the app into other programs (`SHDoDragDrop` with the Shell's data object and drop source) *(untested)*
+- ✅ Network locations: browse `\\server` shares (`WNetEnumResource`), mapped drives under This PC, a Network section, Map/Disconnect network drive *(untested)*
+- ✅ Mica/Acrylic window backdrop, Windows 11 rounded corners, title bar following dark/light mode (DWM attributes) *(untested)*
+- ✅ Option to "Open folders in Oxplorer" by default: folders, drives and Win+E (HKCU registry, undone cleanly) *(untested)*
+- ✅ Installer (Inno Setup, per user) and winget manifests built for every release. MSIX was left out: it only installs when signed with a trusted code-signing certificate.
 
 ## Phase 3 — Copy Engine 2.0 🚧
 

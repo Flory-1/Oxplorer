@@ -1,6 +1,7 @@
 name: Release
 
-# Push a tag like `v0.2.0` to publish a GitHub release with a portable zip.
+# Push a tag like `v0.2.0` to publish a GitHub release with the installer,
+# a portable zip and the winget manifests (to submit to microsoft/winget-pkgs).
 on:
   push:
     tags: ["v*"]
@@ -28,9 +29,15 @@ jobs:
           Copy-Item target/release/oxplorer.exe, README.md, LICENSE, ROADMAP.md -Destination $name
           Compress-Archive -Path $name -DestinationPath "$name.zip"
           (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" | Out-File -Encoding ascii "$name.zip.sha256"
+      - name: Build installer and winget manifests
+        shell: pwsh
+        run: installer/build.ps1 -Tag "${{ github.ref_name }}" -Repository "${{ github.repository }}"
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             oxplorer-*.zip
             oxplorer-*.zip.sha256
+            dist/oxplorer-*-setup-x64.exe
+            dist/oxplorer-*-setup-x64.exe.sha256
+            dist/oxplorer-*-winget.zip
           generate_release_notes: true
