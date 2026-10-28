@@ -55,6 +55,17 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             if settings.clicked() {
                 actions.push(Action::OpenInNewTab(Location::Settings, true));
             }
+            let help = item(
+                ui,
+                Icon::Glyph("❓"),
+                "Help",
+                None,
+                current == Location::Help,
+                accent,
+            );
+            if help.clicked() {
+                actions.push(Action::OpenInNewTab(Location::Help, true));
+            }
         });
 
     egui::ScrollArea::vertical()

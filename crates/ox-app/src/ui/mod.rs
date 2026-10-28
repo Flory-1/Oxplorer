@@ -3,6 +3,7 @@
 mod dialogs;
 mod files;
 mod header;
+pub(crate) mod help_page;
 mod home;
 pub(crate) mod palette;
 pub(crate) mod preview;
@@ -158,6 +159,7 @@ fn content(app: &mut OxApp, ui: &mut Ui) {
     match app.tabs.active().location().clone() {
         Location::Home => home::show(app, ui),
         Location::Settings => settings_page::show(app, ui),
+        Location::Help => help_page::show(app, ui),
         Location::Folder(_)
         | Location::Search { .. }
         | Location::RecycleBin

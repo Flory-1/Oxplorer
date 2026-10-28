@@ -27,6 +27,8 @@ pub enum Location {
         query: String,
     },
     Settings,
+    /// The Help page.
+    Help,
     RecycleBin,
     /// Everything with this colour tag, wherever it is.
     Tagged(TagColor),
@@ -45,6 +47,7 @@ impl Location {
             Location::Folder(p) => entry::display_name(p),
             Location::Search { query, .. } => format!("Search: {query}"),
             Location::Settings => "Settings".into(),
+            Location::Help => "Help".into(),
             Location::RecycleBin => "Recycle Bin".into(),
             Location::Tagged(c) => c.name().into(),
             Location::Archive { archive, inner } => match inner.file_name() {
@@ -61,6 +64,7 @@ impl Location {
             Location::Folder(_) => "📁",
             Location::Search { .. } => "🔍",
             Location::Settings => "⚙",
+            Location::Help => "❓",
             Location::RecycleBin => "🗑",
             Location::Tagged(_) => "🏷",
             Location::Archive { .. } => "📦",

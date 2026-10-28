@@ -72,6 +72,12 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         act(|| Action::OpenInNewTab(Location::Settings, true)),
     );
     cmd(
+        "❓",
+        "Open Help",
+        &shortcuts::label(Command::Help),
+        act(|| Action::OpenInNewTab(Location::Help, true)),
+    );
+    cmd(
         "⬅",
         "Back",
         &shortcuts::label(Command::Back),
