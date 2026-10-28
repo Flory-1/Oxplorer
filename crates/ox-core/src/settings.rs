@@ -9,6 +9,16 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use crate::entry::{SortKey, SortOrder};
 use crate::transfer::{ConflictPolicy, EngineConfig};
 
+/// Language of the interface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Language {
+    /// The language Windows is set to (German if it is German, else English).
+    #[default]
+    System,
+    English,
+    German,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum Theme {
     #[default]
@@ -59,6 +69,8 @@ pub struct Appearance {
     pub thumbnails: bool,
     /// Mica or Acrylic behind the sidebar and header (Windows 11).
     pub backdrop: Backdrop,
+    /// Interface language.
+    pub language: Language,
     /// Colour scheme used in dark mode (see `themes`).
     pub dark_theme: String,
     /// Colour scheme used in light mode.
@@ -75,6 +87,7 @@ impl Default for Appearance {
             system_icons: true,
             thumbnails: true,
             backdrop: Backdrop::Off,
+            language: Language::System,
             dark_theme: crate::themes::DEFAULT_DARK.to_owned(),
             light_theme: crate::themes::DEFAULT_LIGHT.to_owned(),
         }

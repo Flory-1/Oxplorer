@@ -1,5 +1,6 @@
 //! The transfer panel: replaces the Windows copy dialog.
 
+use ox_core::i18n::t as tr;
 use std::sync::atomic::Ordering;
 
 use egui::{Color32, RichText, Ui};
@@ -15,25 +16,25 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let mut remove = Vec::new();
     let mut retries = Vec::new();
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Transfers").strong());
+        ui.label(RichText::new(tr("Transfers")).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.small_button("✖").on_hover_text("Hide").clicked() {
+            if ui.small_button("✖").on_hover_text(tr("Hide")).clicked() {
                 app.ui.show_transfers = false;
             }
             if ui
-                .small_button("📜 History")
-                .on_hover_text("Open the log of finished transfers")
+                .small_button(tr("📜 History"))
+                .on_hover_text(tr("Open the log of finished transfers"))
                 .clicked()
             {
                 let log = history::log_path();
                 if !log.exists() {
-                    app.toast("No transfers have finished yet.");
+                    app.toast(tr("No transfers have finished yet."));
                 } else if let Err(e) = ox_core::fsops::open_default(&log) {
-                    app.toast(format!("Couldn't open the transfer log: {e}"));
+                    app.toast(ox_core::trf!("Couldn't open the transfer log: {e}", e = e));
                 }
             }
             if jobs.iter().any(|j| j.state().is_finished())
-                && ui.small_button("Clear finished").clicked()
+                && ui.small_button(tr("Clear finished")).clicked()
             {
                 app.engine.clear_finished();
             }
@@ -68,45 +69,57 @@ fn job_row(
     let done_files = job.done_files.load(Ordering::Relaxed);
     let dest = display_name(&job.destination);
     let title = match state {
-        JobState::Queued => format!(
-            "Waiting for the drive · {} {} to {dest}",
-            job.kind.verb(),
-            format::count(job.item_count() as u64, "item")
+        JobState::Queued => ox_core::trf!(
+            "Waiting for the drive · {v1} {v2} to {dest}",
+            v1 = job.kind.verb(),
+            v2 = ox_core::i18n::count(job.item_count() as u64, "item"),
+            dest = dest
         ),
-        JobState::Scanning => format!(
-            "Preparing · {} to {dest} · {} found",
-            format::count(job.item_count() as u64, "item"),
-            format::count(files, "file")
+        JobState::Scanning => ox_core::trf!(
+            "Preparing · {v1} to {dest} · {v2} found",
+            v1 = ox_core::i18n::count(job.item_count() as u64, "item"),
+            dest = dest,
+            v2 = ox_core::i18n::count(files, "file")
         ),
         JobState::AwaitingDecision => {
-            format!("{} to {dest} — some files already exist", job.kind.verb())
+            ox_core::trf!(
+                "{v1} to {dest} — some files already exist",
+                v1 = job.kind.verb(),
+                dest = dest
+            )
         }
         JobState::Running if job.is_paused() => {
-            format!(
-                "Paused · {} {} to {dest}",
-                job.kind.verb(),
-                format::count(files, "file")
+            ox_core::trf!(
+                "Paused · {v1} {v2} to {dest}",
+                v1 = job.kind.verb(),
+                v2 = ox_core::i18n::count(files, "file"),
+                dest = dest
             )
         }
         JobState::Running => {
-            let mut t = format!(
-                "{} {} to {dest}",
-                job.kind.verb(),
-                format::count(files, "file")
+            let mut t = ox_core::trf!(
+                "{v1} {v2} to {dest}",
+                v1 = job.kind.verb(),
+                v2 = ox_core::i18n::count(files, "file"),
+                dest = dest
             );
             if job.hdd.load(Ordering::Relaxed) {
-                t.push_str(" · one at a time (HDD)");
+                t.push_str(tr(" · one at a time (HDD)"));
             }
             t
         }
-        JobState::Completed => format!(
-            "✔ Done · {done_files} of {} to {dest} in {}",
-            format::count(files, "file"),
-            format::duration(job.elapsed())
+        JobState::Completed => ox_core::trf!(
+            "✔ Done · {done_files} of {v1} to {dest} in {v2}",
+            done_files = done_files,
+            v1 = ox_core::i18n::count(files, "file"),
+            dest = dest,
+            v2 = format::duration(job.elapsed())
         ),
-        JobState::Cancelled => format!(
-            "✖ Cancelled · {done_files} of {} to {dest}",
-            format::count(files, "file")
+        JobState::Cancelled => ox_core::trf!(
+            "✖ Cancelled · {done_files} of {v1} to {dest}",
+            done_files = done_files,
+            v1 = ox_core::i18n::count(files, "file"),
+            dest = dest
         ),
     };
 
@@ -118,18 +131,18 @@ fn job_row(
                 ui.label(RichText::new(title).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if state.is_finished() {
-                        if ui.small_button("✖").on_hover_text("Dismiss").clicked() {
+                        if ui.small_button("✖").on_hover_text(tr("Dismiss")).clicked() {
                             remove.push(job.id);
                         }
                     } else {
-                        if ui.small_button("⏹").on_hover_text("Cancel").clicked() {
+                        if ui.small_button("⏹").on_hover_text(tr("Cancel")).clicked() {
                             job.cancel();
                         }
                         if state == JobState::Running {
                             let (icon, tip) = if job.is_paused() {
-                                ("▶", "Resume")
+                                ("▶", tr("Resume"))
                             } else {
-                                ("⏸", "Pause")
+                                ("⏸", tr("Pause"))
                             };
                             if ui.small_button(icon).on_hover_text(tip).clicked() {
                                 if job.is_paused() {
@@ -145,10 +158,10 @@ fn job_row(
 
             if state == JobState::AwaitingDecision {
                 let conflicts = job.conflicts();
-                ui.label(format!(
-                    "{} already exist in \"{}\". What should happen with all of them?",
-                    format::count(conflicts.len() as u64, "file"),
-                    job.destination.display()
+                ui.label(ox_core::trf!(
+                    "{v1} already exist in \"{v2}\". What should happen with all of them?",
+                    v1 = ox_core::i18n::count(conflicts.len() as u64, "file"),
+                    v2 = job.destination.display()
                 ));
                 ui.horizontal_wrapped(|ui| {
                     for p in [
@@ -161,18 +174,18 @@ fn job_row(
                             job.resolve_conflicts(p);
                         }
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(tr("Cancel")).clicked() {
                         job.cancel();
                     }
                 });
-                egui::CollapsingHeader::new("Show files")
+                egui::CollapsingHeader::new(tr("Show files"))
                     .id_salt(("conflicts", job.id))
                     .show(ui, |ui| {
                         for p in conflicts.iter().take(200) {
                             ui.label(RichText::new(p.display().to_string()).small());
                         }
                         if conflicts.len() > 200 {
-                            ui.label(format!("… and {} more", conflicts.len() - 200));
+                            ui.label(ox_core::trf!("… and {v1} more", v1 = conflicts.len() - 200));
                         }
                     });
                 return;
@@ -190,7 +203,7 @@ fn job_row(
                 if state == JobState::Running && !job.is_paused() {
                     text.push_str(&format!(" · {}", format::rate(job.speed())));
                     if let Some(eta) = job.eta() {
-                        text.push_str(&format!(" · {} left", format::duration(eta)));
+                        text.push_str(&ox_core::trf!(" · {v1} left", v1 = format::duration(eta)));
                     }
                 }
                 ui.add(
@@ -212,9 +225,12 @@ fn job_row(
             let verified = job.verified_files.load(Ordering::Relaxed);
             if verified > 0 {
                 ui.label(
-                    RichText::new(format!("✔ {} verified", format::count(verified, "file")))
-                        .small()
-                        .weak(),
+                    RichText::new(ox_core::trf!(
+                        "✔ {v1} verified",
+                        v1 = ox_core::i18n::count(verified, "file")
+                    ))
+                    .small()
+                    .weak(),
                 );
             }
             let errors = job.errors();
@@ -222,7 +238,10 @@ fn job_row(
                 if let Some(req) = job.retry_request() {
                     let n = req.pairs.len() as u64;
                     if ui
-                        .button(format!("↻ Retry {}", format::count(n, "failed file")))
+                        .button(ox_core::trf!(
+                            "↻ Retry {v1}",
+                            v1 = ox_core::i18n::count(n, "failed file")
+                        ))
                         .clicked()
                     {
                         retries.push(req);
@@ -232,8 +251,11 @@ fn job_row(
             }
             if !errors.is_empty() {
                 egui::CollapsingHeader::new(
-                    RichText::new(format!("⚠ {}", format::count(errors.len() as u64, "error")))
-                        .color(Color32::from_rgb(0xe5, 0x48, 0x4d)),
+                    RichText::new(format!(
+                        "⚠ {}",
+                        ox_core::i18n::count(errors.len() as u64, "error")
+                    ))
+                    .color(Color32::from_rgb(0xe5, 0x48, 0x4d)),
                 )
                 .id_salt(("errors", job.id))
                 .show(ui, |ui| {
@@ -247,9 +269,12 @@ fn job_row(
             let skipped = job.skipped_files.load(Ordering::Relaxed);
             if skipped > 0 {
                 ui.label(
-                    RichText::new(format!("{} skipped", format::count(skipped, "file")))
-                        .small()
-                        .weak(),
+                    RichText::new(ox_core::trf!(
+                        "{v1} skipped",
+                        v1 = ox_core::i18n::count(skipped, "file")
+                    ))
+                    .small()
+                    .weak(),
                 );
             }
         });

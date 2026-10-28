@@ -1,5 +1,6 @@
 //! Home / Quick Access start page: favorites, drives and recent items.
 
+use ox_core::i18n::t as tr;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -16,14 +17,19 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let accent = crate::theme::accent(&app.settings);
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         egui::Frame::new().inner_margin(egui::Margin::symmetric(28, 20)).show(ui, |ui| {
-            ui.heading(RichText::new("Quick access").size(24.0).strong());
-            ui.label(RichText::new("Your pinned folders, drives and recent places.").weak());
+            ui.heading(RichText::new(tr("Quick access")).size(24.0).strong());
+            ui.label(RichText::new(tr("Your pinned folders, drives and recent places.")).weak());
             ui.add_space(14.0);
 
             // Favorites
-            heading(ui, "⭐ Favorites");
+            heading(ui, tr("⭐ Favorites"));
             if app.quick.favorites.is_empty() {
-                ui.label(RichText::new("Nothing pinned yet. Right-click any folder and choose \"Pin to Favorites\".").weak());
+                ui.label(
+                    RichText::new(tr(
+                        "Nothing pinned yet. Right-click any folder and choose \"Pin to Favorites\".",
+                    ))
+                    .weak(),
+                );
             }
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
@@ -40,11 +46,11 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             ui.add_space(22.0);
 
             // Drives
-            heading(ui, "🖴 Drives");
+            heading(ui, tr("🖴 Drives"));
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
                 for d in app.drives().to_vec() {
-                    let sub = format!("{} free of {}", format::size(d.available), format::size(d.total));
+                    let sub = ox_core::trf!("{v1} free of {v2}", v1 = format::size(d.available), v2 = format::size(d.total));
                     let resp = card(ui, Icon::Drive, &d.title(), &sub, Some(d.used_fraction()), accent);
                     super::open_link(&mut actions, &resp, &d.mount);
                     super::drop_target(&mut actions, &resp, &d.mount);
@@ -56,10 +62,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
 
             // Recent
             ui.columns(2, |cols| {
-                heading(&mut cols[0], "🕘 Recent folders");
+                heading(&mut cols[0], tr("🕘 Recent folders"));
                 let folders: Vec<_> = app.quick.recent_folders(12).cloned().collect();
                 if folders.is_empty() {
-                    cols[0].label(RichText::new("Folders you open will show up here.").weak());
+                    cols[0].label(RichText::new(tr("Folders you open will show up here.")).weak());
                 }
                 for r in folders {
                     let resp = recent_row(&mut cols[0], Icon::Folder, &r.path, r.last_used);
@@ -67,16 +73,16 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                     let pinned = app.quick.is_favorite(&r.path);
                     resp.context_menu(|ui| {
                         super::folder_link_menu(ui, &r.path, pinned, &mut actions);
-                        if ui.button("🗑 Remove from Recent").clicked() {
+                        if ui.button(tr("🗑 Remove from Recent")).clicked() {
                             actions.push(Action::ForgetRecent(r.path.clone()));
                         }
                     });
                 }
 
-                heading(&mut cols[1], "📄 Recent files");
+                heading(&mut cols[1], tr("📄 Recent files"));
                 let files: Vec<_> = app.quick.recent_files.iter().take(12).cloned().collect();
                 if files.is_empty() {
-                    cols[1].label(RichText::new("Files you open will show up here.").weak());
+                    cols[1].label(RichText::new(tr("Files you open will show up here.")).weak());
                 }
                 for r in files {
                     let kind = FileKind::from_extension(
@@ -87,18 +93,18 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                         actions.push(Action::Open(r.path.clone()));
                     }
                     resp.context_menu(|ui| {
-                        if ui.button("📂 Open").clicked() {
+                        if ui.button(tr("📂 Open")).clicked() {
                             actions.push(Action::Open(r.path.clone()));
                         }
                         if let Some(parent) = r.path.parent() {
-                            if ui.button("📁 Open file location").clicked() {
+                            if ui.button(tr("📁 Open file location")).clicked() {
                                 actions.push(Action::Navigate(Location::Folder(parent.to_path_buf())));
                             }
                         }
-                        if ui.button("🔗 Copy path").clicked() {
+                        if ui.button(tr("🔗 Copy path")).clicked() {
                             actions.push(Action::CopyPathText(vec![r.path.clone()]));
                         }
-                        if ui.button("🗑 Remove from Recent").clicked() {
+                        if ui.button(tr("🗑 Remove from Recent")).clicked() {
                             actions.push(Action::ForgetRecent(r.path.clone()));
                         }
                     });
@@ -106,7 +112,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             });
             if !app.quick.recent_folders.is_empty() || !app.quick.recent_files.is_empty() {
                 ui.add_space(10.0);
-                if ui.button("Clear recent history").clicked() {
+                if ui.button(tr("Clear recent history")).clicked() {
                     actions.push(Action::ClearRecent);
                 }
             }
@@ -225,9 +231,9 @@ fn ago(ts: u64) -> String {
         .unwrap_or(0);
     let d = now.saturating_sub(ts);
     match d {
-        0..60 => "just now".into(),
-        60..3600 => format!("{} min ago", d / 60),
-        3600..86400 => format!("{} h ago", d / 3600),
-        _ => format!("{} d ago", d / 86400),
+        0..60 => tr("just now").into(),
+        60..3600 => ox_core::trf!("{v1} min ago", v1 = d / 60),
+        3600..86400 => ox_core::trf!("{v1} h ago", v1 = d / 3600),
+        _ => ox_core::trf!("{v1} d ago", v1 = d / 86400),
     }
 }

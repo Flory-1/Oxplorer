@@ -13,6 +13,8 @@ pub mod format;
 pub mod fsops;
 pub mod fuzzy;
 pub mod git;
+pub mod i18n;
+mod i18n_de;
 pub mod index;
 pub mod natural;
 pub mod network;

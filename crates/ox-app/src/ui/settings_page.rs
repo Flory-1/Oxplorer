@@ -2,6 +2,7 @@
 
 use egui::{vec2, Color32, RichText, Ui};
 use ox_core::entry::{SortKey, SortOrder};
+use ox_core::i18n::t as tr;
 use ox_core::index::IndexState;
 use ox_core::settings::{Backdrop, Settings, StartPage, Theme, ViewMode};
 use ox_core::transfer::ConflictPolicy;
@@ -19,6 +20,24 @@ const SECTIONS: [&str; 8] = [
     "ℹ About",
 ];
 
+/// Query examples on the Search page: what to type, and what it does.
+const QUERY_SYNTAX: [(&str, &str); 11] = [
+    ("report", "name contains \"report\""),
+    ("\"annual report\"", "exact phrase"),
+    ("*.rs   img_??", "wildcards"),
+    ("/^IMG_\\d+\\.jpe?g$/", "regular expression (also regex:…)"),
+    ("-tmp", "exclude names containing \"tmp\""),
+    ("ext:pdf,docx", "by extension"),
+    ("type:folder / type:file", "only folders / files"),
+    (
+        "kind:image,video",
+        "by kind: image, video, audio, document, archive, code, app",
+    ),
+    ("size:>10mb   size:<1kb", "by size"),
+    ("modified:7d   modified:today", "recently modified"),
+    ("content:\"TODO\"", "text inside files (≤ 32 MB)"),
+];
+
 pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let before = app.settings.clone();
     // Section list on the left, content on the right.
@@ -27,11 +46,11 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         .exact_size(210.0)
         .frame(egui::Frame::new().inner_margin(egui::Margin::same(14)))
         .show(ui, |ui| {
-            ui.heading(RichText::new("Settings").strong());
+            ui.heading(RichText::new(tr("Settings")).strong());
             ui.add_space(10.0);
             for (i, name) in SECTIONS.iter().enumerate() {
                 let selected = app.ui.settings_section == i;
-                let button = egui::Button::new(RichText::new(*name).size(14.0))
+                let button = egui::Button::new(RichText::new(tr(name)).size(14.0))
                     .selected(selected)
                     .frame(selected)
                     .min_size(vec2(180.0, 30.0));
@@ -48,7 +67,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 .show(ui, |ui| {
                     ui.set_max_width(680.0);
                     let section = app.ui.settings_section;
-                    let title = SECTIONS[section];
+                    let title = tr(SECTIONS[section]);
                     let title = &title[title.find(' ').map_or(0, |i| i + 1)..];
                     ui.heading(RichText::new(title).size(20.0).strong());
                     ui.add_space(12.0);
@@ -74,13 +93,13 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                     ui.add_space(24.0);
                     ui.separator();
                     ui.horizontal(|ui| {
-                        if section < 6 && ui.button("Reset this page to defaults").clicked() {
+                        if section < 6 && ui.button(tr("Reset this page to defaults")).clicked() {
                             reset_section(&mut app.settings, section);
                         }
                         ui.label(
-                            RichText::new(format!(
-                                "Saved automatically to {}",
-                                Settings::path().display()
+                            RichText::new(ox_core::trf!(
+                                "Saved automatically to {v1}",
+                                v1 = Settings::path().display()
                             ))
                             .small()
                             .weak(),
@@ -136,49 +155,57 @@ fn swatch(ui: &mut Ui, t: &ox_core::themes::ColorTheme) {
 fn theme_editor(ui: &mut Ui, app: &mut OxApp) {
     use ox_core::themes;
     ui.add_space(14.0);
-    ui.label(RichText::new("Theme colours").size(16.0).strong());
+    ui.label(RichText::new(tr("Theme colours")).size(16.0).strong());
     let dark = ui.visuals().dark_mode;
     let a = &app.settings.appearance;
     let name = if dark { &a.dark_theme } else { &a.light_theme };
     let mut t = crate::theme::scheme(&app.themes, name, dark).clone();
     ui.label(
-        RichText::new(format!(
-            "Editing \"{}\" ({} mode). Built-in themes are copied when you change them.",
-            t.name,
-            if dark { "dark" } else { "light" }
+        RichText::new(ox_core::trf!(
+            "Editing \"{v1}\" ({v2} mode). Built-in themes are copied when you change them.",
+            v1 = t.name,
+            v2 = if dark { tr("dark") } else { tr("light") }
         ))
         .weak(),
     );
     let mut changed = false;
     for (label, color) in [
-        ("Panels", &mut t.panel),
-        ("Menus and dialogs", &mut t.window),
-        ("File list and fields", &mut t.background),
-        ("Stripes", &mut t.faint),
+        (tr("Panels"), &mut t.panel),
+        (tr("Menus and dialogs"), &mut t.window),
+        (tr("File list and fields"), &mut t.background),
+        (tr("Stripes"), &mut t.faint),
     ] {
         row(ui, label, "", |ui| {
             changed |= ui.color_edit_button_srgb(&mut color.0).changed();
         });
     }
-    row(ui, "Text", "Buttons and lines are mixed from it.", |ui| {
-        let mut own = t.text.is_some();
-        if ui.checkbox(&mut own, "Own colour").changed() {
-            let default = if dark {
-                [0xd8, 0xdb, 0xe0]
-            } else {
-                [0x20, 0x22, 0x26]
-            };
-            t.text = own.then_some(themes::Rgb(default));
-            changed = true;
-        }
-        if let Some(text) = &mut t.text {
-            changed |= ui.color_edit_button_srgb(&mut text.0).changed();
-        }
-    });
+    row(
+        ui,
+        tr("Text"),
+        tr("Buttons and lines are mixed from it."),
+        |ui| {
+            let mut own = t.text.is_some();
+            if ui.checkbox(&mut own, tr("Own colour")).changed() {
+                let default = if dark {
+                    [0xd8, 0xdb, 0xe0]
+                } else {
+                    [0x20, 0x22, 0x26]
+                };
+                t.text = own.then_some(themes::Rgb(default));
+                changed = true;
+            }
+            if let Some(text) = &mut t.text {
+                changed |= ui.color_edit_button_srgb(&mut text.0).changed();
+            }
+        },
+    );
     if changed {
         if t.builtin {
             t.builtin = false;
-            t.name = themes::free_name(&format!("{} (custom)", t.name), &app.themes);
+            t.name = themes::free_name(
+                &ox_core::trf!("{name} (custom)", name = t.name),
+                &app.themes,
+            );
             let a = &mut app.settings.appearance;
             if dark {
                 a.dark_theme = t.name.clone();
@@ -194,40 +221,40 @@ fn theme_editor(ui: &mut Ui, app: &mut OxApp) {
                 }
                 app.themes_changed = true;
             }
-            Err(e) => app.toast(format!("Could not save the theme: {e}")),
+            Err(e) => app.toast(ox_core::trf!("Could not save the theme: {e}", e = e)),
         }
     }
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         if ui
-            .button("📤 Export")
-            .on_hover_text("Save this theme as a file you can share")
+            .button(tr("📤 Export"))
+            .on_hover_text(tr("Save this theme as a file you can share"))
             .clicked()
         {
             let mut export = t.clone();
             export.accent = Some(themes::Rgb(app.settings.appearance.accent));
             match themes::save(&export) {
                 Ok(path) => {
-                    app.toast(format!("Saved as {}", path.display()));
+                    app.toast(ox_core::trf!("Saved as {v1}", v1 = path.display()));
                     app.push(Action::OpenInNewTab(
                         crate::tabs::Location::Folder(themes::dir()),
                         true,
                     ));
                     app.themes = themes::load_all();
                 }
-                Err(e) => app.toast(format!("Could not save the theme: {e}")),
+                Err(e) => app.toast(ox_core::trf!("Could not save the theme: {e}", e = e)),
             }
         }
-        if ui.button("📂 Themes folder").clicked() {
+        if ui.button(tr("📂 Themes folder")).clicked() {
             let _ = std::fs::create_dir_all(themes::dir());
             app.push(Action::OpenInNewTab(
                 crate::tabs::Location::Folder(themes::dir()),
                 true,
             ));
         }
-        if !t.builtin && ui.button("🗑 Delete theme").clicked() {
+        if !t.builtin && ui.button(tr("🗑 Delete theme")).clicked() {
             if let Err(e) = themes::remove(&t.name) {
-                app.toast(format!("Could not delete the theme: {e}"));
+                app.toast(ox_core::trf!("Could not delete the theme: {e}", e = e));
             }
             app.themes = themes::load_all();
             let a = &mut app.settings.appearance;
@@ -240,9 +267,9 @@ fn theme_editor(ui: &mut Ui, app: &mut OxApp) {
         }
     });
     ui.label(
-        RichText::new(
+        RichText::new(tr(
             "To use a theme someone sent you, right-click its .toml file → Use as theme.",
-        )
+        ))
         .weak()
         .small(),
     );
@@ -272,14 +299,30 @@ fn toggle(ui: &mut Ui, value: &mut bool, label: &str, help: &str) {
 fn appearance(ui: &mut Ui, app: &mut OxApp) {
     let themes = &app.themes;
     let a = &mut app.settings.appearance;
-    row(ui, "Mode", "Follow Windows, or force light/dark.", |ui| {
-        ui.selectable_value(&mut a.theme, Theme::System, "System");
-        ui.selectable_value(&mut a.theme, Theme::Light, "☀ Light");
-        ui.selectable_value(&mut a.theme, Theme::Dark, "🌙 Dark");
-    });
+    row(
+        ui,
+        tr("Language"),
+        tr("System uses the language Windows is set to."),
+        |ui| {
+            use ox_core::settings::Language;
+            ui.selectable_value(&mut a.language, Language::System, tr("System"));
+            ui.selectable_value(&mut a.language, Language::English, "English");
+            ui.selectable_value(&mut a.language, Language::German, "Deutsch");
+        },
+    );
+    row(
+        ui,
+        tr("Mode"),
+        tr("Follow Windows, or force light/dark."),
+        |ui| {
+            ui.selectable_value(&mut a.theme, Theme::System, tr("System"));
+            ui.selectable_value(&mut a.theme, Theme::Light, tr("☀ Light"));
+            ui.selectable_value(&mut a.theme, Theme::Dark, tr("🌙 Dark"));
+        },
+    );
     for (label, help, dark) in [
-        ("Dark theme", "Colours in dark mode.", true),
-        ("Light theme", "Colours in light mode.", false),
+        (tr("Dark theme"), tr("Colours in dark mode."), true),
+        (tr("Light theme"), tr("Colours in light mode."), false),
     ] {
         let mut picked = None;
         row(ui, label, help, |ui| {
@@ -312,8 +355,8 @@ fn appearance(ui: &mut Ui, app: &mut OxApp) {
     }
     row(
         ui,
-        "Accent colour",
-        "Used for selection, focus and progress.",
+        tr("Accent colour"),
+        tr("Used for selection, focus and progress."),
         |ui| {
             ui.color_edit_button_srgb(&mut a.accent);
             for preset in [
@@ -334,7 +377,7 @@ fn appearance(ui: &mut Ui, app: &mut OxApp) {
             }
         },
     );
-    row(ui, "UI scale", "Zoom the whole interface.", |ui| {
+    row(ui, tr("UI scale"), tr("Zoom the whole interface."), |ui| {
         ui.add(
             egui::Slider::new(&mut a.ui_scale, 0.75..=2.0)
                 .step_by(0.05)
@@ -344,50 +387,55 @@ fn appearance(ui: &mut Ui, app: &mut OxApp) {
     toggle(
         ui,
         &mut a.compact_rows,
-        "Compact rows",
-        "Smaller row height in the details view.",
+        tr("Compact rows"),
+        tr("Smaller row height in the details view."),
     );
     toggle(
         ui,
         &mut a.thumbnails,
-        "Thumbnails",
-        "Show previews of pictures and videos in the grid view.",
+        tr("Thumbnails"),
+        tr("Show previews of pictures and videos in the grid view."),
     );
     if ox_core::shell::supported() {
         row(
             ui,
-            "Window backdrop",
-            "Windows 11 material behind the sidebar and header. Turning it on takes effect after restarting Oxplorer.",
+            tr("Window backdrop"),
+            tr("Windows 11 material behind the sidebar and header. Turning it on takes effect after restarting Oxplorer."),
             |ui| {
-                ui.selectable_value(&mut a.backdrop, Backdrop::Off, "Off");
-                ui.selectable_value(&mut a.backdrop, Backdrop::Mica, "Mica");
-                ui.selectable_value(&mut a.backdrop, Backdrop::Acrylic, "Acrylic");
+                ui.selectable_value(&mut a.backdrop, Backdrop::Off, tr("Off"));
+                ui.selectable_value(&mut a.backdrop, Backdrop::Mica, tr("Mica"));
+                ui.selectable_value(&mut a.backdrop, Backdrop::Acrylic, tr("Acrylic"));
             },
         );
         toggle(
             ui,
             &mut a.system_icons,
-            "Windows file icons",
-            "Show the same icons as Windows Explorer instead of the built-in ones.",
+            tr("Windows file icons"),
+            tr("Show the same icons as Windows Explorer instead of the built-in ones."),
         );
     }
 }
 
 fn browsing(ui: &mut Ui, s: &mut Settings) {
     let b = &mut s.browsing;
-    toggle(ui, &mut b.show_hidden, "Show hidden items", "");
-    toggle(ui, &mut b.show_extensions, "Show file name extensions", "");
+    toggle(ui, &mut b.show_hidden, tr("Show hidden items"), "");
+    toggle(
+        ui,
+        &mut b.show_extensions,
+        tr("Show file name extensions"),
+        "",
+    );
     toggle(
         ui,
         &mut b.folders_first,
-        "Folders first",
-        "Sort folders before files.",
+        tr("Folders first"),
+        tr("Sort folders before files."),
     );
-    row(ui, "Default view", "", |ui| {
-        ui.selectable_value(&mut b.default_view, ViewMode::Details, "☰ Details");
-        ui.selectable_value(&mut b.default_view, ViewMode::Grid, "▦ Grid");
+    row(ui, tr("Default view"), "", |ui| {
+        ui.selectable_value(&mut b.default_view, ViewMode::Details, tr("☰ Details"));
+        ui.selectable_value(&mut b.default_view, ViewMode::Grid, tr("▦ Grid"));
     });
-    row(ui, "Default sort", "", |ui| {
+    row(ui, tr("Default sort"), "", |ui| {
         egui::ComboBox::from_id_salt("default_sort")
             .selected_text(format!("{:?}", b.default_sort))
             .show_ui(ui, |ui| {
@@ -406,45 +454,45 @@ fn browsing(ui: &mut Ui, s: &mut Settings) {
     toggle(
         ui,
         &mut b.single_click_open,
-        "Single-click to open",
-        "Open items with one click instead of a double click.",
+        tr("Single-click to open"),
+        tr("Open items with one click instead of a double click."),
     );
-    toggle(ui, &mut b.confirm_delete, "Confirm before deleting", "");
+    toggle(ui, &mut b.confirm_delete, tr("Confirm before deleting"), "");
     toggle(
         ui,
         &mut b.delete_to_trash,
-        "Delete to Recycle Bin",
-        "Shift+Delete always deletes permanently.",
+        tr("Delete to Recycle Bin"),
+        tr("Shift+Delete always deletes permanently."),
     );
     toggle(
         ui,
         &mut b.auto_refresh,
-        "Refresh automatically",
-        "Update the view when files change on disk.",
+        tr("Refresh automatically"),
+        tr("Update the view when files change on disk."),
     );
     toggle(
         ui,
         &mut b.folder_sizes,
-        "Show folder sizes",
-        "Calculate the size of folders in the background for the Size column.",
+        tr("Show folder sizes"),
+        tr("Calculate the size of folders in the background for the Size column."),
     );
     toggle(
         ui,
         &mut b.open_archives,
-        "Open archives like folders",
-        "Browse zip, 7z and tar files in Oxplorer instead of opening them with another app.",
+        tr("Open archives like folders"),
+        tr("Browse zip, 7z and tar files in Oxplorer instead of opening them with another app."),
     );
     toggle(
         ui,
         &mut b.git_status,
-        "Git status",
-        "In Git repositories, show a Git column and the branch (needs Git installed).",
+        tr("Git status"),
+        tr("In Git repositories, show a Git column and the branch (needs Git installed)."),
     );
-    toggle(ui, &mut b.show_status_bar, "Show status bar", "");
+    toggle(ui, &mut b.show_status_bar, tr("Show status bar"), "");
     row(
         ui,
-        "Date format",
-        "chrono format, e.g. %d.%m.%Y %H:%M or %Y-%m-%d",
+        tr("Date format"),
+        tr("chrono format, e.g. %d.%m.%Y %H:%M or %Y-%m-%d"),
         |ui| {
             ui.add(egui::TextEdit::singleline(&mut b.date_format).desired_width(160.0));
             ui.label(
@@ -458,7 +506,7 @@ fn browsing(ui: &mut Ui, s: &mut Settings) {
     );
 
     ui.add_space(14.0);
-    ui.label(RichText::new("Terminal panel").size(16.0).strong());
+    ui.label(RichText::new(tr("Terminal panel")).size(16.0).strong());
     let t = &mut s.terminal;
     let default_shell = if cfg!(windows) {
         "powershell.exe -NoLogo"
@@ -467,8 +515,8 @@ fn browsing(ui: &mut Ui, s: &mut Settings) {
     };
     row(
         ui,
-        "Shell",
-        "Used the next time the terminal starts. Empty uses the default.",
+        tr("Shell"),
+        tr("Used the next time the terminal starts. Empty uses the default."),
         |ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut t.shell)
@@ -480,30 +528,34 @@ fn browsing(ui: &mut Ui, s: &mut Settings) {
     toggle(
         ui,
         &mut t.follow_folder,
-        "Follow the current folder",
-        "Change the terminal's folder whenever you open another folder.",
+        tr("Follow the current folder"),
+        tr("Change the terminal's folder whenever you open another folder."),
     );
 }
 
 fn startup(ui: &mut Ui, s: &mut Settings) {
     let st = &mut s.startup;
-    row(ui, "When Oxplorer starts", "", |ui| {
+    row(ui, tr("When Oxplorer starts"), "", |ui| {
         ui.vertical(|ui| {
-            ui.radio_value(&mut st.start_page, StartPage::Home, "Open the Home page");
+            ui.radio_value(
+                &mut st.start_page,
+                StartPage::Home,
+                tr("Open the Home page"),
+            );
             ui.radio_value(
                 &mut st.start_page,
                 StartPage::RestoreSession,
-                "Restore tabs and groups from last time",
+                tr("Restore tabs and groups from last time"),
             );
             ui.radio_value(
                 &mut st.start_page,
                 StartPage::Folder,
-                "Open a specific folder",
+                tr("Open a specific folder"),
             );
         });
     });
     if st.start_page == StartPage::Folder {
-        row(ui, "Start folder", "", |ui| {
+        row(ui, tr("Start folder"), "", |ui| {
             let mut text = st
                 .start_folder
                 .as_ref()
@@ -513,7 +565,7 @@ fn startup(ui: &mut Ui, s: &mut Settings) {
                 .add(
                     egui::TextEdit::singleline(&mut text)
                         .desired_width(280.0)
-                        .hint_text("C:\\Users\\…"),
+                        .hint_text(tr("C:\\Users\\…")),
                 )
                 .changed()
             {
@@ -536,8 +588,8 @@ fn default_folder_handler(ui: &mut Ui, app: &mut OxApp) {
     toggle(
         ui,
         &mut on,
-        "Open folders in Oxplorer",
-        "Folders and drives opened anywhere else (desktop, other programs, Win+E) open in Oxplorer instead of Explorer. Turn off to go back to Explorer.",
+        tr("Open folders in Oxplorer"),
+        tr("Folders and drives opened anywhere else (desktop, other programs, Win+E) open in Oxplorer instead of Explorer. Turn off to go back to Explorer."),
     );
     if on != was {
         app.push(Action::SetDefaultFolderHandler(on));
@@ -546,11 +598,11 @@ fn default_folder_handler(ui: &mut Ui, app: &mut OxApp) {
 
 fn sidebar(ui: &mut Ui, s: &mut Settings) {
     let sb = &mut s.sidebar;
-    toggle(ui, &mut sb.visible, "Show sidebar", "");
-    toggle(ui, &mut sb.show_favorites, "Favorites section", "");
-    toggle(ui, &mut sb.show_drives, "Drives section", "");
-    toggle(ui, &mut sb.show_recent, "Recent folders section", "");
-    row(ui, "Recent folders shown", "", |ui| {
+    toggle(ui, &mut sb.visible, tr("Show sidebar"), "");
+    toggle(ui, &mut sb.show_favorites, tr("Favorites section"), "");
+    toggle(ui, &mut sb.show_drives, tr("Drives section"), "");
+    toggle(ui, &mut sb.show_recent, tr("Recent folders section"), "");
+    row(ui, tr("Recent folders shown"), "", |ui| {
         ui.add(egui::Slider::new(&mut sb.recent_count, 1..=20));
     });
 }
@@ -558,22 +610,22 @@ fn sidebar(ui: &mut Ui, s: &mut Settings) {
 fn transfer(ui: &mut Ui, s: &mut Settings) {
     let t = &mut s.transfer;
     ui.label(
-        RichText::new(
+        RichText::new(tr(
             "Oxplorer copies files with its own multi-threaded engine instead of the Windows copy dialog. \
              On Windows each file is copied with CopyFileExW (kernel fast path), large files bypass the cache.",
-        )
+        ))
         .weak(),
     );
     ui.add_space(10.0);
     row(
         ui,
-        "Parallel file copies",
-        "Auto: one file at a time on HDDs, 8 on SSDs. More helps with many small files on SSDs.",
+        tr("Parallel file copies"),
+        tr("Auto: one file at a time on HDDs, 8 on SSDs. More helps with many small files on SSDs."),
         |ui| {
             ui.add(
                 egui::Slider::new(&mut t.workers, 0..=32).custom_formatter(|v, _| {
                     if v == 0.0 {
-                        "Auto".into()
+                        tr("Auto").into()
                     } else {
                         format!("{v:.0}")
                     }
@@ -583,8 +635,8 @@ fn transfer(ui: &mut Ui, s: &mut Settings) {
     );
     row(
         ui,
-        "Parallel jobs",
-        "How many copy jobs run at once; the rest wait in a queue.",
+        tr("Parallel jobs"),
+        tr("How many copy jobs run at once; the rest wait in a queue."),
         |ui| {
             ui.add(egui::Slider::new(&mut t.max_concurrent_jobs, 1..=8));
         },
@@ -592,26 +644,26 @@ fn transfer(ui: &mut Ui, s: &mut Settings) {
     toggle(
         ui,
         &mut t.per_disk_queue,
-        "One job per drive at a time",
-        "Copies on the same drive wait for each other; different drives still run in parallel.",
+        tr("One job per drive at a time"),
+        tr("Copies on the same drive wait for each other; different drives still run in parallel."),
     );
     toggle(
         ui,
         &mut t.verify,
-        "Verify copied files",
-        "Compare every copy with its original (xxh3). Slower, but moves only delete originals that were copied correctly.",
+        tr("Verify copied files"),
+        tr("Compare every copy with its original (xxh3). Slower, but moves only delete originals that were copied correctly."),
     );
     row(
         ui,
-        "Speed limit",
-        "Per transfer. 0 = unlimited. Useful to keep the PC responsive during big copies.",
+        tr("Speed limit"),
+        tr("Per transfer. 0 = unlimited. Useful to keep the PC responsive during big copies."),
         |ui| {
             ui.add(
                 egui::DragValue::new(&mut t.speed_limit_mib)
                     .range(0..=10_000)
                     .custom_formatter(|v, _| {
                         if v == 0.0 {
-                            "Unlimited".into()
+                            tr("Unlimited").into()
                         } else {
                             format!("{v:.0} MiB/s")
                         }
@@ -619,29 +671,34 @@ fn transfer(ui: &mut Ui, s: &mut Settings) {
             );
         },
     );
-    row(ui, "Buffer size", "Used by the portable copy loop.", |ui| {
-        ui.add(
-            egui::Slider::new(&mut t.buffer_kib, 256..=65536)
-                .logarithmic(true)
-                .suffix(" KiB"),
-        );
-    });
     row(
         ui,
-        "Unbuffered I/O from",
-        "Files at least this big skip the Windows file cache.",
+        tr("Buffer size"),
+        tr("Used by the portable copy loop."),
         |ui| {
             ui.add(
-                egui::Slider::new(&mut t.unbuffered_threshold_mib, 16..=8192)
+                egui::Slider::new(&mut t.buffer_kib, 256..=65536)
                     .logarithmic(true)
-                    .suffix(" MiB"),
+                    .suffix(tr(" KiB")),
             );
         },
     );
     row(
         ui,
-        "When a file already exists",
-        "\"Ask me\" asks once per job, not once per file.",
+        tr("Unbuffered I/O from"),
+        tr("Files at least this big skip the Windows file cache."),
+        |ui| {
+            ui.add(
+                egui::Slider::new(&mut t.unbuffered_threshold_mib, 16..=8192)
+                    .logarithmic(true)
+                    .suffix(tr(" MiB")),
+            );
+        },
+    );
+    row(
+        ui,
+        tr("When a file already exists"),
+        tr("\"Ask me\" asks once per job, not once per file."),
         |ui| {
             egui::ComboBox::from_id_salt("conflict")
                 .selected_text(t.default_conflict.label())
@@ -655,29 +712,29 @@ fn transfer(ui: &mut Ui, s: &mut Settings) {
     toggle(
         ui,
         &mut t.preserve_timestamps,
-        "Keep modification dates",
+        tr("Keep modification dates"),
         "",
     );
     toggle(
         ui,
         &mut t.use_system_clipboard,
-        "Share clipboard with Windows Explorer",
-        "Copy in Explorer, paste in Oxplorer (and the other way around).",
+        tr("Share clipboard with Windows Explorer"),
+        tr("Copy in Explorer, paste in Oxplorer (and the other way around)."),
     );
     toggle(
         ui,
         &mut t.drag_moves_on_same_drive,
-        "Dragging moves on the same drive",
-        "Like Explorer. Hold Ctrl to copy, Shift to move.",
+        tr("Dragging moves on the same drive"),
+        tr("Like Explorer. Hold Ctrl to copy, Shift to move."),
     );
     row(
         ui,
-        "Transfer history",
-        "Every finished copy and move, with errors.",
+        tr("Transfer history"),
+        tr("Every finished copy and move, with errors."),
         |ui| {
             let log = ox_core::transfer::history::log_path();
             if ui
-                .add_enabled(log.exists(), egui::Button::new("📜 Open log"))
+                .add_enabled(log.exists(), egui::Button::new(tr("📜 Open log")))
                 .clicked()
             {
                 let _ = ox_core::fsops::open_default(&log);
@@ -691,45 +748,35 @@ fn search(ui: &mut Ui, s: &mut Settings) {
     toggle(
         ui,
         &mut se.instant_filter,
-        "Filter while typing",
-        "The search box filters the current folder instantly; Enter searches sub-folders.",
+        tr("Filter while typing"),
+        tr("The search box filters the current folder instantly; Enter searches sub-folders."),
     );
-    toggle(ui, &mut se.include_hidden, "Include hidden files", "");
-    toggle(ui, &mut se.case_sensitive, "Case sensitive", "");
-    row(ui, "Maximum results", "", |ui| {
+    toggle(ui, &mut se.include_hidden, tr("Include hidden files"), "");
+    toggle(ui, &mut se.case_sensitive, tr("Case sensitive"), "");
+    row(ui, tr("Maximum results"), "", |ui| {
         ui.add(
             egui::DragValue::new(&mut se.max_results)
                 .range(100..=1_000_000)
                 .speed(100),
         );
     });
-    row(ui, "Search threads", "0 = one per CPU core.", |ui| {
-        ui.add(egui::Slider::new(&mut se.threads, 0..=64));
-    });
+    row(
+        ui,
+        tr("Search threads"),
+        tr("0 = one per CPU core."),
+        |ui| {
+            ui.add(egui::Slider::new(&mut se.threads, 0..=64));
+        },
+    );
     ui.add_space(8.0);
-    ui.label(RichText::new("Query syntax").strong());
+    ui.label(RichText::new(tr("Query syntax")).strong());
     egui::Grid::new("syntax")
         .striped(true)
         .num_columns(2)
         .show(ui, |ui| {
-            for (q, d) in [
-                ("report", "name contains \"report\""),
-                ("\"annual report\"", "exact phrase"),
-                ("*.rs   img_??", "wildcards"),
-                ("/^IMG_\\d+\\.jpe?g$/", "regular expression (also regex:…)"),
-                ("-tmp", "exclude names containing \"tmp\""),
-                ("ext:pdf,docx", "by extension"),
-                ("type:folder / type:file", "only folders / files"),
-                (
-                    "kind:image,video",
-                    "by kind: image, video, audio, document, archive, code, app",
-                ),
-                ("size:>10mb   size:<1kb", "by size"),
-                ("modified:7d   modified:today", "recently modified"),
-                ("content:\"TODO\"", "text inside files (≤ 32 MB)"),
-            ] {
+            for (q, d) in QUERY_SYNTAX {
                 ui.monospace(q);
-                ui.label(d);
+                ui.label(tr(d));
                 ui.end_row();
             }
         });
@@ -737,41 +784,44 @@ fn search(ui: &mut Ui, s: &mut Settings) {
 
 fn index_section(ui: &mut Ui, app: &mut OxApp) {
     ui.add_space(14.0);
-    ui.label(RichText::new("Search index").size(16.0).strong());
+    ui.label(RichText::new(tr("Search index")).size(16.0).strong());
     ui.label(
-        RichText::new(
+        RichText::new(tr(
             "Keeps the names of all files in memory (about 50 MB per million files) so searching \
              whole drives takes milliseconds. Built in the background and saved between runs.",
-        )
+        ))
         .weak(),
     );
     ui.add_space(8.0);
     let se = &mut app.settings.search;
-    toggle(ui, &mut se.index_enabled, "Index file names", "");
+    toggle(ui, &mut se.index_enabled, tr("Index file names"), "");
     if !se.index_enabled {
         return;
     }
     toggle(
         ui,
         &mut se.search_as_you_type,
-        "Results while typing",
-        "On the Home page and in search tabs, results update with every key.",
+        tr("Results while typing"),
+        tr("On the Home page and in search tabs, results update with every key."),
     );
 
     let index = app.index.clone();
-    row(ui, "Status", "", |ui| {
+    row(ui, tr("Status"), "", |ui| {
         ui.vertical(|ui| {
             match index.state() {
                 IndexState::Loading => {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label("Loading the saved index…");
+                        ui.label(tr("Loading the saved index…"));
                     });
                 }
                 IndexState::Building => {
                     ui.horizontal(|ui| {
                         ui.spinner();
-                        ui.label(format!("Indexing… {} items so far", index.progress()));
+                        ui.label(ox_core::trf!(
+                            "Indexing… {v1} items so far",
+                            v1 = index.progress()
+                        ));
                     });
                 }
                 IndexState::Failed(e) => {
@@ -783,25 +833,28 @@ fn index_section(ui: &mut Ui, app: &mut OxApp) {
                 let age = std::time::SystemTime::now()
                     .duration_since(idx.built_at())
                     .unwrap_or_default();
-                let mut text = format!(
-                    "✔ {} items · {} in memory · updated {} ago",
-                    idx.len(),
-                    ox_core::format::size(idx.memory_bytes() as u64),
-                    ox_core::format::duration(age)
+                let mut text = ox_core::trf!(
+                    "✔ {v1} items · {v2} in memory · updated {v3} ago",
+                    v1 = idx.len(),
+                    v2 = ox_core::format::size(idx.memory_bytes() as u64),
+                    v3 = ox_core::format::duration(age)
                 );
                 if let Some((_, took)) = index.last_build() {
-                    text.push_str(&format!(" · built in {:.1}s", took.as_secs_f32()));
+                    text.push_str(&ox_core::trf!(
+                        " · built in {secs} s",
+                        secs = ox_core::format::decimal(took.as_secs_f64(), 1)
+                    ));
                 }
                 ui.label(text);
             } else if index.state() == IndexState::Empty {
-                ui.label("Not built yet.");
+                ui.label(tr("Not built yet."));
             }
             ui.horizontal(|ui| {
                 if index.is_building() {
-                    if ui.button("⏹ Stop").clicked() {
+                    if ui.button(tr("⏹ Stop")).clicked() {
                         index.cancel();
                     }
-                } else if ui.button("🔄 Rebuild now").clicked() {
+                } else if ui.button(tr("🔄 Rebuild now")).clicked() {
                     app.actions.push(Action::RebuildIndex);
                 }
             });
@@ -811,11 +864,11 @@ fn index_section(ui: &mut Ui, app: &mut OxApp) {
     let se = &mut app.settings.search;
     row(
         ui,
-        "Indexed folders",
+        tr("Indexed folders"),
         if cfg!(windows) {
-            "One per line. Empty = all drives."
+            tr("One per line. Empty = all drives.")
         } else {
-            "One per line. Empty = your home folder."
+            tr("One per line. Empty = your home folder.")
         },
         |ui| {
             let mut text = se
@@ -828,7 +881,7 @@ fn index_section(ui: &mut Ui, app: &mut OxApp) {
                 .desired_rows(3)
                 .desired_width(280.0)
                 .hint_text(if cfg!(windows) {
-                    "C:\\\nD:\\Projects"
+                    tr("C:\\\nD:\\Projects")
                 } else {
                     "/home/me"
                 });
@@ -844,8 +897,8 @@ fn index_section(ui: &mut Ui, app: &mut OxApp) {
     );
     row(
         ui,
-        "Skip folders named",
-        "Comma-separated, e.g. node_modules, .git",
+        tr("Skip folders named"),
+        tr("Comma-separated, e.g. node_modules, .git"),
         |ui| {
             let mut text = se.index_exclude.join(", ");
             if ui
@@ -861,11 +914,11 @@ fn index_section(ui: &mut Ui, app: &mut OxApp) {
             }
         },
     );
-    row(ui, "Refresh every", "", |ui| {
+    row(ui, tr("Refresh every"), "", |ui| {
         ui.add(
             egui::Slider::new(&mut se.index_refresh_minutes, 0..=240).custom_formatter(|v, _| {
                 if v == 0.0 {
-                    "Only at start".into()
+                    tr("Only at start").into()
                 } else {
                     format!("{v:.0} min")
                 }
@@ -913,7 +966,7 @@ fn shortcuts(ui: &mut Ui, app: &mut OxApp) {
         }
     }
 
-    ui.label(RichText::new("Click a shortcut and press the new keys (Esc cancels).").weak());
+    ui.label(RichText::new(tr("Click a shortcut and press the new keys (Esc cancels).")).weak());
     ui.add_space(8.0);
     egui::Grid::new("shortcuts")
         .striped(true)
@@ -921,11 +974,11 @@ fn shortcuts(ui: &mut Ui, app: &mut OxApp) {
         .spacing(vec2(16.0, 6.0))
         .show(ui, |ui| {
             for c in COMMANDS {
-                ui.label(c.label);
+                ui.label(tr(c.label));
                 let keys = app.keymap.keys(c.cmd).to_vec();
                 let recording = app.ui.recording == Some(c.cmd);
                 let text = if recording {
-                    "Press keys…".to_owned()
+                    tr("Press keys…").to_owned()
                 } else if keys.is_empty() {
                     "—".to_owned()
                 } else {
@@ -943,7 +996,10 @@ fn shortcuts(ui: &mut Ui, app: &mut OxApp) {
                     }
                     let changed = app.settings.shortcuts.contains_key(c.id);
                     if !keys.is_empty()
-                        && ui.small_button("✖").on_hover_text("No shortcut").clicked()
+                        && ui
+                            .small_button("✖")
+                            .on_hover_text(tr("No shortcut"))
+                            .clicked()
                     {
                         app.settings
                             .shortcuts
@@ -952,7 +1008,10 @@ fn shortcuts(ui: &mut Ui, app: &mut OxApp) {
                     if changed
                         && ui
                             .small_button("↺")
-                            .on_hover_text(format!("Back to {}", c.defaults.join(" / ")))
+                            .on_hover_text(ox_core::trf!(
+                                "Back to {v1}",
+                                v1 = c.defaults.join(" / ")
+                            ))
                             .clicked()
                     {
                         app.settings.shortcuts.remove(c.id);
@@ -962,7 +1021,11 @@ fn shortcuts(ui: &mut Ui, app: &mut OxApp) {
                 match clash {
                     Some(other) => ui.colored_label(
                         Color32::from_rgb(0xe5, 0x48, 0x4d),
-                        format!("⚠ also {}", shortcuts::command_info(other).label),
+                        format!(
+                            "⚠ {} {}",
+                            tr("also"),
+                            tr(shortcuts::command_info(other).label)
+                        ),
                     ),
                     None => ui.label(""),
                 };
@@ -970,25 +1033,25 @@ fn shortcuts(ui: &mut Ui, app: &mut OxApp) {
             }
         });
     ui.add_space(8.0);
-    if !app.settings.shortcuts.is_empty() && ui.button("Reset all shortcuts").clicked() {
+    if !app.settings.shortcuts.is_empty() && ui.button(tr("Reset all shortcuts")).clicked() {
         app.settings.shortcuts.clear();
         app.ui.recording = None;
     }
     ui.add_space(12.0);
-    ui.label(RichText::new("Always available").strong());
+    ui.label(RichText::new(tr("Always available")).strong());
     egui::Grid::new("fixed_shortcuts")
         .striped(true)
         .num_columns(2)
         .show(ui, |ui| {
             for (k, d) in [
-                ("Enter", "Open selection"),
+                (tr("Enter"), tr("Open selection")),
                 (
-                    "Arrow keys, Home, End",
-                    "Move the selection (Shift to extend)",
+                    tr("Arrow keys, Home, End"),
+                    tr("Move the selection (Shift to extend)"),
                 ),
-                ("Type letters", "Jump to item"),
-                ("Mouse side buttons", "Back / forward"),
-                ("Middle click", "Open folder in new tab / close tab"),
+                (tr("Type letters"), tr("Jump to item")),
+                (tr("Mouse side buttons"), tr("Back / forward")),
+                (tr("Middle click"), tr("Open folder in new tab / close tab")),
             ] {
                 ui.monospace(k);
                 ui.label(d);
@@ -1006,13 +1069,28 @@ fn about(ui: &mut Ui) {
         ))
         .strong(),
     );
-    ui.label("A fast file explorer for Windows, written in Rust.");
+    ui.label(tr("A fast file explorer for Windows, written in Rust."));
     ui.add_space(6.0);
     ui.label(
-        RichText::new(format!(
-            "Config folder: {}",
-            ox_core::config_dir().display()
+        RichText::new(ox_core::trf!(
+            "Config folder: {v1}",
+            v1 = ox_core::config_dir().display()
         ))
         .weak(),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sections_are_translated() {
+        for s in SECTIONS
+            .into_iter()
+            .chain(QUERY_SYNTAX.map(|(_, what)| what))
+        {
+            assert!(ox_core::i18n::german(s).is_some(), "no German for {s:?}");
+        }
+    }
 }

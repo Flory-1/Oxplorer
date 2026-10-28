@@ -4,8 +4,21 @@ use std::time::{Duration, SystemTime};
 
 const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
 
-/// Format a byte count like Explorer does (`1.4 MB`).
+/// Format a byte count like Explorer does (`1.4 MB`; `1,4 MB` in German).
 pub fn size(bytes: u64) -> String {
+    size_in(bytes, crate::i18n::is_german())
+}
+
+fn size_in(bytes: u64, decimal_comma: bool) -> String {
+    let text = size_dot(bytes);
+    if decimal_comma {
+        text.replace('.', ",")
+    } else {
+        text
+    }
+}
+
+fn size_dot(bytes: u64) -> String {
     if bytes < 1024 {
         return format!("{bytes} B");
     }
@@ -21,6 +34,16 @@ pub fn size(bytes: u64) -> String {
         format!("{value:.1} {}", UNITS[unit])
     } else {
         format!("{value:.2} {}", UNITS[unit])
+    }
+}
+
+/// `value` with `places` decimals, with a decimal comma in German (`1,25`).
+pub fn decimal(value: f64, places: usize) -> String {
+    let text = format!("{value:.places$}");
+    if crate::i18n::is_german() {
+        text.replace('.', ",")
+    } else {
+        text
     }
 }
 
@@ -67,6 +90,7 @@ mod tests {
         assert_eq!(size(1023), "1023 B");
         assert_eq!(size(1024), "1.00 KB");
         assert_eq!(size(1536), "1.50 KB");
+        assert_eq!(size_in(1536, true), "1,50 KB");
         assert_eq!(size(15 * 1024 * 1024), "15.0 MB");
         assert_eq!(size(500 * 1024 * 1024 * 1024), "500 GB");
     }

@@ -11,6 +11,7 @@ mod settings_page;
 mod sidebar;
 mod transfers;
 
+use ox_core::i18n::t as tr;
 use std::path::{Path, PathBuf};
 
 use egui::{Align2, Color32, FontId, Id, LayerId, Order, Rect, Response, RichText, Ui};
@@ -104,7 +105,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
 fn terminal_panel(app: &mut OxApp, ui: &mut Ui) {
     let mut actions = Vec::new();
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Terminal").strong());
+        ui.label(RichText::new(tr("Terminal")).strong());
         if let Some(t) = &app.terminal {
             if !t.title.is_empty() {
                 ui.label(RichText::new(&t.title).weak());
@@ -113,18 +114,18 @@ fn terminal_panel(app: &mut OxApp, ui: &mut Ui) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
                 .small_button("✖")
-                .on_hover_text(shortcuts::hint("Close", Command::ToggleTerminal))
+                .on_hover_text(shortcuts::hint(tr("Close"), Command::ToggleTerminal))
                 .clicked()
             {
                 actions.push(Action::ToggleTerminal);
             }
             let exited = app.terminal.as_ref().is_none_or(|t| t.exited);
-            if exited && ui.small_button("⟲ Restart").clicked() {
+            if exited && ui.small_button(tr("⟲ Restart")).clicked() {
                 actions.push(Action::RestartTerminal);
             }
             if let Some(folder) = app.current_folder().filter(|_| !exited) {
                 if ui
-                    .small_button("📂 cd here")
+                    .small_button(tr("📂 cd here"))
                     .on_hover_text(folder.display().to_string())
                     .clicked()
                 {
@@ -140,7 +141,7 @@ fn terminal_panel(app: &mut OxApp, ui: &mut Ui) {
                 ui.painter().text(
                     ui.min_rect().center_bottom() - egui::vec2(0.0, 16.0),
                     Align2::CENTER_CENTER,
-                    "The shell has ended.",
+                    tr("The shell has ended."),
                     FontId::proportional(13.0),
                     ui.visuals().weak_text_color(),
                 );
@@ -148,7 +149,7 @@ fn terminal_panel(app: &mut OxApp, ui: &mut Ui) {
         }
         None => {
             app.ui.terminal_focused = false;
-            ui.label(RichText::new("The shell couldn't be started.").weak());
+            ui.label(RichText::new(tr("The shell couldn't be started.")).weak());
         }
     }
     app.actions.extend(actions);
@@ -215,7 +216,7 @@ fn pane_bar(app: &OxApp, ui: &mut Ui, id: TabId, focused: bool) {
     let Some(tab) = app.tabs.get(id) else { return };
     let title = match tab.location() {
         Location::Folder(p) => p.display().to_string(),
-        Location::Tagged(c) => format!("Tagged \"{}\"", app.tags.label(*c)),
+        Location::Tagged(c) => ox_core::trf!("Tagged \"{v1}\"", v1 = app.tags.label(*c)),
         Location::Archive { archive, inner } => archive.join(inner).display().to_string(),
         other => other.title(),
     };
@@ -264,20 +265,20 @@ fn status_bar(app: &mut OxApp, ui: &mut Ui) {
         let tab = app.tabs.active();
         if tab.location().shows_files() {
             let total = tab.view.visible.len();
-            ui.label(format::count(total as u64, "item"));
+            ui.label(ox_core::i18n::count(total as u64, "item"));
             let selected = tab.view.selected_entries();
             if !selected.is_empty() {
                 ui.separator();
                 // Folders count once their size is known (see `poll_folder_sizes`).
                 let bytes: u64 = selected.iter().map(|e| e.size).sum();
                 if bytes > 0 {
-                    ui.label(format!(
-                        "{} selected · {}",
-                        selected.len(),
-                        format::size(bytes)
+                    ui.label(ox_core::trf!(
+                        "{v1} selected · {v2}",
+                        v1 = selected.len(),
+                        v2 = format::size(bytes)
                     ));
                 } else {
-                    ui.label(format!("{} selected", selected.len()));
+                    ui.label(ox_core::trf!("{v1} selected", v1 = selected.len()));
                 }
             }
             if let Some(s) = &tab.search {
@@ -286,7 +287,10 @@ fn status_bar(app: &mut OxApp, ui: &mut Ui) {
                     (Some(done), _) => ui.label(done),
                     (None, Some(h)) => {
                         ui.spinner();
-                        ui.label(format!("Searching… {} items scanned", h.scanned()))
+                        ui.label(ox_core::trf!(
+                            "Searching… {v1} items scanned",
+                            v1 = h.scanned()
+                        ))
                     }
                     _ => ui.label(""),
                 };
@@ -299,12 +303,13 @@ fn status_bar(app: &mut OxApp, ui: &mut Ui) {
                     ui.separator();
                     let changed = git.changed_files();
                     let text = if changed > 0 {
-                        format!(
-                            "Git: {branch} · {}",
-                            format::count(changed as u64, "change")
+                        ox_core::trf!(
+                            "Git: {branch} · {v1}",
+                            branch = branch,
+                            v1 = ox_core::i18n::count(changed as u64, "change")
                         )
                     } else {
-                        format!("Git: {branch}")
+                        ox_core::trf!("Git: {branch}", branch = branch)
                     };
                     ui.label(RichText::new(text).weak())
                         .on_hover_text(git.root.display().to_string());
@@ -318,7 +323,13 @@ fn status_bar(app: &mut OxApp, ui: &mut Ui) {
                 }
             }
             if app.settings.search.index_enabled && app.index.is_building() {
-                ui.label(RichText::new(format!("Indexing… {} items", app.index.progress())).weak());
+                ui.label(
+                    RichText::new(ox_core::trf!(
+                        "Indexing… {v1} items",
+                        v1 = app.index.progress()
+                    ))
+                    .weak(),
+                );
                 ui.spinner();
             }
         });
@@ -353,7 +364,7 @@ fn drag_preview(ctx: &egui::Context) {
     };
     let text = match items.0.as_slice() {
         [one] => display_name(one),
-        many => format::count(many.len() as u64, "item"),
+        many => ox_core::i18n::count(many.len() as u64, "item"),
     };
     let painter = ctx.layer_painter(LayerId::new(Order::Tooltip, Id::unique("drag_preview")));
     let galley = painter.layout_no_wrap(
@@ -426,7 +437,7 @@ pub fn tag_menu(ui: &mut Ui, tags: &TagStore, sel: &[PathBuf], actions: &mut Vec
     }
     if sel.iter().any(|p| !tags.tags(p).is_empty()) {
         ui.separator();
-        if ui.button("✖ Remove all tags").clicked() {
+        if ui.button(tr("✖ Remove all tags")).clicked() {
             actions.push(Action::ClearTags(sel.to_vec()));
         }
     }
@@ -435,13 +446,13 @@ pub fn tag_menu(ui: &mut Ui, tags: &TagStore, sel: &[PathBuf], actions: &mut Vec
 /// Menu for items inside an archive: open, extract, copy path.
 fn archive_item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     let sel = t.selection.to_vec();
-    if ui.button("📂 Open").clicked() {
+    if ui.button(tr("📂 Open")).clicked() {
         for p in &sel {
             actions.push(Action::Open(p.clone()));
         }
     }
     if ui
-        .add(egui::Button::new("📋 Copy").shortcut_text(shortcuts::label(Command::Copy)))
+        .add(egui::Button::new(tr("📋 Copy")).shortcut_text(shortcuts::label(Command::Copy)))
         .clicked()
     {
         actions.push(Action::CopyItems(sel.clone()));
@@ -452,12 +463,12 @@ fn archive_item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>)
         .and_then(|p| ox_core::archive::split_virtual(p))
         .and_then(|(arc, _)| arc.parent().map(Path::to_path_buf));
     if let Some(dir) = next_to {
-        if ui.button("📦 Extract next to the archive").clicked() {
+        if ui.button(tr("📦 Extract next to the archive")).clicked() {
             actions.push(Action::Transfer(TransferKind::Copy, sel.clone(), dir));
         }
     }
     if !t.destinations.is_empty() {
-        ui.menu_button("📦 Extract to", |ui| {
+        ui.menu_button(tr("📦 Extract to"), |ui| {
             for (label, dest) in t.destinations {
                 if ui.button(label).clicked() {
                     actions.push(Action::Transfer(
@@ -471,7 +482,10 @@ fn archive_item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>)
     }
     ui.separator();
     if ui
-        .add(egui::Button::new("🔗 Copy path").shortcut_text(shortcuts::label(Command::CopyPath)))
+        .add(
+            egui::Button::new(tr("🔗 Copy path"))
+                .shortcut_text(shortcuts::label(Command::CopyPath)),
+        )
         .clicked()
     {
         actions.push(Action::CopyPathText(sel.clone()));
@@ -485,47 +499,50 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     }
     let sel = t.selection.to_vec();
     if let Some(dir) = t.single_dir {
-        if ui.button("📂 Open").clicked() {
+        if ui.button(tr("📂 Open")).clicked() {
             actions.push(Action::Open(dir.to_path_buf()));
         }
-        if ui.button("📑 Open in new tab").clicked() {
+        if ui.button(tr("📑 Open in new tab")).clicked() {
             actions.push(Action::OpenInNewTab(
                 Location::Folder(dir.to_path_buf()),
                 false,
             ));
         }
-    } else if ui.button("📂 Open").clicked() {
+    } else if ui.button(tr("📂 Open")).clicked() {
         for p in &sel {
             actions.push(Action::Open(p.clone()));
         }
     }
-    if t.shell && t.single_dir.is_none() && sel.len() == 1 && ui.button("🗗 Open with…").clicked()
+    if t.shell
+        && t.single_dir.is_none()
+        && sel.len() == 1
+        && ui.button(tr("🗗 Open with…")).clicked()
     {
         actions.push(Action::OpenWith(sel[0].clone()));
     }
     ui.separator();
     if ui
-        .add(egui::Button::new("✂ Cut").shortcut_text(shortcuts::label(Command::Cut)))
+        .add(egui::Button::new(tr("✂ Cut")).shortcut_text(shortcuts::label(Command::Cut)))
         .clicked()
     {
         actions.push(Action::CutItems(sel.clone()));
     }
     if ui
-        .add(egui::Button::new("📋 Copy").shortcut_text(shortcuts::label(Command::Copy)))
+        .add(egui::Button::new(tr("📋 Copy")).shortcut_text(shortcuts::label(Command::Copy)))
         .clicked()
     {
         actions.push(Action::CopyItems(sel.clone()));
     }
     if let Some(dir) = t.single_dir {
         if ui
-            .add_enabled(t.can_paste, egui::Button::new("📥 Paste into folder"))
+            .add_enabled(t.can_paste, egui::Button::new(tr("📥 Paste into folder")))
             .clicked()
         {
             actions.push(Action::Paste(dir.to_path_buf()));
         }
     }
     if !t.destinations.is_empty() {
-        ui.menu_button("➡ Copy to", |ui| {
+        ui.menu_button(tr("➡ Copy to"), |ui| {
             for (label, dest) in t.destinations {
                 if ui.button(label).clicked() {
                     actions.push(Action::Transfer(
@@ -536,7 +553,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
                 }
             }
         });
-        ui.menu_button("➡ Move to", |ui| {
+        ui.menu_button(tr("➡ Move to"), |ui| {
             for (label, dest) in t.destinations {
                 if ui.button(label).clicked() {
                     actions.push(Action::Transfer(
@@ -551,7 +568,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     ui.separator();
     if sel.len() == 1
         && ui
-            .add(egui::Button::new("✏ Rename").shortcut_text(shortcuts::label(Command::Rename)))
+            .add(egui::Button::new(tr("✏ Rename")).shortcut_text(shortcuts::label(Command::Rename)))
             .clicked()
     {
         actions.push(Action::Rename(sel[0].clone()));
@@ -559,7 +576,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     if sel.len() > 1
         && ui
             .add(
-                egui::Button::new(format!("✏ Rename {} items…", sel.len()))
+                egui::Button::new(ox_core::trf!("✏ Rename {v1} items…", v1 = sel.len()))
                     .shortcut_text(shortcuts::label(Command::Rename)),
             )
             .clicked()
@@ -567,14 +584,14 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         actions.push(Action::BulkRename(sel.clone()));
     }
     if ui
-        .add(egui::Button::new("🗑 Delete").shortcut_text(shortcuts::label(Command::Delete)))
+        .add(egui::Button::new(tr("🗑 Delete")).shortcut_text(shortcuts::label(Command::Delete)))
         .clicked()
     {
         actions.push(Action::Delete(sel.clone(), false));
     }
     if ui
         .add(
-            egui::Button::new("⛔ Delete permanently")
+            egui::Button::new(tr("⛔ Delete permanently"))
                 .shortcut_text(shortcuts::label(Command::DeletePermanently)),
         )
         .clicked()
@@ -582,23 +599,26 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         actions.push(Action::Delete(sel.clone(), true));
     }
     ui.separator();
-    ui.menu_button("🏷 Tags", |ui| tag_menu(ui, t.tags, &sel, actions));
+    ui.menu_button(tr("🏷 Tags"), |ui| tag_menu(ui, t.tags, &sel, actions));
     if sel.len() == 1 && ox_core::archive::is_archive(&sel[0]) {
         let name = ox_core::archive::base_name(&sel[0]);
-        if ui.button(format!("📦 Extract to \"{name}\"")).clicked() {
+        if ui
+            .button(ox_core::trf!("📦 Extract to \"{name}\"", name = name))
+            .clicked()
+        {
             actions.push(Action::ExtractArchive {
                 archive: sel[0].clone(),
                 own_folder: true,
             });
         }
-        if ui.button("📦 Extract here").clicked() {
+        if ui.button(tr("📦 Extract here")).clicked() {
             actions.push(Action::ExtractArchive {
                 archive: sel[0].clone(),
                 own_folder: false,
             });
         }
     }
-    if ui.button("🗜 Compress to ZIP").clicked() {
+    if ui.button(tr("🗜 Compress to ZIP")).clicked() {
         actions.push(Action::Compress(sel.clone()));
     }
     let theme_file = sel.len() == 1
@@ -606,33 +626,39 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("toml"))
         && ox_core::themes::read(&sel[0]).is_ok();
-    if theme_file && ui.button("🎨 Use as theme").clicked() {
+    if theme_file && ui.button(tr("🎨 Use as theme")).clicked() {
         actions.push(Action::InstallTheme(sel[0].clone()));
     }
     if let Some(dir) = t.single_dir {
         if t.pinned {
-            if ui.button("☆ Unpin from Favorites").clicked() {
+            if ui.button(tr("☆ Unpin from Favorites")).clicked() {
                 actions.push(Action::Unpin(dir.to_path_buf()));
             }
-        } else if ui.button("⭐ Pin to Favorites").clicked() {
+        } else if ui.button(tr("⭐ Pin to Favorites")).clicked() {
             actions.push(Action::Pin(dir.to_path_buf()));
         }
-        if ui.button("🖳 Open in Terminal").clicked() {
+        if ui.button(tr("🖳 Open in Terminal")).clicked() {
             actions.push(Action::OpenTerminal(dir.to_path_buf()));
         }
     }
     if ui
-        .add(egui::Button::new("🔗 Copy path").shortcut_text(shortcuts::label(Command::CopyPath)))
+        .add(
+            egui::Button::new(tr("🔗 Copy path"))
+                .shortcut_text(shortcuts::label(Command::CopyPath)),
+        )
         .clicked()
     {
         actions.push(Action::CopyPathText(sel.clone()));
     }
-    if sel.len() == 1 && ui.button("🗔 Show in Windows Explorer").clicked() {
+    if sel.len() == 1 && ui.button(tr("🗔 Show in Windows Explorer")).clicked() {
         actions.push(Action::Reveal(sel[0].clone()));
     }
     ui.separator();
     if ui
-        .add(egui::Button::new("ℹ Properties").shortcut_text(shortcuts::label(Command::Properties)))
+        .add(
+            egui::Button::new(tr("ℹ Properties"))
+                .shortcut_text(shortcuts::label(Command::Properties)),
+        )
         .clicked()
     {
         actions.push(Action::Properties(sel.clone()));
@@ -641,10 +667,12 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         ui.separator();
         if ui
             .add(
-                egui::Button::new("⋯ Show more options")
+                egui::Button::new(tr("⋯ Show more options"))
                     .shortcut_text(shortcuts::label(Command::ShellMenu)),
             )
-            .on_hover_text("The Windows Explorer menu, with entries from other apps")
+            .on_hover_text(tr(
+                "The Windows Explorer menu, with entries from other apps",
+            ))
             .clicked()
         {
             actions.push(Action::ShellMenu(sel));
@@ -660,60 +688,63 @@ pub fn background_menu(
     pinned: bool,
     actions: &mut Vec<Action>,
 ) {
-    ui.menu_button("➕ New", |ui| {
-        if ui.button("📁 Folder").clicked() {
+    ui.menu_button(tr("➕ New"), |ui| {
+        if ui.button(tr("📁 Folder")).clicked() {
             actions.push(Action::NewFolder(folder.to_path_buf()));
         }
-        if ui.button("📄 Text document").clicked() {
+        if ui.button(tr("📄 Text document")).clicked() {
             actions.push(Action::NewFile(folder.to_path_buf()));
         }
     });
     if ui
         .add_enabled(
             can_paste,
-            egui::Button::new("📥 Paste").shortcut_text(shortcuts::label(Command::Paste)),
+            egui::Button::new(tr("📥 Paste")).shortcut_text(shortcuts::label(Command::Paste)),
         )
         .clicked()
     {
         actions.push(Action::Paste(folder.to_path_buf()));
     }
     if ui
-        .add(egui::Button::new("🔄 Refresh").shortcut_text(shortcuts::label(Command::Refresh)))
+        .add(egui::Button::new(tr("🔄 Refresh")).shortcut_text(shortcuts::label(Command::Refresh)))
         .clicked()
     {
         actions.push(Action::Refresh);
     }
     if ui
-        .add(egui::Button::new("☑ Select all").shortcut_text(shortcuts::label(Command::SelectAll)))
+        .add(
+            egui::Button::new(tr("☑ Select all"))
+                .shortcut_text(shortcuts::label(Command::SelectAll)),
+        )
         .clicked()
     {
         actions.push(Action::SelectAll);
     }
     ui.separator();
     if pinned {
-        if ui.button("☆ Unpin from Favorites").clicked() {
+        if ui.button(tr("☆ Unpin from Favorites")).clicked() {
             actions.push(Action::Unpin(folder.to_path_buf()));
         }
-    } else if ui.button("⭐ Pin to Favorites").clicked() {
+    } else if ui.button(tr("⭐ Pin to Favorites")).clicked() {
         actions.push(Action::Pin(folder.to_path_buf()));
     }
-    if ui.button("🖳 Open in Terminal").clicked() {
+    if ui.button(tr("🖳 Open in Terminal")).clicked() {
         actions.push(Action::OpenTerminal(folder.to_path_buf()));
     }
-    if ui.button("🗔 Open in Windows Explorer").clicked() {
+    if ui.button(tr("🗔 Open in Windows Explorer")).clicked() {
         actions.push(Action::Reveal(folder.to_path_buf()));
     }
-    if ui.button("ℹ Properties").clicked() {
+    if ui.button(tr("ℹ Properties")).clicked() {
         actions.push(Action::Properties(vec![folder.to_path_buf()]));
     }
 }
 
 /// Context menu for a folder link (sidebar, home page cards).
 pub fn folder_link_menu(ui: &mut Ui, path: &Path, pinned: bool, actions: &mut Vec<Action>) {
-    if ui.button("📂 Open").clicked() {
+    if ui.button(tr("📂 Open")).clicked() {
         actions.push(Action::Navigate(Location::Folder(path.to_path_buf())));
     }
-    if ui.button("📑 Open in new tab").clicked() {
+    if ui.button(tr("📑 Open in new tab")).clicked() {
         actions.push(Action::OpenInNewTab(
             Location::Folder(path.to_path_buf()),
             false,
@@ -721,29 +752,29 @@ pub fn folder_link_menu(ui: &mut Ui, path: &Path, pinned: bool, actions: &mut Ve
     }
     ui.separator();
     if pinned {
-        if ui.button("☆ Unpin from Favorites").clicked() {
+        if ui.button(tr("☆ Unpin from Favorites")).clicked() {
             actions.push(Action::Unpin(path.to_path_buf()));
         }
-        if ui.button("⬆ Move up").clicked() {
+        if ui.button(tr("⬆ Move up")).clicked() {
             actions.push(Action::MoveFavorite(path.to_path_buf(), -1));
         }
-        if ui.button("⬇ Move down").clicked() {
+        if ui.button(tr("⬇ Move down")).clicked() {
             actions.push(Action::MoveFavorite(path.to_path_buf(), 1));
         }
-    } else if ui.button("⭐ Pin to Favorites").clicked() {
+    } else if ui.button(tr("⭐ Pin to Favorites")).clicked() {
         actions.push(Action::Pin(path.to_path_buf()));
     }
     ui.separator();
-    if ui.button("📥 Paste into folder").clicked() {
+    if ui.button(tr("📥 Paste into folder")).clicked() {
         actions.push(Action::Paste(path.to_path_buf()));
     }
-    if ui.button("🖳 Open in Terminal").clicked() {
+    if ui.button(tr("🖳 Open in Terminal")).clicked() {
         actions.push(Action::OpenTerminal(path.to_path_buf()));
     }
-    if ui.button("🔗 Copy path").clicked() {
+    if ui.button(tr("🔗 Copy path")).clicked() {
         actions.push(Action::CopyPathText(vec![path.to_path_buf()]));
     }
-    if ui.button("ℹ Properties").clicked() {
+    if ui.button(tr("ℹ Properties")).clicked() {
         actions.push(Action::Properties(vec![path.to_path_buf()]));
     }
 }

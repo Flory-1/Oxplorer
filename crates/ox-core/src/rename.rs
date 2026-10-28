@@ -146,7 +146,7 @@ pub fn plan(items: &[RenameItem], rule: &RenameRule) -> Vec<Planned> {
     let finder = if rule.regex && !rule.find.is_empty() {
         match regex::Regex::new(&rule.find) {
             Ok(r) => Some(Ok(r)),
-            Err(e) => Some(Err(format!("Invalid regular expression: {e}"))),
+            Err(e) => Some(Err(crate::trf!("Invalid regular expression: {e}", e = e))),
         }
     } else {
         None
@@ -209,9 +209,9 @@ pub fn plan(items: &[RenameItem], rule: &RenameRule) -> Vec<Planned> {
         }
         let k = key(&p.to);
         if seen[&k] > 1 {
-            p.error = Some("Another item would get the same name.".into());
+            p.error = Some(crate::i18n::t("Another item would get the same name.").into());
         } else if fsops::exists(&p.to) && !leaving.contains(&k) && k != key(&p.from) {
-            p.error = Some("An item with this name already exists.".into());
+            p.error = Some(crate::i18n::t("An item with this name already exists.").into());
         }
     }
     out

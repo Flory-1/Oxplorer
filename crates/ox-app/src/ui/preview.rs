@@ -1,5 +1,6 @@
 //! Preview pane: shows the selected file (image, text/code) or a summary.
 
+use ox_core::i18n::t as tr;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -96,13 +97,13 @@ pub enum PreviewTab {
 impl PreviewTab {
     fn label(self) -> &'static str {
         match self {
-            PreviewTab::Info => "ℹ Info",
-            PreviewTab::Image => "🖼 Image",
-            PreviewTab::Text => "📝 Text",
-            PreviewTab::Page => "📄 Page",
-            PreviewTab::Media => "🎵 Cover",
-            PreviewTab::FontSample => "Aa Preview",
-            PreviewTab::Glyphs => "🔣 Glyphs",
+            PreviewTab::Info => tr("ℹ Info"),
+            PreviewTab::Image => tr("🖼 Image"),
+            PreviewTab::Text => tr("📝 Text"),
+            PreviewTab::Page => tr("📄 Page"),
+            PreviewTab::Media => tr("🎵 Cover"),
+            PreviewTab::FontSample => tr("Aa Preview"),
+            PreviewTab::Glyphs => tr("🔣 Glyphs"),
         }
     }
 }
@@ -123,14 +124,14 @@ impl Content {
     /// What the file type adds to the Info tab.
     fn facts(&self) -> Vec<(&'static str, String)> {
         match self {
-            Content::Image(_, [w, h]) => vec![("Dimensions", format!("{w} × {h} px"))],
-            Content::Page(_, pages) => vec![("Pages", pages.to_string())],
+            Content::Image(_, [w, h]) => vec![(tr("Dimensions"), format!("{w} × {h} px"))],
+            Content::Page(_, pages) => vec![(tr("Pages"), pages.to_string())],
             Content::Text {
                 numbers, truncated, ..
             } => {
                 let lines = numbers.lines().count();
                 let more = if *truncated { "+" } else { "" };
-                vec![("Lines", format!("{lines}{more}"))]
+                vec![(tr("Lines"), format!("{lines}{more}"))]
             }
             Content::Media { info, .. } | Content::Font { info, .. } => info.clone(),
             Content::Folder {
@@ -138,11 +139,11 @@ impl Content {
                 files,
                 bytes,
             } => vec![(
-                "Contains",
+                tr("Contains"),
                 format!(
                     "{}, {} ({})",
-                    format::count(*folders as u64, "folder"),
-                    format::count(*files as u64, "file"),
+                    ox_core::i18n::count(*folders as u64, "folder"),
+                    ox_core::i18n::count(*files as u64, "file"),
                     format::size(*bytes)
                 ),
             )],
@@ -222,12 +223,12 @@ fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
                     bytes: files.iter().map(|e| e.size).sum(),
                 }
             }
-            Err(e) => Loaded::Error(format!("Can't read this archive: {e}")),
+            Err(e) => Loaded::Error(ox_core::trf!("Can't read this archive: {e}", e = e)),
         };
     }
     if is_image(&entry) {
         if entry.size > MAX_IMAGE_BYTES {
-            return Loaded::Error("The image is too large to preview.".into());
+            return Loaded::Error(tr("The image is too large to preview.").into());
         }
         return image_result(image::open(&entry.path));
     }
@@ -253,7 +254,7 @@ fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
                 Err(e) => Loaded::Error(e.to_string()),
             },
             Err(e) if e.kind() == std::io::ErrorKind::Unsupported => Loaded::Nothing,
-            Err(e) => Loaded::Error(format!("Can't show this PDF: {e}")),
+            Err(e) => Loaded::Error(ox_core::trf!("Can't show this PDF: {e}", e = e)),
         };
     }
     if is_text(&entry) || entry.size == 0 {
@@ -282,7 +283,7 @@ fn image_result(img: image::ImageResult<image::DynamicImage>) -> Loaded {
                 [w, h],
             )
         }
-        Err(e) => Loaded::Error(format!("Can't read this image: {e}")),
+        Err(e) => Loaded::Error(ox_core::trf!("Can't read this image: {e}", e = e)),
     }
 }
 
@@ -301,7 +302,7 @@ fn load_from_archive(entry: &FileEntry, arc: &Path, inner: &Path) -> Loaded {
     }
     if is_image(entry) {
         if entry.size > MAX_IMAGE_BYTES {
-            return Loaded::Error("The image is too large to preview.".into());
+            return Loaded::Error(tr("The image is too large to preview.").into());
         }
         return match archive::read_entry(arc, inner, MAX_IMAGE_BYTES) {
             Ok(bytes) => image_result(image::load_from_memory(&bytes)),
@@ -311,7 +312,7 @@ fn load_from_archive(entry: &FileEntry, arc: &Path, inner: &Path) -> Loaded {
     match archive::read_entry(arc, inner, MAX_TEXT_BYTES as u64 + 1) {
         Ok(buf) => match text_from_bytes(buf) {
             t @ Loaded::Text { .. } => t,
-            _ if is_text(entry) => Loaded::Error("This file isn't plain text.".into()),
+            _ if is_text(entry) => Loaded::Error(tr("This file isn't plain text.").into()),
             other => other,
         },
         Err(e) => Loaded::Error(e.to_string()),
@@ -360,10 +361,10 @@ fn media_info(path: &Path, video: bool) -> Option<Loaded> {
     let tag = file.primary_tag().or_else(|| file.first_tag());
     if let Some(tag) = tag {
         let fields = [
-            ("Title", tag.title()),
-            ("Artist", tag.artist()),
-            ("Album", tag.album()),
-            ("Genre", tag.genre()),
+            (tr("Title"), tag.title()),
+            (tr("Artist"), tag.artist()),
+            (tr("Album"), tag.album()),
+            (tr("Genre"), tag.genre()),
         ];
         for (name, value) in fields {
             if let Some(v) = value.filter(|v| !v.trim().is_empty()) {
@@ -371,14 +372,14 @@ fn media_info(path: &Path, video: bool) -> Option<Loaded> {
             }
         }
         if let Some(date) = tag.date() {
-            info.push(("Year", date.year.to_string()));
+            info.push((tr("Year"), date.year.to_string()));
         }
         if let Some(track) = tag.track() {
             let total = tag
                 .track_total()
                 .map(|t| format!(" of {t}"))
                 .unwrap_or_default();
-            info.push(("Track", format!("{track}{total}")));
+            info.push((tr("Track"), format!("{track}{total}")));
         }
     }
     let props = file.properties();
@@ -390,13 +391,13 @@ fn media_info(path: &Path, video: bool) -> Option<Loaded> {
         } else {
             format!("{m}:{s:02}")
         };
-        info.push(("Length", length));
+        info.push((tr("Length"), length));
     }
     // For videos these describe the sound track.
     let (bitrate, rate_label) = if video {
-        ("Audio bitrate", "Audio")
+        (tr("Audio bitrate"), tr("Audio"))
     } else {
-        ("Bitrate", "Sample rate")
+        (tr("Bitrate"), tr("Sample rate"))
     };
     if let Some(b) = props.audio_bitrate().filter(|b| *b > 0) {
         info.push((bitrate, format!("{b} kbps")));
@@ -406,11 +407,11 @@ fn media_info(path: &Path, video: bool) -> Option<Loaded> {
     }
     if let Some(ch) = props.channels() {
         let ch = match ch {
-            1 => "Mono".to_owned(),
-            2 => "Stereo".to_owned(),
-            n => format!("{n} channels"),
+            1 => tr("Mono").to_owned(),
+            2 => tr("Stereo").to_owned(),
+            n => ox_core::trf!("{n} channels", n = n),
         };
-        info.push(("Channels", ch));
+        info.push((tr("Channels"), ch));
     }
     let cover = tag
         .and_then(|t| t.pictures().first())
@@ -444,33 +445,36 @@ fn font_info(path: &Path) -> Option<Loaded> {
     let mut info: Vec<(&'static str, String)> = Vec::new();
     let family = name(name_id::TYPOGRAPHIC_FAMILY).or_else(|| name(name_id::FAMILY));
     for (label, value) in [
-        ("Family", family),
-        ("Style", name(name_id::SUBFAMILY)),
-        ("Full name", name(name_id::FULL_NAME)),
-        ("Version", name(name_id::VERSION)),
-        ("Designer", name(name_id::DESIGNER)),
-        ("Foundry", name(name_id::MANUFACTURER)),
+        (tr("Family"), family),
+        (tr("Style"), name(name_id::SUBFAMILY)),
+        (tr("Full name"), name(name_id::FULL_NAME)),
+        (tr("Version"), name(name_id::VERSION)),
+        (tr("Designer"), name(name_id::DESIGNER)),
+        (tr("Foundry"), name(name_id::MANUFACTURER)),
     ] {
         if let Some(v) = value {
             info.push((label, v));
         }
     }
-    info.push(("Weight", face.weight().to_number().to_string()));
+    info.push((tr("Weight"), face.weight().to_number().to_string()));
     let mut traits = Vec::new();
     if face.is_italic() {
-        traits.push("italic");
+        traits.push(tr("italic"));
     }
     if face.is_monospaced() {
-        traits.push("monospaced");
+        traits.push(tr("monospaced"));
     }
     if face.is_variable() {
-        traits.push("variable");
+        traits.push(tr("variable"));
     }
     if !traits.is_empty() {
-        info.push(("Traits", traits.join(", ")));
+        info.push((tr("Traits"), traits.join(", ")));
     }
     if let Some(n) = ttf_parser::fonts_in_collection(&data).filter(|n| *n > 1) {
-        info.push(("Fonts in file", format!("{n} (showing the first)")));
+        info.push((
+            tr("Fonts in file"),
+            ox_core::trf!("{n} (showing the first)", n = n),
+        ));
     }
 
     let mut chars = std::collections::BTreeSet::new();
@@ -487,10 +491,10 @@ fn font_info(path: &Path) -> Option<Loaded> {
             });
         }
     }
-    info.push(("Glyphs", face.number_of_glyphs().to_string()));
-    info.push(("Characters", chars.len().to_string()));
+    info.push((tr("Glyphs"), face.number_of_glyphs().to_string()));
+    info.push((tr("Characters"), chars.len().to_string()));
     if let Some(c) = name(name_id::COPYRIGHT_NOTICE) {
-        info.push(("Copyright", c));
+        info.push((tr("Copyright"), c));
     }
     Some(Loaded::Font {
         data,
@@ -608,7 +612,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             ui.add_space(40.0);
             ui.vertical_centered(|ui| {
                 ui.label(RichText::new("👁").size(32.0).weak());
-                ui.label(RichText::new("Select a file to preview it.").weak());
+                ui.label(RichText::new(tr("Select a file to preview it.")).weak());
             });
         }
         [entry] if !in_bin => {
@@ -632,17 +636,17 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             let files: Vec<&FileEntry> = many.iter().filter(|e| !e.is_dir).collect();
             let bytes: u64 = files.iter().map(|e| e.size).sum();
             ui.label(
-                RichText::new(format!(
-                    "{} selected",
-                    format::count(many.len() as u64, "item")
+                RichText::new(ox_core::trf!(
+                    "{v1} selected",
+                    v1 = ox_core::i18n::count(many.len() as u64, "item")
                 ))
                 .strong()
                 .size(15.0),
             );
             ui.label(format!(
                 "{} · {} · {}",
-                format::count((many.len() - files.len()) as u64, "folder"),
-                format::count(files.len() as u64, "file"),
+                ox_core::i18n::count((many.len() - files.len()) as u64, "folder"),
+                ox_core::i18n::count(files.len() as u64, "file"),
                 format::size(bytes)
             ));
         }
@@ -702,21 +706,21 @@ fn tabbed(
                 let mut facts = content.facts();
                 if let Some(t) = total.filter(|t| t.folders > 0) {
                     facts.push((
-                        "Total size",
+                        tr("Total size"),
                         format!(
                             "{} ({}, {})",
                             format::size(t.bytes),
-                            format::count(t.files, "file"),
-                            format::count(t.folders, "folder")
+                            ox_core::i18n::count(t.files, "file"),
+                            ox_core::i18n::count(t.folders, "folder")
                         ),
                     ));
                 }
                 info_grid(ui, e, facts, date_fmt);
                 ui.add_space(8.0);
                 let label = match content {
-                    Content::Media { .. } => "▶ Play",
-                    Content::Folder { .. } => "📂 Open",
-                    _ => "📂 Open with default app",
+                    Content::Media { .. } => tr("▶ Play"),
+                    Content::Folder { .. } => tr("📂 Open"),
+                    _ => tr("📂 Open with default app"),
                 };
                 if ui.button(label).clicked() {
                     actions.push(Action::Open(e.path.clone()));
@@ -738,35 +742,39 @@ fn tabbed(
 /// Name, size, place, dates and attributes, then the type's own details.
 fn info_grid(ui: &mut Ui, e: &FileEntry, facts: Vec<(&'static str, String)>, date_fmt: &str) {
     let mut rows: Vec<(&str, String)> = Vec::new();
-    rows.push(("Name", e.name.clone()));
-    rows.push(("Type", e.type_label()));
+    rows.push((tr("Name"), e.name.clone()));
+    rows.push((tr("Type"), e.type_label()));
     if !e.is_dir {
         rows.push((
-            "Size",
-            format!("{} ({} bytes)", format::size(e.size), group_digits(e.size)),
+            tr("Size"),
+            ox_core::trf!(
+                "{v1} ({v2} bytes)",
+                v1 = format::size(e.size),
+                v2 = group_digits(e.size)
+            ),
         ));
     }
     if let Some(parent) = e.path.parent() {
-        rows.push(("Location", parent.display().to_string()));
+        rows.push((tr("Location"), parent.display().to_string()));
     }
     if let Some(t) = e.modified {
-        rows.push(("Modified", format::time(t, date_fmt)));
+        rows.push((tr("Modified"), format::time(t, date_fmt)));
     }
     if let Some(t) = e.created {
-        rows.push(("Created", format::time(t, date_fmt)));
+        rows.push((tr("Created"), format::time(t, date_fmt)));
     }
     let mut attrs = Vec::new();
     if e.hidden {
-        attrs.push("hidden");
+        attrs.push(tr("hidden"));
     }
     if e.readonly {
-        attrs.push("read-only");
+        attrs.push(tr("read-only"));
     }
     if e.is_symlink {
-        attrs.push("link");
+        attrs.push(tr("link"));
     }
     if !attrs.is_empty() {
-        rows.push(("Attributes", attrs.join(", ")));
+        rows.push((tr("Attributes"), attrs.join(", ")));
     }
     rows.extend(facts);
     egui::Grid::new("preview_info")
@@ -800,11 +808,11 @@ const SAMPLE: &str = "The quick brown fox jumps over the lazy dog";
 fn font_sample(ui: &mut Ui, family: &str, sample: &mut String) {
     use egui::{FontFamily, FontId};
     if sample.is_empty() {
-        *sample = SAMPLE.to_owned();
+        *sample = tr(SAMPLE).to_owned();
     }
     ui.add(
         egui::TextEdit::singleline(sample)
-            .hint_text("Type to try the font")
+            .hint_text(tr("Type to try the font"))
             .desired_width(f32::INFINITY),
     );
     ui.add_space(6.0);
@@ -828,9 +836,9 @@ fn glyph_grid(ui: &mut Ui, family: &str, chars: &[char], actions: &mut Vec<Actio
     use egui::{Align2, FontFamily, FontId, Sense};
     const CELL: egui::Vec2 = egui::vec2(44.0, 48.0);
     ui.label(
-        RichText::new(format!(
-            "{} · click one to copy it",
-            format::count(chars.len() as u64, "character")
+        RichText::new(ox_core::trf!(
+            "{v1} · click one to copy it",
+            v1 = ox_core::i18n::count(chars.len() as u64, "character")
         ))
         .weak()
         .small(),
@@ -880,7 +888,11 @@ fn glyph_grid(ui: &mut Ui, family: &str, chars: &[char], actions: &mut Vec<Actio
                     let resp = resp.on_hover_text(format!("U+{:04X}", c as u32));
                     if resp.clicked() {
                         ui.ctx().copy_text(c.to_string());
-                        actions.push(Action::Toast(format!("Copied “{c}” (U+{:04X})", c as u32)));
+                        actions.push(Action::Toast(ox_core::trf!(
+                            "Copied “{c}” ({code})",
+                            c = c,
+                            code = format!("U+{:04X}", c as u32)
+                        )));
                     }
                 }
             }
@@ -926,7 +938,7 @@ fn body(ui: &mut Ui, content: &Content, e: &FileEntry) {
                 });
             if *truncated {
                 ui.label(
-                    RichText::new("Only the beginning of the file is shown.")
+                    RichText::new(tr("Only the beginning of the file is shown."))
                         .weak()
                         .small(),
                 );
@@ -936,7 +948,11 @@ fn body(ui: &mut Ui, content: &Content, e: &FileEntry) {
             let avail = ui.available_width();
             let size = tex.size_vec2();
             ui.add(egui::Image::new((tex.id(), size * (avail / size.x))).corner_radius(4.0));
-            ui.label(RichText::new(format!("Page 1 of {pages}")).weak().small());
+            ui.label(
+                RichText::new(ox_core::trf!("Page 1 of {pages}", pages = pages))
+                    .weak()
+                    .small(),
+            );
         }
         Content::Media {
             cover: Some(tex), ..

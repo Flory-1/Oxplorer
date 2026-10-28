@@ -126,13 +126,12 @@ impl QuickAccess {
     pub fn save_search(&mut self, query: &str, root: Option<PathBuf>) {
         self.saved_searches
             .retain(|s| !(s.query == query && s.root == root));
-        let place = root
-            .as_deref()
-            .map(display_name)
-            .map(|p| format!(" in {p}"))
-            .unwrap_or_default();
+        let name = match root.as_deref() {
+            Some(r) => crate::trf!("{query} in {place}", query = query, place = display_name(r)),
+            None => query.to_owned(),
+        };
         self.saved_searches.push(SavedSearch {
-            name: format!("{query}{place}"),
+            name,
             query: query.to_owned(),
             root,
         });
@@ -188,7 +187,7 @@ pub fn known_folders() -> Vec<(&'static str, PathBuf)> {
         ("Videos", dirs::video_dir()),
     ]
     .into_iter()
-    .filter_map(|(n, p)| p.filter(|p| p.is_dir()).map(|p| (n, p)))
+    .filter_map(|(n, p)| p.filter(|p| p.is_dir()).map(|p| (crate::i18n::t(n), p)))
     .collect()
 }
 
@@ -223,9 +222,9 @@ impl Drive {
             format!("{} ({mount})", crate::network::share_title(remote))
         } else if self.label.is_empty() {
             if self.removable {
-                format!("USB Drive ({mount})")
+                crate::trf!("USB Drive ({mount})", mount = mount)
             } else {
-                format!("Local Disk ({mount})")
+                crate::trf!("Local Disk ({mount})", mount = mount)
             }
         } else if cfg!(windows) {
             format!("{} ({mount})", self.label)

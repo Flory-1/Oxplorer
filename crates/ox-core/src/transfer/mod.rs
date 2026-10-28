@@ -43,10 +43,10 @@ pub enum TransferKind {
 
 impl TransferKind {
     pub fn verb(self) -> &'static str {
-        match self {
+        crate::i18n::t(match self {
             Self::Copy => "Copying",
             Self::Move => "Moving",
-        }
+        })
     }
 }
 
@@ -74,13 +74,13 @@ impl ConflictPolicy {
     ];
 
     pub fn label(self) -> &'static str {
-        match self {
+        crate::i18n::t(match self {
             Self::Ask => "Ask me",
             Self::Overwrite => "Replace",
             Self::Skip => "Skip",
             Self::KeepBoth => "Keep both",
             Self::OverwriteIfNewer => "Replace if newer",
-        }
+        })
     }
 }
 

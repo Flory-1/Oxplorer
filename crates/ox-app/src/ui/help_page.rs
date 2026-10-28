@@ -2,6 +2,7 @@
 //! search syntax, keyboard shortcuts and answers to common questions.
 
 use egui::{vec2, RichText, Ui};
+use ox_core::i18n::t as tr;
 
 use crate::app::OxApp;
 use crate::shortcuts::{self, COMMANDS};
@@ -29,8 +30,9 @@ struct Topic {
 }
 
 impl Topic {
+    /// Searches the text as shown, i.e. in the current language.
     fn matches(&self, query: &str) -> bool {
-        let has = |s: &str| s.to_lowercase().contains(query);
+        let has = |s: &'static str| tr(s).to_lowercase().contains(query);
         has(self.title)
             || self.blocks.iter().any(|b| match b {
                 Block::Text(t) => has(t),
@@ -347,17 +349,17 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         .exact_size(210.0)
         .frame(egui::Frame::new().inner_margin(egui::Margin::same(14)))
         .show(ui, |ui| {
-            ui.heading(RichText::new("Help").strong());
+            ui.heading(RichText::new(tr("Help")).strong());
             ui.add_space(10.0);
             ui.add(
                 egui::TextEdit::singleline(&mut app.ui.help.filter)
-                    .hint_text("🔍 Find a topic")
+                    .hint_text(tr("🔍 Find a topic"))
                     .desired_width(180.0),
             );
             ui.add_space(8.0);
             for (i, name) in SECTIONS.iter().enumerate() {
                 let selected = app.ui.help.section == i && app.ui.help.filter.is_empty();
-                let button = egui::Button::new(RichText::new(*name).size(14.0))
+                let button = egui::Button::new(RichText::new(tr(name)).size(14.0))
                     .selected(selected)
                     .frame(selected)
                     .min_size(vec2(180.0, 30.0));
@@ -383,7 +385,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                     ui.add_space(24.0);
                     ui.separator();
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("More help and bug reports:").weak());
+                        ui.label(RichText::new(tr("More help and bug reports:")).weak());
                         ui.hyperlink_to(
                             "github.com/Flory-1/Oxplorer",
                             "https://github.com/Flory-1/Oxplorer/issues",
@@ -394,7 +396,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
 }
 
 fn section(app: &OxApp, ui: &mut Ui, index: usize) {
-    let title = SECTIONS[index];
+    let title = tr(SECTIONS[index]);
     let title = &title[title.find(' ').map_or(0, |i| i + 1)..];
     ui.heading(RichText::new(title).size(20.0).strong());
     ui.add_space(8.0);
@@ -411,13 +413,13 @@ fn results(app: &OxApp, ui: &mut Ui, query: &str) {
     let found: Vec<&Topic> = TOPICS.iter().filter(|t| t.matches(query)).collect();
     let keys = COMMANDS
         .iter()
-        .any(|c| c.label.to_lowercase().contains(query));
+        .any(|c| tr(c.label).to_lowercase().contains(query));
     if found.is_empty() && !keys {
-        ui.label(RichText::new("Nothing found. Try another word.").weak());
+        ui.label(RichText::new(tr("Nothing found. Try another word.")).weak());
         return;
     }
     for topic in found {
-        let section = SECTIONS[topic.section];
+        let section = tr(SECTIONS[topic.section]);
         ui.label(
             RichText::new(&section[section.find(' ').map_or(0, |i| i + 1)..])
                 .weak()
@@ -426,24 +428,24 @@ fn results(app: &OxApp, ui: &mut Ui, query: &str) {
         topic_ui(ui, topic);
     }
     if keys {
-        ui.label(RichText::new("Keyboard shortcuts").weak().small());
+        ui.label(RichText::new(tr("Keyboard shortcuts")).weak().small());
         shortcut_rows(app, ui, Some(query));
     }
 }
 
 fn topic_ui(ui: &mut Ui, topic: &Topic) {
-    ui.label(RichText::new(topic.title).size(16.0).strong());
+    ui.label(RichText::new(tr(topic.title)).size(16.0).strong());
     ui.add_space(2.0);
     for block in topic.blocks {
         match block {
             Block::Text(t) => {
-                ui.add(egui::Label::new(*t).wrap());
+                ui.add(egui::Label::new(tr(t)).wrap());
             }
             Block::List(items) => {
                 for item in *items {
                     ui.horizontal_top(|ui| {
                         ui.label("•");
-                        ui.add(egui::Label::new(*item).wrap());
+                        ui.add(egui::Label::new(tr(item)).wrap());
                     });
                 }
             }
@@ -455,7 +457,7 @@ fn topic_ui(ui: &mut Ui, topic: &Topic) {
                     .show(ui, |ui| {
                         for (keys, what) in *rows {
                             ui.monospace(*keys);
-                            ui.add(egui::Label::new(*what).wrap());
+                            ui.add(egui::Label::new(tr(what)).wrap());
                             ui.end_row();
                         }
                     });
@@ -469,27 +471,33 @@ fn topic_ui(ui: &mut Ui, topic: &Topic) {
 /// The shortcuts in effect, including the user's own.
 fn shortcut_table(app: &OxApp, ui: &mut Ui) {
     ui.label(
-        RichText::new("These are the keys in use now. Change them in Settings → Shortcuts.").weak(),
+        RichText::new(tr(
+            "These are the keys in use now. Change them in Settings → Shortcuts.",
+        ))
+        .weak(),
     );
     ui.add_space(6.0);
     shortcut_rows(app, ui, None);
     ui.add_space(12.0);
-    ui.label(RichText::new("Always available").size(16.0).strong());
+    ui.label(RichText::new(tr("Always available")).size(16.0).strong());
     egui::Grid::new("help_fixed_keys")
         .striped(true)
         .num_columns(2)
         .spacing(vec2(16.0, 4.0))
         .show(ui, |ui| {
             for (k, d) in [
-                ("Enter", "Open the selection"),
+                (tr("Enter"), tr("Open the selection")),
                 (
-                    "Arrow keys, Home, End",
-                    "Move the selection (with Shift: extend it)",
+                    tr("Arrow keys, Home, End"),
+                    tr("Move the selection (with Shift: extend it)"),
                 ),
-                ("Type letters", "Jump to the item with that name"),
-                ("Mouse side buttons", "Back / forward"),
-                ("Middle click", "Open a folder in a new tab / close a tab"),
-                ("Ctrl+Shift+V (terminal)", "Paste into the terminal"),
+                (tr("Type letters"), tr("Jump to the item with that name")),
+                (tr("Mouse side buttons"), tr("Back / forward")),
+                (
+                    tr("Middle click"),
+                    tr("Open a folder in a new tab / close a tab"),
+                ),
+                ("Ctrl+Shift+V (terminal)", tr("Paste into the terminal")),
             ] {
                 ui.monospace(k);
                 ui.label(d);
@@ -505,7 +513,7 @@ fn shortcut_rows(app: &OxApp, ui: &mut Ui, filter: Option<&str>) {
         .spacing(vec2(16.0, 4.0))
         .show(ui, |ui| {
             for c in COMMANDS {
-                if filter.is_some_and(|q| !c.label.to_lowercase().contains(q)) {
+                if filter.is_some_and(|q| !tr(c.label).to_lowercase().contains(q)) {
                     continue;
                 }
                 let keys: Vec<String> = app
@@ -520,7 +528,7 @@ fn shortcut_rows(app: &OxApp, ui: &mut Ui, filter: Option<&str>) {
                     keys.join(" / ")
                 };
                 ui.monospace(keys);
-                ui.label(c.label);
+                ui.label(tr(c.label));
                 ui.end_row();
             }
         });
@@ -542,5 +550,22 @@ mod tests {
         }
         assert!(TOPICS.iter().any(|t| t.matches("node_modules")));
         assert!(!TOPICS.iter().any(|t| t.matches("zzzz-nothing")));
+    }
+
+    #[test]
+    fn every_topic_is_translated() {
+        let de = |s: &str| assert!(ox_core::i18n::german(s).is_some(), "no German for {s:?}");
+        SECTIONS.iter().for_each(|s| de(s));
+        for t in TOPICS {
+            de(t.title);
+            for block in t.blocks {
+                match block {
+                    Block::Text(s) => de(s),
+                    Block::List(items) => items.iter().for_each(|s| de(s)),
+                    // The first column is something to type and stays as is.
+                    Block::Table(rows) => rows.iter().for_each(|(_, what)| de(what)),
+                }
+            }
+        }
     }
 }

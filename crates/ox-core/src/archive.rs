@@ -112,7 +112,8 @@ pub fn index(archive: &Path) -> io::Result<Arc<Index>> {
             return Ok(idx.clone());
         }
     }
-    let kind = kind(archive).ok_or_else(|| io::Error::other("Not a supported archive."))?;
+    let kind = kind(archive)
+        .ok_or_else(|| io::Error::other(crate::i18n::t("Not a supported archive.")))?;
     let idx = Arc::new(match kind {
         Kind::Zip => zip_index(archive)?,
         Kind::SevenZip => sevenz_index(archive)?,
@@ -257,7 +258,7 @@ pub fn list(archive: &Path, inner: &Path) -> io::Result<Vec<FileEntry>> {
     if !idx.is_dir(inner) {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            "This folder doesn't exist in the archive.",
+            crate::i18n::t("This folder doesn't exist in the archive."),
         ));
     }
     let base = archive.join(inner);
@@ -297,7 +298,12 @@ pub fn read_entry(archive: &Path, inner: &Path, max: u64) -> io::Result<Vec<u8>>
         .entries
         .iter()
         .find(|e| e.path == inner && !e.is_dir)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Not found in the archive."))?;
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                crate::i18n::t("Not found in the archive."),
+            )
+        })?;
     let mut buf = Vec::new();
     match kind(archive) {
         Some(Kind::Zip) => {
@@ -321,7 +327,7 @@ pub fn read_entry(archive: &Path, inner: &Path, max: u64) -> io::Result<Vec<u8>>
                 }
             }
         }
-        None => return Err(io::Error::other("Not a supported archive.")),
+        None => return Err(io::Error::other(crate::i18n::t("Not a supported archive."))),
     }
     Ok(buf)
 }
@@ -443,7 +449,7 @@ pub fn extract(
                 }
             }
         }
-        None => return Err(io::Error::other("Not a supported archive.")),
+        None => return Err(io::Error::other(crate::i18n::t("Not a supported archive."))),
     }
     Ok(targets.into_iter().map(|(_, out)| out).collect())
 }

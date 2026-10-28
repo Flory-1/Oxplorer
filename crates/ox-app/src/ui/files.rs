@@ -1,5 +1,6 @@
 //! The file view: details list and grid, with selection, drag & drop and context menus.
 
+use ox_core::i18n::t as tr;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -170,7 +171,11 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let tab = app.tabs.active_mut();
 
     if let Some(err) = &tab.view.error {
-        centered_message(ui, "⚠", &format!("Can't open this folder.\n{err}"));
+        centered_message(
+            ui,
+            "⚠",
+            &ox_core::trf!("Can't open this folder.\n{err}", err = err),
+        );
         tab.view.bin = bin;
         app.actions.extend(actions);
         return;
@@ -218,23 +223,23 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             centered_message(
                 ui,
                 "🏷",
-                &format!(
-                    "Nothing is tagged \"{}\" yet.\nRight-click files or folders → Tags.",
-                    cx.tags.label(*c)
+                &ox_core::trf!(
+                    "Nothing is tagged \"{v1}\" yet.\nRight-click files or folders → Tags.",
+                    v1 = cx.tags.label(*c)
                 ),
             );
         } else if cx.is_search {
-            centered_message(ui, "🔍", "No results.");
+            centered_message(ui, "🔍", tr("No results."));
         } else if cx.is_bin && tab.filter.is_empty() {
-            centered_message(ui, "🗑", "The Recycle Bin is empty.");
+            centered_message(ui, "🗑", tr("The Recycle Bin is empty."));
         } else if !tab.filter.is_empty() {
             centered_message(
                 ui,
                 "🔍",
-                "No items match your filter.\nPress Enter to search sub-folders too.",
+                tr("No items match your filter.\nPress Enter to search sub-folders too."),
             );
         } else {
-            centered_message(ui, "📂", "This folder is empty.");
+            centered_message(ui, "📂", tr("This folder is empty."));
         }
     }
 
@@ -245,20 +250,26 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         let all: Vec<PathBuf> = tab.view.entries.iter().map(|e| e.path.clone()).collect();
         bg.context_menu(|ui| {
             if ui
-                .add_enabled(!all.is_empty(), egui::Button::new("♻ Restore all items"))
+                .add_enabled(
+                    !all.is_empty(),
+                    egui::Button::new(tr("♻ Restore all items")),
+                )
                 .clicked()
             {
                 actions.push(Action::RestoreFromBin(all.clone()));
             }
             if ui
-                .add_enabled(!all.is_empty(), egui::Button::new("🗑 Empty Recycle Bin"))
+                .add_enabled(
+                    !all.is_empty(),
+                    egui::Button::new(tr("🗑 Empty Recycle Bin")),
+                )
                 .clicked()
             {
                 actions.push(Action::EmptyBin);
             }
             if ui
                 .add(
-                    egui::Button::new("🔄 Refresh")
+                    egui::Button::new(tr("🔄 Refresh"))
                         .shortcut_text(shortcuts::label(Command::Refresh)),
                 )
                 .clicked()
@@ -270,13 +281,13 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     if let Location::Archive { archive, .. } = tab.location() {
         let archive = archive.clone();
         bg.context_menu(|ui| {
-            if ui.button("📦 Extract all to a new folder").clicked() {
+            if ui.button(tr("📦 Extract all to a new folder")).clicked() {
                 actions.push(Action::ExtractArchive {
                     archive: archive.clone(),
                     own_folder: true,
                 });
             }
-            if ui.button("📂 Open the archive's folder").clicked() {
+            if ui.button(tr("📂 Open the archive's folder")).clicked() {
                 if let Some(parent) = archive.parent() {
                     actions.push(Action::Navigate(Location::Folder(parent.to_path_buf())));
                 }
@@ -307,15 +318,15 @@ fn filter_chips(ui: &mut Ui, root: &Option<PathBuf>, query: &str, actions: &mut 
     const DATE: &[&str] = &["modified:", "date:"];
     const SIZE: &[&str] = &["size:"];
     let chips: [(&str, &str, u8, &[&str]); 12] = [
-        ("📁 Folders", "type:folder", 0, KIND),
-        ("🖼 Images", "kind:image", 0, KIND),
-        ("🎬 Videos", "kind:video", 0, KIND),
-        ("🎵 Audio", "kind:audio", 0, KIND),
-        ("📄 Documents", "kind:document", 0, KIND),
-        ("📦 Archives", "kind:archive", 0, KIND),
-        ("Today", "modified:today", 1, DATE),
-        ("This week", "modified:week", 1, DATE),
-        ("This month", "modified:month", 1, DATE),
+        (tr("📁 Folders"), "type:folder", 0, KIND),
+        (tr("🖼 Images"), "kind:image", 0, KIND),
+        (tr("🎬 Videos"), "kind:video", 0, KIND),
+        (tr("🎵 Audio"), "kind:audio", 0, KIND),
+        (tr("📄 Documents"), "kind:document", 0, KIND),
+        (tr("📦 Archives"), "kind:archive", 0, KIND),
+        (tr("Today"), "modified:today", 1, DATE),
+        (tr("This week"), "modified:week", 1, DATE),
+        (tr("This month"), "modified:month", 1, DATE),
         ("> 10 MB", "size:>10mb", 2, SIZE),
         ("> 100 MB", "size:>100mb", 2, SIZE),
         ("> 1 GB", "size:>1gb", 2, SIZE),
@@ -342,8 +353,8 @@ fn filter_chips(ui: &mut Ui, root: &Option<PathBuf>, query: &str, actions: &mut 
                 }
                 ui.separator();
                 if ui
-                    .button("☆ Save search")
-                    .on_hover_text("Keep this search in the sidebar")
+                    .button(tr("☆ Save search"))
+                    .on_hover_text(tr("Keep this search in the sidebar"))
                     .clicked()
                 {
                     actions.push(Action::SaveSearch(root.clone(), query.to_owned()));
@@ -401,25 +412,25 @@ fn details(
     );
     let mut x = header.left() + 8.0;
     let mut cols: Vec<(&str, f32, Option<SortKey>)> =
-        vec![("Name", columns.name, Some(SortKey::Name))];
+        vec![(tr("Name"), columns.name, Some(SortKey::Name))];
     if columns.folder > 0.0 {
         let label = if cx.is_bin {
-            "Original location"
+            tr("Original location")
         } else {
-            "Folder"
+            tr("Folder")
         };
         cols.push((label, columns.folder, None));
     }
     let date_label = if cx.is_bin {
-        "Date deleted"
+        tr("Date deleted")
     } else {
-        "Date modified"
+        tr("Date modified")
     };
     cols.extend([
-        ("Git", columns.git, None),
+        (tr("Git"), columns.git, None),
         (date_label, columns.date, Some(SortKey::Modified)),
-        ("Type", columns.kind, Some(SortKey::Type)),
-        ("Size", columns.size, Some(SortKey::Size)),
+        (tr("Type"), columns.kind, Some(SortKey::Type)),
+        (tr("Size"), columns.size, Some(SortKey::Size)),
     ]);
     for (label, w, key) in cols.into_iter().filter(|c| c.1 > 0.0) {
         let rect = Rect::from_min_size(egui::pos2(x, header.top()), vec2(w, header.height()));
@@ -874,12 +885,12 @@ fn item_context_menu(
     resp.context_menu(|ui| {
         let selection = view.selected_paths();
         if cx.is_bin {
-            if ui.button("♻ Restore").clicked() {
+            if ui.button(tr("♻ Restore")).clicked() {
                 actions.push(Action::RestoreFromBin(selection.clone()));
             }
             if ui
                 .add(
-                    egui::Button::new("⛔ Delete permanently")
+                    egui::Button::new(tr("⛔ Delete permanently"))
                         .shortcut_text(shortcuts::label(Command::Delete)),
                 )
                 .clicked()
@@ -887,7 +898,7 @@ fn item_context_menu(
                 actions.push(Action::PurgeFromBin(selection.clone()));
             }
             ui.separator();
-            if ui.button("🔗 Copy original location").clicked() {
+            if ui.button(tr("🔗 Copy original location")).clicked() {
                 let originals = selection
                     .iter()
                     .filter_map(|p| cx.bin.get(p))
@@ -896,7 +907,7 @@ fn item_context_menu(
                 actions.push(Action::CopyPathText(originals));
             }
             if let Some(parent) = cx.bin.get(&e.path).map(|i| i.original_parent.clone()) {
-                if ui.button("📁 Open original folder").clicked() {
+                if ui.button(tr("📁 Open original folder")).clicked() {
                     actions.push(Action::Navigate(Location::Folder(parent)));
                 }
             }
@@ -905,7 +916,7 @@ fn item_context_menu(
         let single_dir = (selection.len() == 1 && e.is_dir).then_some(e.path.as_path());
         if cx.is_search {
             if let Some(parent) = e.path.parent() {
-                if ui.button("📁 Open file location").clicked() {
+                if ui.button(tr("📁 Open file location")).clicked() {
                     actions.push(Action::Navigate(Location::Folder(parent.to_path_buf())));
                 }
             }

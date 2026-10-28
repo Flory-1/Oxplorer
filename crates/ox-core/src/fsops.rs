@@ -97,16 +97,19 @@ pub const INVALID_NAME_CHARS: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>
 pub fn validate_name(name: &str) -> Result<(), String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
-        return Err("The name can't be empty.".into());
+        return Err(crate::i18n::t("The name can't be empty.").into());
     }
     if let Some(c) = name
         .chars()
         .find(|c| INVALID_NAME_CHARS.contains(c) || c.is_control())
     {
-        return Err(format!("A file name can't contain the character {c:?}."));
+        return Err(crate::trf!(
+            "A file name can't contain the character {c}.",
+            c = format!("{c:?}")
+        ));
     }
     if name.ends_with('.') || name.ends_with(' ') {
-        return Err("A file name can't end with a dot or a space.".into());
+        return Err(crate::i18n::t("A file name can't end with a dot or a space.").into());
     }
     let upper = trimmed.split('.').next().unwrap_or("").to_ascii_uppercase();
     const RESERVED: &[&str] = &[
@@ -131,7 +134,7 @@ pub fn rename(path: &Path, new_name: &str) -> io::Result<PathBuf> {
     if exists(&target) && !same_file {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
-            format!("\"{new_name}\" already exists."),
+            crate::trf!("\"{new_name}\" already exists.", new_name = new_name),
         ));
     }
     fs::rename(path, &target)?;

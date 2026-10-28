@@ -94,7 +94,7 @@ pub(super) fn build(job: &Job) -> Plan {
                 }
                 add_file(job, src.clone(), dst.clone(), &meta, &mut plan);
             }
-            Ok(_) => job.push_error(src, "Expected a file but found a folder."),
+            Ok(_) => job.push_error(src, crate::i18n::t("Expected a file but found a folder.")),
             Err(e) => job.push_error(src, e.to_string()),
         }
     }
@@ -115,7 +115,10 @@ pub(super) fn build(job: &Job) -> Plan {
         };
         let is_dir = meta.is_dir() && !is_link_dir(&meta);
         if is_dir && job.destination.starts_with(src) {
-            job.push_error(src, "The destination folder is inside the source folder.");
+            job.push_error(
+                src,
+                crate::i18n::t("The destination folder is inside the source folder."),
+            );
             continue;
         }
 
@@ -142,14 +145,17 @@ pub(super) fn build(job: &Job) -> Plan {
                 if !m.is_dir() {
                     job.push_error(
                         src,
-                        "A file with the same name as this folder already exists.",
+                        crate::i18n::t("A file with the same name as this folder already exists."),
                     );
                     continue;
                 }
             }
             scan_dir(job, src, &dst, &mut plan);
         } else if meta.is_dir() {
-            job.push_error(src, "Skipped a linked folder (symbolic link or junction).");
+            job.push_error(
+                src,
+                crate::i18n::t("Skipped a linked folder (symbolic link or junction)."),
+            );
         } else {
             add_file(job, src.clone(), dst, &meta, &mut plan);
         }
@@ -191,7 +197,7 @@ fn scan_dir(job: &Job, src: &Path, dst: &Path, plan: &mut Plan) {
             if is_link_dir(&meta) {
                 job.push_error(
                     &path,
-                    "Skipped a linked folder (symbolic link or junction).",
+                    crate::i18n::t("Skipped a linked folder (symbolic link or junction)."),
                 );
             } else {
                 scan_dir(job, &path, &target, plan);
@@ -338,9 +344,9 @@ fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) {
             if !verify::same_contents(&task.src, &task.dst, opts.buffer_size, &checkpoint)? {
                 // Never keep (or move away the original of) a bad copy.
                 let _ = fsops::remove_file_forced(&task.dst);
-                return Err(CopyError::Io(io::Error::other(
+                return Err(CopyError::Io(io::Error::other(crate::i18n::t(
                     "Verification failed: the copy differs from the original.",
-                )));
+                ))));
             }
             job.verified_files.fetch_add(1, Ordering::Relaxed);
         }
@@ -366,8 +372,8 @@ fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) {
 
 fn describe(e: &io::Error) -> String {
     match e.kind() {
-        io::ErrorKind::PermissionDenied => "Access denied.".into(),
-        io::ErrorKind::NotFound => "The file no longer exists.".into(),
+        io::ErrorKind::PermissionDenied => crate::i18n::t("Access denied.").into(),
+        io::ErrorKind::NotFound => crate::i18n::t("The file no longer exists.").into(),
         _ => e.to_string(),
     }
 }
