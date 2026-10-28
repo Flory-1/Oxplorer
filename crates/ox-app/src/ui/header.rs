@@ -11,6 +11,7 @@ use ox_core::settings::ViewMode;
 use super::{DragItems, DragTab};
 use crate::app::{Action, OxApp, TabAction};
 use crate::icons::Icon;
+use crate::shortcuts::{self, Command};
 use crate::tabs::{Location, TabGroup, GROUP_COLORS};
 
 const TAB_HEIGHT: f32 = 32.0;
@@ -78,7 +79,10 @@ fn tab_strip(app: &mut OxApp, ui: &mut Ui) {
                 .frame(false)
                 .min_size(vec2(28.0, TAB_HEIGHT)),
         );
-        if plus.on_hover_text("New tab (Ctrl+T)").clicked() {
+        if plus
+            .on_hover_text(shortcuts::hint("New tab", Command::NewTab))
+            .clicked()
+        {
             actions.push(Action::Tab(TabAction::New));
         }
     });
@@ -352,7 +356,7 @@ fn tab_widget(
         }
         ui.separator();
         if ui
-            .add(egui::Button::new("✖ Close").shortcut_text("Ctrl+W"))
+            .add(egui::Button::new("✖ Close").shortcut_text(shortcuts::label(Command::CloseTab)))
             .clicked()
         {
             actions.push(Action::Tab(TabAction::Close(id)));
@@ -379,17 +383,32 @@ fn nav_row(app: &mut OxApp, ui: &mut Ui) {
             .on_hover_text(tip)
             .clicked()
         };
-        if nav(ui, "⬅", tab.can_go_back(), "Back (Alt+Left)") {
+        if nav(
+            ui,
+            "⬅",
+            tab.can_go_back(),
+            &shortcuts::hint("Back", Command::Back),
+        ) {
             actions.push(Action::Back);
         }
-        if nav(ui, "➡", tab.can_go_forward(), "Forward (Alt+Right)") {
+        if nav(
+            ui,
+            "➡",
+            tab.can_go_forward(),
+            &shortcuts::hint("Forward", Command::Forward),
+        ) {
             actions.push(Action::Forward);
         }
         let can_up = !matches!(tab.location(), Location::Home);
-        if nav(ui, "⬆", can_up, "Up (Alt+Up)") {
+        if nav(ui, "⬆", can_up, &shortcuts::hint("Up", Command::Up)) {
             actions.push(Action::Up);
         }
-        if nav(ui, "🔄", true, "Refresh (F5)") {
+        if nav(
+            ui,
+            "🔄",
+            true,
+            &shortcuts::hint("Refresh", Command::Refresh),
+        ) {
             actions.push(Action::Refresh);
         }
 
@@ -750,7 +769,10 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
             ui.menu_button(RichText::new("➕ New").size(13.5), |ui| {
                 if let Some(f) = &folder {
                     if ui
-                        .add(egui::Button::new("📁 Folder").shortcut_text("Ctrl+Shift+N"))
+                        .add(
+                            egui::Button::new("📁 Folder")
+                                .shortcut_text(shortcuts::label(Command::NewFolder)),
+                        )
                         .clicked()
                     {
                         actions.push(Action::NewFolder(f.clone()));
@@ -788,18 +810,31 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 actions.push(Action::EmptyBin);
             }
         } else {
-            if btn(ui, has_sel, "✂", "Cut (Ctrl+X)") {
+            if btn(ui, has_sel, "✂", &shortcuts::hint("Cut", Command::Cut)) {
                 actions.push(Action::CutItems(selection.clone()));
             }
-            if btn(ui, has_sel, "📋", "Copy (Ctrl+C)") {
+            if btn(ui, has_sel, "📋", &shortcuts::hint("Copy", Command::Copy)) {
                 actions.push(Action::CopyItems(selection.clone()));
             }
-            if btn(ui, can_paste, "📥", "Paste (Ctrl+V)") {
+            if btn(
+                ui,
+                can_paste,
+                "📥",
+                &shortcuts::hint("Paste", Command::Paste),
+            ) {
                 if let Some(f) = &folder {
                     actions.push(Action::Paste(f.clone()));
                 }
             }
-            if btn(ui, has_sel, "✏", "Rename (F2) — several items: bulk rename") {
+            if btn(
+                ui,
+                has_sel,
+                "✏",
+                &format!(
+                    "{} — several items: bulk rename",
+                    shortcuts::hint("Rename", Command::Rename)
+                ),
+            ) {
                 if selection.len() == 1 {
                     actions.push(Action::Rename(selection[0].clone()));
                 } else {
@@ -864,14 +899,20 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 changed |= ui
                     .checkbox(
                         &mut app.settings.browsing.show_preview,
-                        "Preview pane (Alt+P)",
+                        shortcuts::hint("Preview pane", Command::TogglePreview),
                     )
                     .changed();
                 if changed {
                     actions.push(Action::SettingsChanged);
                 }
                 let mut split = app.tabs.panes.is_some();
-                if ui.checkbox(&mut split, "Split view (Ctrl+\\)").changed() {
+                if ui
+                    .checkbox(
+                        &mut split,
+                        shortcuts::hint("Split view", Command::ToggleSplit),
+                    )
+                    .changed()
+                {
                     actions.push(Action::Tab(TabAction::ToggleSplit));
                 }
             });
@@ -896,17 +937,32 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
         }
 
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if btn(ui, true, "⚙", "Settings (Ctrl+,)") {
+            if btn(
+                ui,
+                true,
+                "⚙",
+                &shortcuts::hint("Settings", Command::Settings),
+            ) {
                 actions.push(Action::OpenInNewTab(Location::Settings, true));
             }
-            if btn(ui, true, "⌨", "Command palette (Ctrl+Shift+P)") {
+            if btn(
+                ui,
+                true,
+                "⌨",
+                &shortcuts::hint("Command palette", Command::Palette),
+            ) {
                 app.ui.palette = Some(Default::default());
             }
             if btn(ui, true, "◧", "Toggle sidebar") {
                 app.settings.sidebar.visible = !app.settings.sidebar.visible;
                 actions.push(Action::SettingsChanged);
             }
-            if btn(ui, true, "◫", "Split view (Ctrl+\\)") {
+            if btn(
+                ui,
+                true,
+                "◫",
+                &shortcuts::hint("Split view", Command::ToggleSplit),
+            ) {
                 actions.push(Action::Tab(TabAction::ToggleSplit));
             }
             let jobs = app.engine.jobs().len();

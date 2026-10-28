@@ -178,6 +178,7 @@ crates/
   ox-app/             the egui/eframe desktop app ("oxplorer" binary)
     app.rs            state + action dispatcher + keyboard shortcuts
     tabs.rs           tabs, tab groups, history, session restore
+    shortcuts.rs      keyboard shortcuts: commands, defaults, the user's keys
     ui/               header (tabs, address, search, commands), sidebar,
                       home page, file view, preview pane, command palette,
                       settings page, transfers, dialogs
@@ -187,6 +188,9 @@ The UI is [egui](https://github.com/emilk/egui) (immediate mode, GPU
 rendered). That keeps the app a single small native `.exe` with no web runtime.
 
 ## Keyboard shortcuts
+
+All of these can be changed in **Settings → Shortcuts**: click a shortcut and press the new keys.
+Menus, tooltips and the command palette always show the keys in use.
 
 | Keys | Action |
 |---|---|
@@ -210,7 +214,7 @@ rendered). That keeps the app a single small native `.exe` with no web runtime.
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md). Next up: the rest of Phase 5 (terminal
-panel, custom shortcuts, 7z/rar, more previews), then Phase 6 polish with an
+panel, 7z/rar, more previews), then Phase 6 polish with an
 in-app Help page.
 
 ## License

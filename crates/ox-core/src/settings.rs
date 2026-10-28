@@ -271,6 +271,8 @@ pub struct Settings {
     pub transfer: Transfer,
     pub search: Search,
     pub sidebar: Sidebar,
+    /// Changed keyboard shortcuts: command name → keys ("" = none).
+    pub shortcuts: std::collections::BTreeMap<String, String>,
 }
 
 impl Settings {
