@@ -15,6 +15,47 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let current = app.tabs.active().location().clone();
     let accent = crate::theme::accent(&app.settings);
 
+    // Recycle Bin and Settings stay pinned at the bottom of the sidebar.
+    egui::Panel::bottom("sidebar_bottom")
+        .resizable(false)
+        .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(0, 6)))
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 1.0;
+            if ox_core::recycle::supported() {
+                let bin = item(
+                    ui,
+                    Icon::Glyph("🗑"),
+                    "Recycle Bin",
+                    None,
+                    current == Location::RecycleBin,
+                    accent,
+                )
+                .on_hover_text("Drop files here to move them to the Recycle Bin");
+                if bin.clicked() {
+                    actions.push(Action::Navigate(Location::RecycleBin));
+                }
+                if bin.middle_clicked() {
+                    actions.push(Action::OpenInNewTab(Location::RecycleBin, false));
+                }
+                let hovering = bin.dnd_hover_payload::<super::DragItems>().is_some();
+                if let Some(items) = bin.dnd_release_payload::<super::DragItems>() {
+                    actions.push(Action::MoveToBin(items.0.clone()));
+                }
+                highlight_drop(ui, &bin, hovering, accent);
+            }
+            let settings = item(
+                ui,
+                Icon::Glyph("⚙"),
+                "Settings",
+                None,
+                current == Location::Settings,
+                accent,
+            );
+            if settings.clicked() {
+                actions.push(Action::OpenInNewTab(Location::Settings, true));
+            }
+        });
+
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
@@ -169,43 +210,6 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                         }
                     });
                 }
-            }
-
-            if ox_core::recycle::supported() {
-                ui.add_space(6.0);
-                let bin = item(
-                    ui,
-                    Icon::Glyph("🗑"),
-                    "Recycle Bin",
-                    None,
-                    current == Location::RecycleBin,
-                    accent,
-                )
-                .on_hover_text("Drop files here to move them to the Recycle Bin");
-                if bin.clicked() {
-                    actions.push(Action::Navigate(Location::RecycleBin));
-                }
-                if bin.middle_clicked() {
-                    actions.push(Action::OpenInNewTab(Location::RecycleBin, false));
-                }
-                let hovering = bin.dnd_hover_payload::<super::DragItems>().is_some();
-                if let Some(items) = bin.dnd_release_payload::<super::DragItems>() {
-                    actions.push(Action::MoveToBin(items.0.clone()));
-                }
-                highlight_drop(ui, &bin, hovering, accent);
-            }
-
-            ui.add_space(12.0);
-            let settings = item(
-                ui,
-                Icon::Glyph("⚙"),
-                "Settings",
-                None,
-                current == Location::Settings,
-                accent,
-            );
-            if settings.clicked() {
-                actions.push(Action::OpenInNewTab(Location::Settings, true));
             }
         });
     app.actions.extend(actions);

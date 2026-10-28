@@ -77,6 +77,8 @@ pub struct Browsing {
     /// `chrono` format string for dates.
     pub date_format: String,
     pub show_status_bar: bool,
+    /// Show the preview pane on the right.
+    pub show_preview: bool,
     /// Refresh folders automatically when they change on disk.
     pub auto_refresh: bool,
 }
@@ -95,6 +97,7 @@ impl Default for Browsing {
             delete_to_trash: true,
             date_format: "%d.%m.%Y %H:%M".into(),
             show_status_bar: true,
+            show_preview: false,
             auto_refresh: true,
         }
     }

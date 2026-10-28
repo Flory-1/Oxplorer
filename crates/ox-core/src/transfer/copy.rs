@@ -77,11 +77,17 @@ mod imp {
         }
     }
 
-    /// Absolute paths get the `\\?\` prefix so paths longer than 260 characters work.
+    /// Paths get the `\\?\` prefix so paths longer than 260 characters work.
+    /// Windows doesn't normalise prefixed paths, so `/`, `.` and `..` are
+    /// resolved first (`GetFullPathNameW`).
     fn wide(path: &Path) -> Vec<u16> {
+        if path.as_os_str().to_string_lossy().starts_with(r"\\?\") {
+            return path.as_os_str().encode_wide().chain(Some(0)).collect();
+        }
+        let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
         let s = path.as_os_str().to_string_lossy();
-        let long: PathBuf = if s.starts_with(r"\\?\") || !path.is_absolute() {
-            path.to_path_buf()
+        let long: PathBuf = if !path.is_absolute() {
+            path.clone()
         } else if let Some(unc) = s.strip_prefix(r"\\") {
             PathBuf::from(format!(r"\\?\UNC\{unc}"))
         } else {
