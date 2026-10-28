@@ -23,4 +23,5 @@ arboard = "3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp", "ico", "tiff"] }
 egui_extras = { version = "0.37", default-features = false, features = ["syntect"] }
 lofty = "0.25"
+ttf-parser = "0.25"
 alacritty_terminal = { version = "0.26", default-features = false }

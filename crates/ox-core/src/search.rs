@@ -111,6 +111,7 @@ fn parse_kinds(value: &str) -> Vec<FileKind> {
             "code" | "source" => &[FileKind::Code],
             "text" => &[FileKind::Text],
             "app" | "apps" | "program" | "exe" | "executable" => &[FileKind::Executable],
+            "font" | "fonts" => &[FileKind::Font],
             _ => &[],
         };
         out.extend_from_slice(kinds);

@@ -107,15 +107,15 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 - ⏳ Live index updates from file system events (today the index is refreshed on a schedule)
 - ⏳ NTFS MFT reader (`FSCTL_ENUM_USN_DATA`) as a much faster index builder on Windows, plus USN journal for live updates (needs admin rights → optional helper service)
 
-## Phase 5 — Power-user features ⏳
+## Phase 5 — Power-user features ✅
 
 - ✅ Dual-pane / split view (Ctrl+\\): two panes side by side, each with its own tab; F6 or a click switches the focused pane, drag & drop between panes, narrow panes hide less important columns
 - ✅ Preview pane (Alt+P): images, text and code with line numbers, folder and multi-selection summaries
 - ✅ Preview pane extras: syntax highlighting for code and config files, PDF first page (Windows' built-in PDF renderer), audio/video details with cover art
+- ✅ Tabbed preview pane: Info first, then the file type's tabs; fonts get a sample text tab and a Glyphs grid
 - ✅ Bulk rename (F2 on several items): name patterns with `{name}`/`{n}`/`{date}` tokens, find & replace (text or regex), counters, case changes, live preview with conflict checks, all-or-nothing apply
 - ✅ Browse zip and tar (.tar, .tar.gz, .tgz) archives like folders, with previews; extract by drag & drop, copy/paste or *Extract here / Extract to*; *Compress to ZIP*
 - ✅ 7z archives (browse, preview, extract)
-- ⏳ rar archives (needs the non-free unrar library)
 - ✅ Folder size column: computed in the background (one walker, easy on HDDs), sub-folders cached on the way, refreshed when files change; sorting by size includes folders
 - ✅ Colour tags with custom names: tag from the context menu or palette, dots in the file view, a Tags section in the sidebar, tags follow renames and moves
 - ✅ Command palette (Ctrl+Shift+P / F1): fuzzy search over commands, favorites, drives, recent folders and saved searches
@@ -127,7 +127,6 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 
 - ⏳ Themes and theme import/export
 - ⏳ Localisation (English, German, …)
-- ⏳ Accessibility pass (screen reader, keyboard-only use)
-- ⏳ Auto-update
+- ⏳ Accessibility pass (keyboard-only use)
 - ⏳ In-app **Help** page (a tab like Settings) opened from the bottom of the sidebar: getting started, features, search syntax, keyboard shortcuts, FAQ (no separate documentation website)
 - ⏳ 1.0 release

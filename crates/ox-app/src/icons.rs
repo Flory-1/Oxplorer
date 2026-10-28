@@ -84,6 +84,7 @@ pub fn kind_color(kind: FileKind) -> Color32 {
         FileKind::Code => Color32::from_rgb(0x3d, 0x9b, 0xe9),
         FileKind::Text => Color32::from_rgb(0x8a, 0x93, 0xa3),
         FileKind::Executable => Color32::from_rgb(0x5b, 0x67, 0x7a),
+        FileKind::Font => Color32::from_rgb(0xd9, 0x6c, 0x3b),
         FileKind::Other => Color32::from_rgb(0x9a, 0xa0, 0xaa),
     }
 }
