@@ -30,7 +30,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          if ! cargo test --workspace 2>&1 | tee test-output.txt; then
+          if ! cargo test --workspace --no-fail-fast 2>&1 | tee test-output.txt; then
             # Publish failing tests as an annotation (readable without the raw log).
             details=$(grep -E "^(test .* FAILED|thread '.*' .*panicked|---- )" -A4 test-output.txt | head -60 | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')
             echo "::error title=Failing tests on ${{ matrix.os }}::${details}"

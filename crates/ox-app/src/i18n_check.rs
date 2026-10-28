@@ -97,7 +97,10 @@ fn parse_literal(src: &str, i: usize) -> (String, usize) {
 
 /// Literal arguments of translation calls (tests excluded).
 fn translated_literals(src: &str) -> Vec<String> {
-    let src = src.split("#[cfg(test)]").next().unwrap_or(src);
+    // `include_str!` gives the file as checked out: with CRLF line endings on
+    // Windows. rustc reads sources with LF only, so do the same.
+    let src = src.replace("\r\n", "\n");
+    let src = src.split("#[cfg(test)]").next().unwrap_or(&src);
     let mut found = Vec::new();
     for call in ["tr(", "t(", "trf!("] {
         let mut from = 0;
@@ -131,6 +134,11 @@ fn literals_are_parsed_like_rust_does() {
                    t("\u{2192}")"#;
     assert_eq!(
         translated_literals(src),
+        vec!["a \"b\" c\nd", "\u{2192}", "{n} x"]
+    );
+    // The same with Windows line endings (how Git checks files out there).
+    assert_eq!(
+        translated_literals(&src.replace('\n', "\r\n")),
         vec!["a \"b\" c\nd", "\u{2192}", "{n} x"]
     );
 }
