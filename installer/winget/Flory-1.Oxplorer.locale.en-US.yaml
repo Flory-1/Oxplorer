@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: Flory-1.Oxplorer
+PackageVersion: {VERSION}
+PackageLocale: en-US
+Publisher: Flory-1
+PublisherUrl: https://github.com/Flory-1
+PublisherSupportUrl: https://github.com/Flory-1/oxplorer/issues
+PackageName: Oxplorer
+PackageUrl: https://github.com/Flory-1/oxplorer
+License: MIT
+LicenseUrl: https://github.com/Flory-1/oxplorer/blob/main/LICENSE
+ShortDescription: A fast, modern file explorer for Windows.
+Description: Oxplorer is a fast file explorer with tabs, split view, instant search, a built-in copy engine, archives, previews and a terminal panel.
+Tags:
+  - explorer
+  - file-explorer
+  - file-manager
+  - files
+ReleaseNotesUrl: https://github.com/Flory-1/oxplorer/releases/tag/v{VERSION}
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

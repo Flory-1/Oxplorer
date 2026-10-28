@@ -12,6 +12,19 @@ mod ui;
 use std::path::PathBuf;
 
 fn main() -> eframe::Result {
+    // Used by the installer and uninstaller: set or undo "open folders in
+    // Oxplorer" without opening a window.
+    match std::env::args().nth(1).as_deref() {
+        Some("--register-default") => {
+            let _ = ox_core::default_app::set_enabled(true);
+            return Ok(());
+        }
+        Some("--unregister-default") => {
+            let _ = ox_core::default_app::set_enabled(false);
+            return Ok(());
+        }
+        _ => {}
+    }
     // `oxplorer C:\some\folder` opens that folder in a new tab.
     // Opened as the default folder handler, `"C:\"` arrives as `C:"`.
     let open = std::env::args()
