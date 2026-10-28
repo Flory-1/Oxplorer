@@ -164,6 +164,8 @@ pub struct FolderView {
     pub select_after_load: Option<PathBuf>,
     /// Bumped whenever a new listing arrives.
     pub version: u64,
+    /// Git status of the repository this folder is in.
+    pub git: Option<std::sync::Arc<ox_core::git::RepoStatus>>,
 }
 
 impl FolderView {

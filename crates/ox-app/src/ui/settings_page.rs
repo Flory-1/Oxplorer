@@ -236,6 +236,12 @@ fn browsing(ui: &mut Ui, s: &mut Settings) {
         "Open archives like folders",
         "Browse zip and tar files in Oxplorer instead of opening them with another app.",
     );
+    toggle(
+        ui,
+        &mut b.git_status,
+        "Git status",
+        "In Git repositories, show a Git column and the branch (needs Git installed).",
+    );
     toggle(ui, &mut b.show_status_bar, "Show status bar", "");
     row(
         ui,

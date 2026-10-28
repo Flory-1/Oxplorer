@@ -21,6 +21,7 @@ const DATE_W: f32 = 140.0;
 const TYPE_W: f32 = 150.0;
 const SIZE_W: f32 = 90.0;
 const FOLDER_W: f32 = 260.0;
+const GIT_W: f32 = 44.0;
 const TILE: egui::Vec2 = egui::Vec2::new(108.0, 104.0);
 const MIN_NAME_W: f32 = 180.0;
 
@@ -30,22 +31,36 @@ const MIN_NAME_W: f32 = 180.0;
 struct Columns {
     name: f32,
     folder: f32,
+    git: f32,
     date: f32,
     kind: f32,
     size: f32,
 }
 
+fn git_color(state: ox_core::git::GitState, v: &egui::Visuals) -> Color32 {
+    use ox_core::git::GitState::*;
+    match state {
+        Conflicted | Deleted => Color32::from_rgb(0xe5, 0x48, 0x4d),
+        Modified => Color32::from_rgb(0xf0, 0x8a, 0x24),
+        Added => Color32::from_rgb(0x3b, 0xb2, 0x73),
+        Renamed => Color32::from_rgb(0x4c, 0x8d, 0xf6),
+        Untracked => Color32::from_rgb(0x9b, 0x6b, 0xf2),
+        Ignored => v.weak_text_color().gamma_multiply(0.7),
+    }
+}
+
 impl Columns {
-    fn fit(width: f32, with_folder: bool) -> Self {
+    fn fit(width: f32, with_folder: bool, with_git: bool) -> Self {
         let avail = width - 16.0;
         let mut c = Columns {
             name: 0.0,
             folder: if with_folder { FOLDER_W } else { 0.0 },
+            git: if with_git { GIT_W } else { 0.0 },
             date: DATE_W,
             kind: TYPE_W,
             size: SIZE_W,
         };
-        let rest = |c: &Columns| avail - (c.folder + c.date + c.kind + c.size);
+        let rest = |c: &Columns| avail - (c.folder + c.git + c.date + c.kind + c.size);
         if rest(&c) < MIN_NAME_W {
             c.kind = 0.0;
         }
@@ -79,6 +94,8 @@ struct Ctx<'a> {
     /// Trash items behind the entries when showing the Recycle Bin.
     bin: &'a BinListing,
     tags: &'a ox_core::tags::TagStore,
+    /// Git status when the folder is in a repository.
+    git: Option<&'a ox_core::git::RepoStatus>,
     /// Folder sizes for the Size column (`None` when they are off).
     sizes: Option<&'a ox_core::dirsize::FolderSizes>,
     /// Root of the current search; result folders are shown relative to it.
@@ -96,6 +113,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let folder = app.current_folder();
     // Borrowed by the rows while the tab is mutably borrowed; put back at the end.
     let bin = std::mem::take(&mut app.tabs.active_mut().view.bin);
+    let git = app.tabs.active().view.git.clone();
     let tab_view_paths: Vec<PathBuf> = app
         .tabs
         .active()
@@ -116,6 +134,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             Location::Search { .. } | Location::Tagged(_)
         ),
         tags: &app.tags,
+        git: git.as_deref(),
         is_bin: app.tabs.active().location().is_bin(),
         read_only: app.tabs.active().location().is_read_only(),
         icons: app.settings.appearance.system_icons.then_some(&app.icons),
@@ -360,7 +379,7 @@ fn details(
 ) {
     let width = ui.available_width();
     let with_folder = cx.is_search || cx.is_bin;
-    let columns = Columns::fit(width, with_folder);
+    let columns = Columns::fit(width, with_folder, cx.git.is_some());
 
     // Column header
     let (header, _) = ui.allocate_exact_size(vec2(width, 28.0), Sense::hover());
@@ -386,6 +405,7 @@ fn details(
         "Date modified"
     };
     cols.extend([
+        ("Git", columns.git, None),
         (date_label, columns.date, Some(SortKey::Modified)),
         ("Type", columns.kind, Some(SortKey::Type)),
         ("Size", columns.size, Some(SortKey::Size)),
@@ -576,6 +596,18 @@ fn paint_row(
         };
         col(x, columns.folder, parent, false);
         x += columns.folder;
+    }
+    if let (true, Some(git)) = (columns.git > 0.0, cx.git) {
+        if let Some(state) = git.state(&e.path) {
+            ui.painter().text(
+                egui::pos2(x + 14.0, y),
+                Align2::LEFT_CENTER,
+                state.letter(),
+                FontId::monospace(12.5),
+                fade(git_color(state, v)),
+            );
+        }
+        x += columns.git;
     }
     if columns.date > 0.0 {
         col(

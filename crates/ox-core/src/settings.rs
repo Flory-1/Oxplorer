@@ -85,6 +85,8 @@ pub struct Browsing {
     pub folder_sizes: bool,
     /// Open zip and tar files like folders (instead of the default app).
     pub open_archives: bool,
+    /// Show the Git column and branch inside repositories.
+    pub git_status: bool,
 }
 
 impl Default for Browsing {
@@ -105,6 +107,7 @@ impl Default for Browsing {
             auto_refresh: true,
             folder_sizes: true,
             open_archives: true,
+            git_status: true,
         }
     }
 }

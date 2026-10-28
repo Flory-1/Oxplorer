@@ -210,6 +210,14 @@ pub struct OxApp {
     sizes_key: Option<(Vec<(TabId, u64)>, u64)>,
     /// `folder_sizes.version()` last copied into the listing.
     sizes_applied: u64,
+    /// Listings (tab, version) the Git status was requested for.
+    git_key: Vec<(TabId, u64)>,
+    /// Running `git status` calls: tab, repository root, result.
+    git_pending: Vec<(
+        TabId,
+        PathBuf,
+        Receiver<std::io::Result<ox_core::git::RepoStatus>>,
+    )>,
     /// The index was (re)built at least once this session.
     index_started: bool,
     index_next: Option<Instant>,
@@ -293,6 +301,8 @@ impl OxApp {
             },
             tags: TagStore::load(),
             sizes_key: None,
+            git_key: Vec::new(),
+            git_pending: Vec::new(),
             sizes_applied: 0,
             index_started: false,
             index_next: None,
@@ -350,6 +360,7 @@ impl OxApp {
         }
         self.poll_tabs();
         self.poll_folder_sizes();
+        self.poll_git();
         self.poll_watcher();
         self.poll_jobs();
         self.poll_background();
@@ -720,6 +731,78 @@ impl OxApp {
             if changed && tab.sort_key == entry::SortKey::Size {
                 tab.refresh_visible(folders_first, case);
             }
+        }
+    }
+
+    /// Ask Git for the status of the repositories the panes show, whenever
+    /// their listings reload, and hand the results to the tabs.
+    fn poll_git(&mut self) {
+        let panes: Vec<TabId> = [Some(self.tabs.active), self.tabs.split_partner()]
+            .into_iter()
+            .flatten()
+            .collect();
+        let key: Vec<(TabId, u64)> = panes
+            .iter()
+            .filter_map(|&id| self.tabs.get(id).map(|t| (id, t.view.version)))
+            .collect();
+        if key != self.git_key {
+            self.git_key = key;
+            for &id in &panes {
+                let Some(tab) = self.tabs.get_mut(id) else {
+                    continue;
+                };
+                let root = tab
+                    .location()
+                    .folder()
+                    .filter(|_| self.settings.browsing.git_status)
+                    .and_then(ox_core::git::repo_root);
+                let Some(root) = root else {
+                    tab.view.git = None;
+                    continue;
+                };
+                if tab.view.git.as_ref().is_some_and(|g| g.root != root) {
+                    tab.view.git = None;
+                }
+                if self
+                    .git_pending
+                    .iter()
+                    .any(|(t, r, _)| *t == id && *r == root)
+                {
+                    continue;
+                }
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                let ctx = self.ctx.clone();
+                let dir = root.clone();
+                std::thread::spawn(move || {
+                    let _ = tx.send(ox_core::git::status(&dir));
+                    ctx.request_repaint();
+                });
+                self.git_pending.push((id, root, rx));
+            }
+        }
+        let mut done = Vec::new();
+        self.git_pending
+            .retain(|(id, root, rx)| match rx.try_recv() {
+                Ok(result) => {
+                    done.push((*id, root.clone(), result));
+                    false
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => true,
+                Err(_) => false,
+            });
+        for (id, root, result) in done {
+            let Some(tab) = self.tabs.get_mut(id) else {
+                continue;
+            };
+            // Only if the tab is still in that repository.
+            let same = tab
+                .location()
+                .folder()
+                .is_some_and(|f| f.starts_with(&root));
+            tab.view.git = match result {
+                Ok(status) if same => Some(Arc::new(status)),
+                _ => None,
+            };
         }
     }
 

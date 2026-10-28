@@ -224,6 +224,22 @@ fn status_bar(app: &mut OxApp, ui: &mut Ui) {
             if tab.view.loading.is_some() {
                 ui.spinner();
             }
+            if let Some(git) = &tab.view.git {
+                if let Some(branch) = git.branch_label() {
+                    ui.separator();
+                    let changed = git.changed_files();
+                    let text = if changed > 0 {
+                        format!(
+                            "Git: {branch} · {}",
+                            format::count(changed as u64, "change")
+                        )
+                    } else {
+                        format!("Git: {branch}")
+                    };
+                    ui.label(RichText::new(text).weak())
+                        .on_hover_text(git.root.display().to_string());
+                }
+            }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if let Some(summary) = app.transfer_summary() {
