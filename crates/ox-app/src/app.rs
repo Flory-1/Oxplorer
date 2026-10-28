@@ -60,6 +60,11 @@ pub enum Action {
     },
     /// Put these items into a new zip file next to them.
     Compress(Vec<PathBuf>),
+    /// Show or hide the terminal panel (starting the shell the first time).
+    ToggleTerminal,
+    RestartTerminal,
+    /// Type `cd <folder>` into the terminal.
+    TerminalCd(PathBuf),
     /// Items were renamed or moved (old path, new path): tags go along.
     PathsMoved(Vec<(PathBuf, PathBuf)>),
     /// Give a tag colour a custom name (empty = default).
@@ -179,6 +184,9 @@ pub struct UiState {
     pub palette: Option<crate::ui::palette::PaletteState>,
     /// The settings page is waiting for keys for this command.
     pub recording: Option<crate::shortcuts::Command>,
+    pub show_terminal: bool,
+    /// The terminal has the keyboard (app shortcuts are off then).
+    pub terminal_focused: bool,
     type_ahead: String,
     type_ahead_at: Instant,
 }
@@ -209,6 +217,10 @@ pub struct OxApp {
     pub folder_sizes: FolderSizes,
     /// Keyboard shortcuts in effect (defaults + the user's changes).
     pub keymap: crate::shortcuts::Keymap,
+    /// The terminal panel's shell, started the first time the panel opens.
+    pub terminal: Option<crate::terminal::Terminal>,
+    /// Folder the terminal was last sent to (for "follow the folder").
+    terminal_dir: Option<PathBuf>,
     pub tags: TagStore,
     /// (tabs, listing versions, cache epoch) the folder sizes were requested for.
     sizes_key: Option<(Vec<(TabId, u64)>, u64)>,
@@ -281,6 +293,8 @@ impl OxApp {
                 settings_section: 0,
                 palette: None,
                 recording: None,
+                show_terminal: false,
+                terminal_focused: false,
                 type_ahead: String::new(),
                 type_ahead_at: Instant::now(),
             },
@@ -306,6 +320,8 @@ impl OxApp {
             },
             tags: TagStore::load(),
             keymap: Default::default(),
+            terminal: None,
+            terminal_dir: None,
             sizes_key: None,
             git_key: Vec::new(),
             git_pending: Vec::new(),
@@ -373,8 +389,23 @@ impl OxApp {
         self.poll_jobs();
         self.poll_background();
         self.poll_dropped_files(ctx);
-        // Not while a new shortcut is being recorded in the settings.
-        if self.dialog.is_none() && !ctx.text_edit_focused() && self.ui.recording.is_none() {
+        self.follow_folder_in_terminal();
+        if self.ui.show_terminal && self.ui.terminal_focused {
+            // The terminal gets every key except its own toggle.
+            let toggle = ctx.input_mut(|i| {
+                !self
+                    .keymap
+                    .pressed(i, |c| c == crate::shortcuts::Command::ToggleTerminal)
+                    .is_empty()
+            });
+            if toggle {
+                self.push(Action::ToggleTerminal);
+            }
+        } else if self.dialog.is_none()
+            && !ctx.text_edit_focused()
+            // Not while a new shortcut is being recorded in the settings.
+            && self.ui.recording.is_none()
+        {
             self.handle_shortcuts(ctx);
         }
         self.toasts.retain(|t| t.until > Instant::now());
@@ -911,6 +942,7 @@ impl OxApp {
                 },
                 C::Properties => actions.push(Action::Properties(selection.clone())),
                 C::ShellMenu => actions.push(Action::ShellMenu(selection.clone())),
+                C::ToggleTerminal => actions.push(Action::ToggleTerminal),
             }
         }
         self.actions.extend(actions);
@@ -1233,6 +1265,20 @@ impl OxApp {
                         .map_err(|e| e.to_string())
                 });
             }
+            Action::ToggleTerminal => {
+                self.ui.show_terminal = !self.ui.show_terminal;
+                self.ui.terminal_focused = false;
+                if self.ui.show_terminal && self.terminal.is_none() {
+                    self.start_terminal();
+                }
+            }
+            Action::RestartTerminal => self.start_terminal(),
+            Action::TerminalCd(dir) => {
+                if let Some(t) = &self.terminal {
+                    t.cd(&dir);
+                    self.terminal_dir = Some(dir);
+                }
+            }
             Action::PathsMoved(pairs) => {
                 if !self.tags.is_empty() {
                     for (from, to) in &pairs {
@@ -1515,6 +1561,36 @@ impl OxApp {
 
     /// Run `op` on a helper thread; when it finishes, errors become a toast and
     /// tabs showing `dir` (all tabs if `None`) are refreshed.
+    fn start_terminal(&mut self) {
+        let dir = crate::terminal::start_dir(self.current_folder().as_deref());
+        match crate::terminal::Terminal::spawn(&self.ctx, &dir, &self.settings.terminal.shell) {
+            Ok(t) => {
+                self.terminal = Some(t);
+                self.terminal_dir = Some(dir);
+            }
+            Err(e) => {
+                self.terminal = None;
+                self.toast(format!("Couldn't start the shell: {e}"));
+            }
+        }
+    }
+
+    /// With "follow the current folder" on, `cd` the terminal along.
+    fn follow_folder_in_terminal(&mut self) {
+        if !self.settings.terminal.follow_folder || !self.ui.show_terminal {
+            return;
+        }
+        let Some(folder) = self.current_folder() else {
+            return;
+        };
+        if self.terminal_dir.as_ref() != Some(&folder) {
+            if let Some(t) = self.terminal.as_ref().filter(|t| !t.exited) {
+                t.cd(&folder);
+                self.terminal_dir = Some(folder);
+            }
+        }
+    }
+
     /// Extract `items` (paths inside `arc`; empty = everything) into `dest`.
     fn extract(&mut self, arc: PathBuf, items: Vec<PathBuf>, dest: PathBuf) {
         self.toast(format!(

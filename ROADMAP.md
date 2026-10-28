@@ -121,7 +121,7 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 - ✅ Command palette (Ctrl+Shift+P / F1): fuzzy search over commands, favorites, drives, recent folders and saved searches
 - ✅ Custom keyboard shortcuts: Settings → Shortcuts, click and press the new keys; conflicts are flagged and menus, tooltips and the palette show your keys
 - ✅ Git status column for repositories (M/A/D/R/?/I, folders summarise their contents) and the branch with ahead/behind in the status bar
-- ⏳ Built-in terminal panel
+- ✅ Built-in terminal panel (Ctrl+`): your shell in a real terminal (ConPTY on Windows) under the file view, with *cd here* and optional folder following
 
 ## Phase 6 — Polish & 1.0 ⏳
 

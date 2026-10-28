@@ -273,6 +273,17 @@ pub struct Settings {
     pub sidebar: Sidebar,
     /// Changed keyboard shortcuts: command name → keys ("" = none).
     pub shortcuts: std::collections::BTreeMap<String, String>,
+    pub terminal: Terminal,
+}
+
+/// The built-in terminal panel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct Terminal {
+    /// Shell command line; empty = PowerShell on Windows, `$SHELL` elsewhere.
+    pub shell: String,
+    /// `cd` into the folder whenever the active tab changes folder.
+    pub follow_folder: bool,
 }
 
 impl Settings {
