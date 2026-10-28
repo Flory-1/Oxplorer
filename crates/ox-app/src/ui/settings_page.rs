@@ -230,6 +230,12 @@ fn browsing(ui: &mut Ui, s: &mut Settings) {
         "Show folder sizes",
         "Calculate the size of folders in the background for the Size column.",
     );
+    toggle(
+        ui,
+        &mut b.open_archives,
+        "Open archives like folders",
+        "Browse zip and tar files in Oxplorer instead of opening them with another app.",
+    );
     toggle(ui, &mut b.show_status_bar, "Show status bar", "");
     row(
         ui,

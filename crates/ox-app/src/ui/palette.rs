@@ -151,7 +151,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
     if tab.location().shows_files() {
         cmd("☑", "Select all", "Ctrl+A", act(|| Action::SelectAll));
     }
-    if !selection.is_empty() && !tab.location().is_bin() {
+    if !selection.is_empty() && !tab.location().is_bin() && !tab.location().is_read_only() {
         let (s1, s2, s3) = (selection.clone(), selection.clone(), selection.clone());
         let rename = if selection.len() == 1 {
             act(move || Action::Rename(s1[0].clone()))
@@ -171,6 +171,37 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             "Alt+Enter",
             act(move || Action::Properties(s3)),
         );
+        let zip = selection.clone();
+        cmd(
+            "🗜",
+            "Compress selection to ZIP",
+            "",
+            act(move || Action::Compress(zip)),
+        );
+        if selection.len() == 1 && ox_core::archive::is_archive(&selection[0]) {
+            let (a1, a2) = (selection[0].clone(), selection[0].clone());
+            cmd(
+                "📦",
+                &format!(
+                    "Extract to \"{}\"",
+                    ox_core::archive::base_name(&selection[0])
+                ),
+                "",
+                act(move || Action::ExtractArchive {
+                    archive: a1,
+                    own_folder: true,
+                }),
+            );
+            cmd(
+                "📦",
+                "Extract here",
+                "",
+                act(move || Action::ExtractArchive {
+                    archive: a2,
+                    own_folder: false,
+                }),
+            );
+        }
         for color in TagColor::ALL {
             let sel = selection.clone();
             cmd(

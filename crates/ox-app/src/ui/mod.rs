@@ -93,7 +93,8 @@ fn content(app: &mut OxApp, ui: &mut Ui) {
         Location::Folder(_)
         | Location::Search { .. }
         | Location::RecycleBin
-        | Location::Tagged(_) => files::show(app, ui),
+        | Location::Tagged(_)
+        | Location::Archive { .. } => files::show(app, ui),
     }
 }
 
@@ -145,6 +146,7 @@ fn pane_bar(app: &OxApp, ui: &mut Ui, id: TabId, focused: bool) {
     let title = match tab.location() {
         Location::Folder(p) => p.display().to_string(),
         Location::Tagged(c) => format!("Tagged \"{}\"", app.tags.label(*c)),
+        Location::Archive { archive, inner } => archive.join(inner).display().to_string(),
         other => other.title(),
     };
     let (bar, _) =
@@ -293,6 +295,8 @@ pub fn drop_target(actions: &mut Vec<Action>, response: &Response, dest: &Path) 
 /// Context information for the item context menu.
 pub struct MenuTarget<'a> {
     pub selection: &'a [PathBuf],
+    /// Items inside an archive: only open, copy (extract) and copy path.
+    pub read_only: bool,
     pub tags: &'a TagStore,
     pub single_dir: Option<&'a Path>,
     pub pinned: bool,
@@ -342,7 +346,57 @@ pub fn tag_menu(ui: &mut Ui, tags: &TagStore, sel: &[PathBuf], actions: &mut Vec
     }
 }
 
+/// Menu for items inside an archive: open, extract, copy path.
+fn archive_item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
+    let sel = t.selection.to_vec();
+    if ui.button("📂 Open").clicked() {
+        for p in &sel {
+            actions.push(Action::Open(p.clone()));
+        }
+    }
+    if ui
+        .add(egui::Button::new("📋 Copy").shortcut_text("Ctrl+C"))
+        .clicked()
+    {
+        actions.push(Action::CopyItems(sel.clone()));
+    }
+    ui.separator();
+    let next_to = sel
+        .first()
+        .and_then(|p| ox_core::archive::split_virtual(p))
+        .and_then(|(arc, _)| arc.parent().map(Path::to_path_buf));
+    if let Some(dir) = next_to {
+        if ui.button("📦 Extract next to the archive").clicked() {
+            actions.push(Action::Transfer(TransferKind::Copy, sel.clone(), dir));
+        }
+    }
+    if !t.destinations.is_empty() {
+        ui.menu_button("📦 Extract to", |ui| {
+            for (label, dest) in t.destinations {
+                if ui.button(label).clicked() {
+                    actions.push(Action::Transfer(
+                        TransferKind::Copy,
+                        sel.clone(),
+                        dest.clone(),
+                    ));
+                }
+            }
+        });
+    }
+    ui.separator();
+    if ui
+        .add(egui::Button::new("🔗 Copy path").shortcut_text("Ctrl+Shift+C"))
+        .clicked()
+    {
+        actions.push(Action::CopyPathText(sel.clone()));
+    }
+}
+
 pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
+    if t.read_only {
+        archive_item_menu(ui, t, actions);
+        return;
+    }
     let sel = t.selection.to_vec();
     if let Some(dir) = t.single_dir {
         if ui.button("📂 Open").clicked() {
@@ -437,6 +491,24 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     }
     ui.separator();
     ui.menu_button("🏷 Tags", |ui| tag_menu(ui, t.tags, &sel, actions));
+    if sel.len() == 1 && ox_core::archive::is_archive(&sel[0]) {
+        let name = ox_core::archive::base_name(&sel[0]);
+        if ui.button(format!("📦 Extract to \"{name}\"")).clicked() {
+            actions.push(Action::ExtractArchive {
+                archive: sel[0].clone(),
+                own_folder: true,
+            });
+        }
+        if ui.button("📦 Extract here").clicked() {
+            actions.push(Action::ExtractArchive {
+                archive: sel[0].clone(),
+                own_folder: false,
+            });
+        }
+    }
+    if ui.button("🗜 Compress to ZIP").clicked() {
+        actions.push(Action::Compress(sel.clone()));
+    }
     if let Some(dir) = t.single_dir {
         if t.pinned {
             if ui.button("☆ Unpin from Favorites").clicked() {

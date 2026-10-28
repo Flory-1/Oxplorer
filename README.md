@@ -97,6 +97,9 @@ Rust engine does the work and shows progress in a panel inside the window.
   jump to a favorite, drive, recent folder or saved search
 - **Split view** (Ctrl+\\ or the ◫ button): two folders side by side. Click a pane or press
   F6 to work in it, and drag files from one pane to the other.
+- **Archives as folders**: double-click a `.zip`, `.tar`, `.tar.gz` or `.tgz` file to browse it,
+  preview files inside it, and drag or copy items out to extract them. Right-click an archive for
+  *Extract here* / *Extract to "name"*, or any selection for *Compress to ZIP*.
 - **Folder sizes** in the Size column, calculated in the background and cached. Sort by
   size to find what fills your disk.
 - **Colour tags**: right-click → Tags to mark files and folders. Tagged items get coloured
@@ -157,6 +160,7 @@ crates/
     rename.rs         bulk rename: patterns, preview, safe apply with rollback
     fuzzy.rs          fuzzy matching for the command palette
     dirsize.rs        background folder sizes with a shared cache
+    archive.rs        zip/tar browsing, extraction and zip compression
     tags.rs           colour tags (stored in tags.toml)
     disk.rs           volume ids, HDD/SSD detection
     entry.rs          directory listing, file kinds, sorting
@@ -201,8 +205,8 @@ rendered). That keeps the app a single small native `.exe` with no web runtime.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md). Next up: the rest of Phase 5 (archives,
-Git status, terminal panel, custom shortcuts), then Phase 6 polish with an
+See [ROADMAP.md](ROADMAP.md). Next up: the rest of Phase 5 (Git status,
+terminal panel, custom shortcuts, 7z/rar), then Phase 6 polish with an
 in-app Help page.
 
 ## License

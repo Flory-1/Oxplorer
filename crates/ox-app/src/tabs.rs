@@ -30,6 +30,12 @@ pub enum Location {
     RecycleBin,
     /// Everything with this colour tag, wherever it is.
     Tagged(TagColor),
+    /// A folder inside a zip or tar file (read-only). `inner` is empty at
+    /// the archive's top level.
+    Archive {
+        archive: PathBuf,
+        inner: PathBuf,
+    },
 }
 
 impl Location {
@@ -41,6 +47,10 @@ impl Location {
             Location::Settings => "Settings".into(),
             Location::RecycleBin => "Recycle Bin".into(),
             Location::Tagged(c) => c.name().into(),
+            Location::Archive { archive, inner } => match inner.file_name() {
+                Some(name) => name.to_string_lossy().into_owned(),
+                None => entry::display_name(archive),
+            },
         }
     }
 
@@ -53,6 +63,7 @@ impl Location {
             Location::Settings => "⚙",
             Location::RecycleBin => "🗑",
             Location::Tagged(_) => "🏷",
+            Location::Archive { .. } => "📦",
         }
     }
 
@@ -71,11 +82,17 @@ impl Location {
                 | Location::Search { .. }
                 | Location::RecycleBin
                 | Location::Tagged(_)
+                | Location::Archive { .. }
         )
     }
 
     pub fn is_bin(&self) -> bool {
         matches!(self, Location::RecycleBin)
+    }
+
+    /// Items here can't be changed (inside an archive).
+    pub fn is_read_only(&self) -> bool {
+        matches!(self, Location::Archive { .. })
     }
 }
 
@@ -103,6 +120,13 @@ impl Listing {
                 .collect(),
             bin: BinListing::default(),
         }
+    }
+
+    pub fn archive(archive: &Path, inner: &Path) -> io::Result<Self> {
+        Ok(Self {
+            entries: ox_core::archive::list(archive, inner)?,
+            bin: BinListing::default(),
+        })
     }
 
     pub fn recycle_bin() -> Result<Self, String> {
@@ -288,22 +312,31 @@ impl Tab {
 
     pub fn up(&mut self) {
         let parent = match self.location() {
-            Location::Folder(p) => p.parent().map(Path::to_path_buf),
-            Location::Search { root, .. } => root.clone(),
+            Location::Folder(p) => p.parent().map(|p| Location::Folder(p.to_path_buf())),
+            Location::Search { root, .. } => root.clone().map(Location::Folder),
+            // Up from an archive's top level leaves the archive.
+            Location::Archive { archive, inner } => Some(match inner.parent() {
+                Some(up) => Location::Archive {
+                    archive: archive.clone(),
+                    inner: up.to_path_buf(),
+                },
+                None => Location::Folder(archive.parent().unwrap_or(archive).to_path_buf()),
+            }),
             _ => None,
         };
         let from = self.location().clone();
-        match parent {
-            Some(p) => self.navigate(Location::Folder(p)),
-            None => self.navigate(Location::Home),
-        }
+        self.navigate(parent.unwrap_or(Location::Home));
         self.select_after_return(&from);
     }
 
     /// When going back/up, highlight the folder we came from, like Explorer.
     fn select_after_return(&mut self, from: &Location) {
-        if let Location::Folder(p) = from {
-            self.view.select_after_load = Some(p.clone());
+        match from {
+            Location::Folder(p) => self.view.select_after_load = Some(p.clone()),
+            Location::Archive { archive, inner } => {
+                self.view.select_after_load = Some(archive.join(inner));
+            }
+            _ => {}
         }
     }
 
