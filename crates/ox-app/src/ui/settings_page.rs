@@ -161,6 +161,14 @@ fn appearance(ui: &mut Ui, s: &mut Settings) {
         "Compact rows",
         "Smaller row height in the details view.",
     );
+    if ox_core::shell::supported() {
+        toggle(
+            ui,
+            &mut a.system_icons,
+            "Windows file icons",
+            "Show the same icons as Windows Explorer instead of the built-in ones.",
+        );
+    }
 }
 
 fn browsing(ui: &mut Ui, s: &mut Settings) {
@@ -428,6 +436,7 @@ fn shortcuts(ui: &mut Ui) {
                 ("Enter", "Open selection"),
                 ("Type letters", "Jump to item"),
                 ("Middle click", "Open folder in new tab / close tab"),
+                ("Shift+F10", "Windows context menu (Windows only)"),
                 ("Ctrl+,", "Settings"),
             ] {
                 ui.monospace(k);

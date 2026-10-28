@@ -44,6 +44,8 @@ pub struct Appearance {
     /// UI zoom factor (1.0 = 100 %).
     pub ui_scale: f32,
     pub compact_rows: bool,
+    /// Show the real Windows file icons instead of the built-in ones.
+    pub system_icons: bool,
 }
 
 impl Default for Appearance {
@@ -53,6 +55,7 @@ impl Default for Appearance {
             accent: [0x4c, 0x8d, 0xf6],
             ui_scale: 1.0,
             compact_rows: false,
+            system_icons: true,
         }
     }
 }

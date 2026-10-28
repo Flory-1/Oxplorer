@@ -1,0 +1,582 @@
+//! Windows Shell integration: real file icons, the native context menu
+//! ("Show more options"), the native Properties dialog and "Open with…".
+//!
+//! All Shell calls run on one dedicated background thread that owns a hidden
+//! helper window and pumps its messages. The UI thread only sends requests,
+//! so native menus and dialogs never re-enter the egui event loop.
+//!
+//! On other platforms [`supported`] is `false` and requests are ignored.
+
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
+use crossbeam_channel::{Receiver, Sender};
+
+/// What an icon is looked up by. Most files share the icon of their
+/// extension; some file types carry their own icon.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum IconKey {
+    Folder,
+    /// Lower-case extension without the dot ("" for files without one).
+    Extension(String),
+    /// Files with their own icon (programs, shortcuts, .ico files, drives).
+    Path(PathBuf),
+}
+
+/// Extensions whose icon depends on the individual file.
+const PER_FILE_ICONS: &[&str] = &[
+    "exe",
+    "ico",
+    "lnk",
+    "url",
+    "cur",
+    "ani",
+    "msc",
+    "scr",
+    "cpl",
+    "appref-ms",
+    "dll",
+];
+
+impl IconKey {
+    pub fn for_path(path: &Path, is_dir: bool) -> Self {
+        if is_dir {
+            // Drive roots have their own icons; other folders share one.
+            return if path.parent().is_none() {
+                IconKey::Path(path.to_path_buf())
+            } else {
+                IconKey::Folder
+            };
+        }
+        let ext = path
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if PER_FILE_ICONS.contains(&ext.as_str()) {
+            IconKey::Path(path.to_path_buf())
+        } else {
+            IconKey::Extension(ext)
+        }
+    }
+}
+
+/// A decoded icon: square RGBA (not premultiplied).
+#[derive(Debug, Clone)]
+pub struct IconImage {
+    pub size: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// Is the Windows Shell available?
+pub fn supported() -> bool {
+    cfg!(windows)
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+enum Request {
+    Icon(IconKey),
+    ContextMenu(Vec<PathBuf>),
+    Properties(PathBuf),
+    OpenWith(PathBuf),
+}
+
+/// Handle to the shell thread. Cheap to keep around for the whole app.
+pub struct Shell {
+    tx: Option<Sender<Request>>,
+    icons: Receiver<(IconKey, Option<IconImage>)>,
+    requested: std::cell::RefCell<HashSet<IconKey>>,
+}
+
+impl Shell {
+    /// Start the shell thread. `notify` is called when an icon is ready.
+    pub fn start(notify: impl Fn() + Send + 'static) -> Self {
+        let (icon_tx, icon_rx) = crossbeam_channel::unbounded();
+        let tx = if supported() {
+            let (tx, rx) = crossbeam_channel::unbounded();
+            let spawned = std::thread::Builder::new()
+                .name("shell".into())
+                .spawn(move || imp::run(rx, icon_tx, Box::new(notify)));
+            spawned.ok().map(|_| tx)
+        } else {
+            drop(icon_tx);
+            None
+        };
+        Self {
+            tx,
+            icons: icon_rx,
+            requested: Default::default(),
+        }
+    }
+
+    fn send(&self, r: Request) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(r);
+        }
+    }
+
+    /// Ask for an icon; it arrives later through [`Shell::poll_icons`]. Each key is only loaded once.
+    pub fn request_icon(&self, key: &IconKey) {
+        if self.tx.is_some() && self.requested.borrow_mut().insert(key.clone()) {
+            self.send(Request::Icon(key.clone()));
+        }
+    }
+
+    /// Icons loaded since the last call (`None` if a lookup failed).
+    pub fn poll_icons(&self) -> Vec<(IconKey, Option<IconImage>)> {
+        self.icons.try_iter().collect()
+    }
+
+    /// Show the Explorer context menu for `paths` at the mouse cursor.
+    pub fn context_menu(&self, paths: Vec<PathBuf>) {
+        if !paths.is_empty() {
+            self.send(Request::ContextMenu(paths));
+        }
+    }
+
+    /// Open the Windows Properties dialog of a file or folder.
+    pub fn properties(&self, path: PathBuf) {
+        self.send(Request::Properties(path));
+    }
+
+    /// Show the "Open with" dialog for a file.
+    pub fn open_with(&self, path: PathBuf) {
+        self.send(Request::OpenWith(path));
+    }
+}
+
+#[cfg(windows)]
+mod imp {
+    use super::{IconImage, IconKey, Request};
+    use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
+    use std::cell::RefCell;
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::{Path, PathBuf};
+    use std::time::Duration;
+    use windows::core::{w, Interface, PCSTR, PCWSTR};
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
+    use windows::Win32::Graphics::Gdi::{
+        CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO,
+        BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
+    };
+    use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL};
+    use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_APARTMENTTHREADED};
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::UI::Controls::{IImageList, ILD_TRANSPARENT};
+    use windows::Win32::UI::Shell::Common::ITEMIDLIST;
+    use windows::Win32::UI::Shell::{
+        IContextMenu, IContextMenu2, IContextMenu3, IShellFolder, SHBindToParent, SHGetFileInfoW,
+        SHGetImageList, SHOpenWithDialog, SHParseDisplayName, ShellExecuteExW, CMF_EXPLORE,
+        CMF_NORMAL, CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX, OAIF_ALLOW_REGISTRATION, OAIF_EXEC,
+        OPENASINFO, SEE_MASK_INVOKEIDLIST, SHELLEXECUTEINFOW, SHFILEINFOW, SHGFI_SYSICONINDEX,
+        SHGFI_USEFILEATTRIBUTES, SHIL_EXTRALARGE,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu,
+        DispatchMessageW, GetCursorPos, GetIconInfo, PeekMessageW, PostMessageW, RegisterClassW,
+        SetForegroundWindow, TrackPopupMenuEx, TranslateMessage, HICON, ICONINFO, MSG, PM_REMOVE,
+        SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_DRAWITEM, WM_INITMENUPOPUP,
+        WM_MEASUREITEM, WM_MENUCHAR, WM_NULL, WNDCLASSW, WS_POPUP,
+    };
+
+    const CMIC_MASK_UNICODE: u32 = 0x0000_4000;
+    const CMIC_MASK_PTINVOKE: u32 = 0x2000_0000;
+    const FIRST_CMD: u32 = 1;
+    const LAST_CMD: u32 = 0x7FFF;
+
+    thread_local! {
+        /// The context menu being shown, so the helper window can forward
+        /// owner-drawn submenu messages ("Send to", "Open with", …) to it.
+        static ACTIVE_MENU: RefCell<Option<IContextMenu>> = const { RefCell::new(None) };
+    }
+
+    fn wide(s: impl AsRef<std::ffi::OsStr>) -> Vec<u16> {
+        s.as_ref().encode_wide().chain(Some(0)).collect()
+    }
+
+    pub(super) fn run(
+        rx: Receiver<Request>,
+        icons: Sender<(IconKey, Option<IconImage>)>,
+        notify: Box<dyn Fn() + Send>,
+    ) {
+        // SAFETY: plain COM/Win32 calls on this thread only.
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        }
+        let window = unsafe { create_helper_window() };
+        loop {
+            pump_messages();
+            match rx.recv_timeout(Duration::from_millis(30)) {
+                Ok(Request::Icon(key)) => {
+                    let image = unsafe { load_icon(&key) };
+                    let _ = icons.send((key, image));
+                    notify();
+                }
+                Ok(Request::ContextMenu(paths)) => {
+                    if let Some(hwnd) = window {
+                        unsafe { show_context_menu(hwnd, &paths) };
+                    }
+                }
+                Ok(Request::Properties(path)) => unsafe { properties(&path) },
+                Ok(Request::OpenWith(path)) => unsafe { open_with(window, &path) },
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    }
+
+    fn pump_messages() {
+        let mut msg = MSG::default();
+        // SAFETY: standard message loop on the thread that owns the windows.
+        unsafe {
+            while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+    }
+
+    unsafe extern "system" fn helper_proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        if matches!(
+            msg,
+            WM_INITMENUPOPUP | WM_DRAWITEM | WM_MEASUREITEM | WM_MENUCHAR
+        ) {
+            let handled = ACTIVE_MENU.with(|m| {
+                let menu = m.borrow();
+                let menu = menu.as_ref()?;
+                let mut result = LRESULT(0);
+                if let Ok(m3) = menu.cast::<IContextMenu3>() {
+                    // SAFETY: forwarding the message we received unchanged.
+                    unsafe { m3.HandleMenuMsg2(msg, wparam, lparam, Some(&mut result)) }.ok()?;
+                    return Some(result);
+                }
+                if let Ok(m2) = menu.cast::<IContextMenu2>() {
+                    unsafe { m2.HandleMenuMsg(msg, wparam, lparam) }.ok()?;
+                    return Some(LRESULT(0));
+                }
+                None
+            });
+            if let Some(r) = handled {
+                return r;
+            }
+        }
+        // SAFETY: default handling for everything else.
+        unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+    }
+
+    unsafe fn create_helper_window() -> Option<HWND> {
+        unsafe {
+            let instance = GetModuleHandleW(None).ok()?;
+            let class = w!("OxplorerShellHelper");
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(helper_proc),
+                hInstance: instance.into(),
+                lpszClassName: class,
+                ..Default::default()
+            };
+            RegisterClassW(&wc);
+            CreateWindowExW(
+                Default::default(),
+                class,
+                w!(""),
+                WS_POPUP,
+                0,
+                0,
+                0,
+                0,
+                None,
+                None,
+                Some(instance.into()),
+                None,
+            )
+            .ok()
+        }
+    }
+
+    // ---- icons ---------------------------------------------------------------
+
+    unsafe fn load_icon(key: &IconKey) -> Option<IconImage> {
+        unsafe {
+            let (name, attrs, flags) = match key {
+                IconKey::Folder => (
+                    wide("folder"),
+                    FILE_ATTRIBUTE_DIRECTORY,
+                    SHGFI_USEFILEATTRIBUTES,
+                ),
+                IconKey::Extension(ext) if ext.is_empty() => {
+                    (wide("file"), FILE_ATTRIBUTE_NORMAL, SHGFI_USEFILEATTRIBUTES)
+                }
+                IconKey::Extension(ext) => (
+                    wide(format!("file.{ext}")),
+                    FILE_ATTRIBUTE_NORMAL,
+                    SHGFI_USEFILEATTRIBUTES,
+                ),
+                IconKey::Path(p) => (wide(p), Default::default(), Default::default()),
+            };
+            let mut info = SHFILEINFOW::default();
+            let ok = SHGetFileInfoW(
+                PCWSTR(name.as_ptr()),
+                attrs,
+                Some(&mut info),
+                std::mem::size_of::<SHFILEINFOW>() as u32,
+                flags | SHGFI_SYSICONINDEX,
+            );
+            if ok == 0 {
+                return None;
+            }
+            let list: IImageList = SHGetImageList(SHIL_EXTRALARGE as i32).ok()?;
+            let icon = list.GetIcon(info.iIcon, ILD_TRANSPARENT.0).ok()?;
+            let image = icon_to_rgba(icon);
+            let _ = DestroyIcon(icon);
+            image
+        }
+    }
+
+    /// Read the pixels of an HICON as RGBA.
+    unsafe fn icon_to_rgba(icon: HICON) -> Option<IconImage> {
+        unsafe {
+            let mut info = ICONINFO::default();
+            GetIconInfo(icon, &mut info).ok()?;
+            let result = (|| {
+                if info.hbmColor.is_invalid() {
+                    return None; // monochrome icon
+                }
+                let mut bm = BITMAP::default();
+                let n = GetObjectW(
+                    HGDIOBJ(info.hbmColor.0),
+                    std::mem::size_of::<BITMAP>() as i32,
+                    Some(&mut bm as *mut BITMAP as *mut c_void),
+                );
+                if n == 0 || bm.bmWidth <= 0 || bm.bmWidth != bm.bmHeight {
+                    return None;
+                }
+                let size = bm.bmWidth;
+                let mut pixels = read_bitmap(info.hbmColor, size)?;
+                if pixels.chunks_exact(4).all(|p| p[3] == 0) {
+                    // Old-style icon without alpha: use the AND mask instead.
+                    let mask = read_bitmap(info.hbmMask, size)?;
+                    for (p, m) in pixels.chunks_exact_mut(4).zip(mask.chunks_exact(4)) {
+                        p[3] = if m[0] == 0 { 255 } else { 0 };
+                    }
+                }
+                for p in pixels.chunks_exact_mut(4) {
+                    p.swap(0, 2); // BGRA -> RGBA
+                }
+                Some(IconImage {
+                    size: size as u32,
+                    rgba: pixels,
+                })
+            })();
+            if !info.hbmColor.is_invalid() {
+                let _ = DeleteObject(HGDIOBJ(info.hbmColor.0));
+            }
+            if !info.hbmMask.is_invalid() {
+                let _ = DeleteObject(HGDIOBJ(info.hbmMask.0));
+            }
+            result
+        }
+    }
+
+    /// 32-bit top-down BGRA pixels of a square bitmap.
+    unsafe fn read_bitmap(bitmap: HBITMAP, size: i32) -> Option<Vec<u8>> {
+        unsafe {
+            let dc = CreateCompatibleDC(None);
+            let mut bmi = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: size,
+                    biHeight: -size,
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut buf = vec![0u8; (size * size * 4) as usize];
+            let lines = GetDIBits(
+                dc,
+                bitmap,
+                0,
+                size as u32,
+                Some(buf.as_mut_ptr() as *mut c_void),
+                &mut bmi,
+                DIB_RGB_COLORS,
+            );
+            let _ = DeleteDC(dc);
+            (lines == size).then_some(buf)
+        }
+    }
+
+    // ---- context menu, properties, open with ------------------------------------
+
+    /// Absolute PIDLs, freed on drop.
+    struct Pidls(Vec<*mut ITEMIDLIST>);
+
+    impl Drop for Pidls {
+        fn drop(&mut self) {
+            for p in &self.0 {
+                // SAFETY: allocated by SHParseDisplayName.
+                unsafe { CoTaskMemFree(Some(*p as *const c_void)) };
+            }
+        }
+    }
+
+    unsafe fn show_context_menu(hwnd: HWND, paths: &[PathBuf]) {
+        unsafe {
+            // The Shell can only build one menu for items in the same folder.
+            let parent = paths[0].parent().map(Path::to_path_buf);
+            let paths: Vec<&PathBuf> = paths
+                .iter()
+                .filter(|p| p.parent().map(Path::to_path_buf) == parent)
+                .collect();
+            let mut pidls = Pidls(Vec::new());
+            for p in &paths {
+                let name = wide(p);
+                let mut pidl = std::ptr::null_mut();
+                if SHParseDisplayName(PCWSTR(name.as_ptr()), None, &mut pidl, 0, None).is_ok() {
+                    pidls.0.push(pidl);
+                }
+            }
+            let Some(&first) = pidls.0.first() else {
+                return;
+            };
+            let Ok(folder) = SHBindToParent::<IShellFolder>(first, None) else {
+                return;
+            };
+            // Child (last) ids of every item, relative to the shared parent.
+            let children: Vec<*const ITEMIDLIST> = pidls
+                .0
+                .iter()
+                .filter_map(|&p| {
+                    let mut child = std::ptr::null_mut();
+                    SHBindToParent::<IShellFolder>(p, Some(&mut child))
+                        .ok()
+                        .map(|_| child as *const ITEMIDLIST)
+                })
+                .collect();
+            let Ok(menu) = folder.GetUIObjectOf::<IContextMenu>(hwnd, &children, None) else {
+                return;
+            };
+            let Ok(hmenu) = CreatePopupMenu() else { return };
+            if menu
+                .QueryContextMenu(hmenu, 0, FIRST_CMD, LAST_CMD, CMF_NORMAL | CMF_EXPLORE)
+                .is_err()
+            {
+                let _ = DestroyMenu(hmenu);
+                return;
+            }
+            let mut pt = POINT::default();
+            let _ = GetCursorPos(&mut pt);
+            // The owner must be in the foreground or the menu won't close on outside clicks.
+            let _ = SetForegroundWindow(hwnd);
+            ACTIVE_MENU.with(|m| *m.borrow_mut() = Some(menu.clone()));
+            let cmd = TrackPopupMenuEx(
+                hmenu,
+                (TPM_RETURNCMD | TPM_RIGHTBUTTON).0,
+                pt.x,
+                pt.y,
+                hwnd,
+                None,
+            )
+            .0 as u32;
+            ACTIVE_MENU.with(|m| *m.borrow_mut() = None);
+            let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
+            if cmd >= FIRST_CMD {
+                let offset = (cmd - FIRST_CMD) as usize;
+                let info = CMINVOKECOMMANDINFOEX {
+                    cbSize: std::mem::size_of::<CMINVOKECOMMANDINFOEX>() as u32,
+                    fMask: CMIC_MASK_UNICODE | CMIC_MASK_PTINVOKE,
+                    hwnd,
+                    // MAKEINTRESOURCE: the verb is passed as a command offset.
+                    lpVerb: PCSTR(offset as *const u8),
+                    lpVerbW: PCWSTR(offset as *const u16),
+                    nShow: SW_SHOWNORMAL.0,
+                    ptInvoke: pt,
+                    ..Default::default()
+                };
+                let _ = menu.InvokeCommand(
+                    &info as *const CMINVOKECOMMANDINFOEX as *const CMINVOKECOMMANDINFO,
+                );
+            }
+            let _ = DestroyMenu(hmenu);
+        }
+    }
+
+    unsafe fn properties(path: &Path) {
+        unsafe {
+            let file = wide(path);
+            let mut info = SHELLEXECUTEINFOW {
+                cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+                fMask: SEE_MASK_INVOKEIDLIST,
+                lpVerb: w!("properties"),
+                lpFile: PCWSTR(file.as_ptr()),
+                nShow: SW_SHOWNORMAL.0,
+                ..Default::default()
+            };
+            let _ = ShellExecuteExW(&mut info);
+        }
+    }
+
+    unsafe fn open_with(owner: Option<HWND>, path: &Path) {
+        unsafe {
+            let file = wide(path);
+            let info = OPENASINFO {
+                pcszFile: PCWSTR(file.as_ptr()),
+                pcszClass: PCWSTR::null(),
+                oaifInFlags: OAIF_ALLOW_REGISTRATION | OAIF_EXEC,
+            };
+            let _ = SHOpenWithDialog(owner, &info);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+mod imp {
+    use super::{IconImage, IconKey, Request};
+    use crossbeam_channel::{Receiver, Sender};
+
+    pub(super) fn run(
+        _rx: Receiver<Request>,
+        _icons: Sender<(IconKey, Option<IconImage>)>,
+        _notify: Box<dyn Fn() + Send>,
+    ) {
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn icon_keys() {
+        assert_eq!(IconKey::for_path(Path::new("/a/b"), true), IconKey::Folder);
+        assert_eq!(
+            IconKey::for_path(Path::new("/a/Report.PDF"), false),
+            IconKey::Extension("pdf".into())
+        );
+        assert_eq!(
+            IconKey::for_path(Path::new("/a/setup.exe"), false),
+            IconKey::Path("/a/setup.exe".into())
+        );
+        assert_eq!(
+            IconKey::for_path(Path::new("/a/README"), false),
+            IconKey::Extension(String::new())
+        );
+    }
+
+    #[test]
+    fn unsupported_platforms_do_nothing() {
+        let shell = Shell::start(|| {});
+        shell.request_icon(&IconKey::Folder);
+        shell.context_menu(vec!["/x".into()]);
+        if !supported() {
+            assert!(shell.poll_icons().is_empty());
+        }
+    }
+}

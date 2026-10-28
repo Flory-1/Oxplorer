@@ -21,7 +21,11 @@ fn main() -> eframe::Result {
             .with_app_id("oxplorer")
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([720.0, 420.0])
-            .with_drag_and_drop(true),
+            .with_drag_and_drop(true)
+            .with_icon(
+                eframe::icon_data::from_png_bytes(include_bytes!("../assets/oxplorer.png"))
+                    .expect("app icon is a valid PNG"),
+            ),
         // We handle Ctrl+C/X/V ourselves so that pasting *files* works too.
         clipboard_shortcuts: false,
         ..Default::default()

@@ -456,6 +456,9 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) {
                 Location::Settings => {
                     ui.label("⚙  Settings");
                 }
+                Location::RecycleBin => {
+                    ui.label("🗑  Recycle Bin");
+                }
                 Location::Search { root, query } => {
                     let place = root
                         .as_deref()
@@ -584,8 +587,10 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
                 .map(display_name)
                 .unwrap_or("This PC".into()),
         ),
+        Location::RecycleBin => (None, "Recycle Bin".into()),
         _ => (None, "This PC".into()),
     };
+    let in_bin = tab.location().is_bin();
     let id = ui.make_persistent_id("search_box");
     let focused = ui.memory(|m| m.has_focus(id));
     ui.allocate_ui(vec2(width, 30.0), |ui| {
@@ -607,7 +612,7 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
                 }
                 let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
                 let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
-                if resp.lost_focus() && enter {
+                if resp.lost_focus() && enter && !in_bin {
                     actions.push(Action::Search(root, tab.filter.clone()));
                 } else if resp.lost_focus() && escape {
                     tab.filter.clear();
@@ -636,6 +641,8 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
     let can_paste = folder.is_some()
         && (app.settings.transfer.use_system_clipboard || app.clipboard.get(false).is_some());
     let pinned = folder.as_deref().is_some_and(|f| app.quick.is_favorite(f));
+    let in_bin = tab.location().is_bin();
+    let bin_empty = tab.view.entries.is_empty();
 
     ui.horizontal(|ui| {
         let btn = |ui: &mut Ui, enabled: bool, text: &str, tip: &str| {
@@ -663,22 +670,49 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
             });
         });
         ui.separator();
-        if btn(ui, has_sel, "✂", "Cut (Ctrl+X)") {
-            actions.push(Action::CutItems(selection.clone()));
-        }
-        if btn(ui, has_sel, "📋", "Copy (Ctrl+C)") {
-            actions.push(Action::CopyItems(selection.clone()));
-        }
-        if btn(ui, can_paste, "📥", "Paste (Ctrl+V)") {
-            if let Some(f) = &folder {
-                actions.push(Action::Paste(f.clone()));
+        if in_bin {
+            if btn(
+                ui,
+                has_sel,
+                "♻ Restore",
+                "Put the selected items back where they were",
+            ) {
+                actions.push(Action::RestoreFromBin(selection.clone()));
             }
-        }
-        if btn(ui, selection.len() == 1, "✏", "Rename (F2)") {
-            actions.push(Action::Rename(selection[0].clone()));
-        }
-        if btn(ui, has_sel, "🗑", "Delete (Del)") {
-            actions.push(Action::Delete(selection.clone(), false));
+            if btn(
+                ui,
+                has_sel,
+                "⛔ Delete",
+                "Delete the selected items permanently (Del)",
+            ) {
+                actions.push(Action::PurgeFromBin(selection.clone()));
+            }
+            if btn(
+                ui,
+                !bin_empty,
+                "🗑 Empty Recycle Bin",
+                "Delete everything permanently",
+            ) {
+                actions.push(Action::EmptyBin);
+            }
+        } else {
+            if btn(ui, has_sel, "✂", "Cut (Ctrl+X)") {
+                actions.push(Action::CutItems(selection.clone()));
+            }
+            if btn(ui, has_sel, "📋", "Copy (Ctrl+C)") {
+                actions.push(Action::CopyItems(selection.clone()));
+            }
+            if btn(ui, can_paste, "📥", "Paste (Ctrl+V)") {
+                if let Some(f) = &folder {
+                    actions.push(Action::Paste(f.clone()));
+                }
+            }
+            if btn(ui, selection.len() == 1, "✏", "Rename (F2)") {
+                actions.push(Action::Rename(selection[0].clone()));
+            }
+            if btn(ui, has_sel, "🗑", "Delete (Del)") {
+                actions.push(Action::Delete(selection.clone(), false));
+            }
         }
         ui.separator();
 

@@ -8,6 +8,9 @@ license.workspace = true
 name = "oxplorer"
 path = "src/main.rs"
 
+[build-dependencies]
+embed-resource = "3"
+
 [dependencies]
 ox-core.workspace = true
 crossbeam-channel.workspace = true

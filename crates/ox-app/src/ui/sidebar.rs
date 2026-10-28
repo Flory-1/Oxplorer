@@ -130,6 +130,30 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 }
             }
 
+            if ox_core::recycle::supported() {
+                ui.add_space(6.0);
+                let bin = item(
+                    ui,
+                    Icon::Glyph("🗑"),
+                    "Recycle Bin",
+                    None,
+                    current == Location::RecycleBin,
+                    accent,
+                )
+                .on_hover_text("Drop files here to move them to the Recycle Bin");
+                if bin.clicked() {
+                    actions.push(Action::Navigate(Location::RecycleBin));
+                }
+                if bin.middle_clicked() {
+                    actions.push(Action::OpenInNewTab(Location::RecycleBin, false));
+                }
+                let hovering = bin.dnd_hover_payload::<super::DragItems>().is_some();
+                if let Some(items) = bin.dnd_release_payload::<super::DragItems>() {
+                    actions.push(Action::MoveToBin(items.0.clone()));
+                }
+                highlight_drop(ui, &bin, hovering, accent);
+            }
+
             ui.add_space(12.0);
             let settings = item(
                 ui,

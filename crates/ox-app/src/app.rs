@@ -15,13 +15,14 @@ use egui::{Context, Key, Modifiers};
 use ox_core::clipboard::{ClipMode, FileClipboard};
 use ox_core::entry::{self, FileEntry};
 use ox_core::places::{self, Drive, QuickAccess};
+use ox_core::recycle::{self, TrashItem};
 use ox_core::search::{self, Query, SearchEvent, SearchOptions};
 use ox_core::settings::{Settings, StartPage};
 use ox_core::transfer::{TransferEngine, TransferKind, TransferRequest};
 use ox_core::watcher::DirWatcher;
 use ox_core::{format, fsops};
 
-use crate::tabs::{GroupId, Location, SearchState, Session, TabId, Tabs};
+use crate::tabs::{GroupId, Listing, Location, SearchState, Session, TabId, Tabs};
 use crate::{theme, ui};
 
 pub enum Action {
@@ -58,6 +59,18 @@ pub enum Action {
     SettingsChanged,
     Tab(TabAction),
     Toast(String),
+    /// Windows: show the Explorer context menu ("Show more options").
+    ShellMenu(Vec<PathBuf>),
+    /// Windows: "Open with…" dialog.
+    OpenWith(PathBuf),
+    /// Recycle Bin: put entries (by their bin path) back where they came from.
+    RestoreFromBin(Vec<PathBuf>),
+    /// Recycle Bin: delete entries for good (asks first).
+    PurgeFromBin(Vec<PathBuf>),
+    EmptyBin,
+    PurgeConfirmed(Vec<TrashItem>, bool),
+    /// Move items to the Recycle Bin without asking (e.g. dropped onto it).
+    MoveToBin(Vec<PathBuf>),
 }
 
 pub enum TabAction {
@@ -85,6 +98,11 @@ pub enum Dialog {
         text: String,
         error: Option<String>,
         focus: bool,
+    },
+    /// Permanently delete Recycle Bin items, or everything if `everything` is set.
+    ConfirmPurge {
+        items: Vec<TrashItem>,
+        everything: bool,
     },
     ConfirmDelete {
         paths: Vec<PathBuf>,
@@ -146,6 +164,7 @@ pub struct OxApp {
     seen_jobs: HashSet<u64>,
     text_clipboard: Option<arboard::Clipboard>,
     applied_settings: Option<Settings>,
+    pub icons: crate::icons::IconCache,
 }
 
 impl OxApp {
@@ -206,6 +225,7 @@ impl OxApp {
             seen_jobs: HashSet::new(),
             text_clipboard: None,
             applied_settings: None,
+            icons: crate::icons::IconCache::new(&cc.egui_ctx),
         }
     }
 
@@ -246,6 +266,7 @@ impl OxApp {
             self.applied_settings = Some(self.settings.clone());
         }
         self.remap_text_clipboard_keys(ctx);
+        self.icons.poll(ctx);
         self.load_active_tab();
         self.poll_tabs();
         self.poll_watcher();
@@ -327,7 +348,7 @@ impl OxApp {
             Location::Folder(path) => {
                 let (tx, rx) = crossbeam_channel::bounded(1);
                 std::thread::spawn(move || {
-                    let _ = tx.send(entry::list_dir(&path, show_hidden));
+                    let _ = tx.send(Listing::folder(&path, show_hidden).map_err(|e| e.to_string()));
                     ctx.request_repaint();
                 });
                 tab.view.loading = Some(rx);
@@ -342,6 +363,14 @@ impl OxApp {
                     done: None,
                 });
             }
+            Location::RecycleBin => {
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                std::thread::spawn(move || {
+                    let _ = tx.send(Listing::recycle_bin());
+                    ctx.request_repaint();
+                });
+                tab.view.loading = Some(rx);
+            }
             Location::Home | Location::Settings => {}
         }
     }
@@ -354,16 +383,17 @@ impl OxApp {
                 if let Ok(result) = rx.try_recv() {
                     tab.view.loading = None;
                     match result {
-                        Ok(entries) => {
+                        Ok(listing) => {
                             let existing: HashSet<&PathBuf> =
-                                entries.iter().map(|e| &e.path).collect();
+                                listing.entries.iter().map(|e| &e.path).collect();
                             tab.view.selection.retain(|p| existing.contains(p));
-                            tab.view.entries = entries;
+                            tab.view.entries = listing.entries;
+                            tab.view.bin = listing.bin;
                             tab.view.error = None;
                         }
                         Err(e) => {
                             tab.view.entries.clear();
-                            tab.view.error = Some(e.to_string());
+                            tab.view.error = Some(e);
                         }
                     }
                     tab.refresh_visible(folders_first, case);
@@ -494,6 +524,7 @@ impl OxApp {
         let folder = self.current_folder();
         let selection = self.tabs.active().view.selected_paths();
         let shows_files = self.tabs.active().location().shows_files();
+        let in_bin = self.tabs.active().location().is_bin();
 
         ctx.input_mut(|i| {
             // Tabs & navigation
@@ -541,6 +572,19 @@ impl OxApp {
             if !shows_files {
                 return;
             }
+            if in_bin {
+                // The Recycle Bin only supports selecting, restoring and purging.
+                if i.consume_key(cmd, Key::A) {
+                    actions.push(Action::SelectAll);
+                }
+                if (i.consume_key(Modifiers::NONE, Key::Delete)
+                    || i.consume_key(Modifiers::SHIFT, Key::Delete))
+                    && !selection.is_empty()
+                {
+                    actions.push(Action::PurgeFromBin(selection.clone()));
+                }
+                return;
+            }
             // File commands
             if i.consume_key(cmd_shift, Key::N) {
                 if let Some(f) = &folder {
@@ -575,6 +619,12 @@ impl OxApp {
             }
             if i.consume_key(Modifiers::ALT, Key::Enter) && !selection.is_empty() {
                 actions.push(Action::Properties(selection.clone()));
+            }
+            if i.consume_key(Modifiers::SHIFT, Key::F10)
+                && !selection.is_empty()
+                && ox_core::shell::supported()
+            {
+                actions.push(Action::ShellMenu(selection.clone()));
             }
         });
         self.actions.extend(actions);
@@ -670,7 +720,7 @@ impl OxApp {
             }
             tab.view.scroll_to = Some(t);
         }
-        if open {
+        if open && !tab.location().is_bin() {
             let selected = tab.view.selected_paths();
             for p in selected {
                 self.actions.push(Action::Open(p));
@@ -793,13 +843,7 @@ impl OxApp {
                     .first()
                     .and_then(|p| p.parent())
                     .map(Path::to_path_buf);
-                let (tx, rx) = crossbeam_channel::bounded(1);
-                let ctx = self.ctx.clone();
-                std::thread::spawn(move || {
-                    let _ = tx.send(fsops::delete(&paths, to_trash));
-                    ctx.request_repaint();
-                });
-                self.background.push(("Delete".into(), rx, dir));
+                self.run_background("Delete", dir, move || fsops::delete(&paths, to_trash));
                 self.tabs.active_mut().view.clear_selection();
             }
             Action::Rename(path) => {
@@ -852,7 +896,13 @@ impl OxApp {
                     self.toast(format!("Couldn't open the system file manager: {e}"));
                 }
             }
-            Action::Properties(paths) => self.open_properties(paths),
+            Action::Properties(paths) => match paths.as_slice() {
+                // The native dialog shows everything Explorer shows (security, versions, …).
+                [one] if ox_core::shell::supported() => self.icons.shell.properties(one.clone()),
+                _ => self.open_properties(paths),
+            },
+            Action::ShellMenu(paths) => self.icons.shell.context_menu(paths),
+            Action::OpenWith(path) => self.icons.shell.open_with(path),
             Action::Search(root, query) => {
                 if query.trim().is_empty() {
                     return;
@@ -877,6 +927,43 @@ impl OxApp {
             }
             Action::Tab(t) => self.process_tab(t),
             Action::Toast(t) => self.toast(t),
+            Action::RestoreFromBin(paths) => {
+                let items = self.tabs.active().view.bin.select(&paths);
+                self.run_background("Restore", None, move || recycle::restore(items));
+                self.tabs.active_mut().view.clear_selection();
+            }
+            Action::PurgeFromBin(paths) => {
+                let items = self.tabs.active().view.bin.select(&paths);
+                if !items.is_empty() {
+                    self.dialog = Some(Dialog::ConfirmPurge {
+                        items,
+                        everything: false,
+                    });
+                }
+            }
+            Action::EmptyBin => {
+                self.dialog = Some(Dialog::ConfirmPurge {
+                    items: Vec::new(),
+                    everything: true,
+                });
+            }
+            Action::PurgeConfirmed(items, everything) => {
+                if everything {
+                    self.run_background("Empty Recycle Bin", None, recycle::empty);
+                } else {
+                    self.run_background("Delete", None, move || recycle::purge(items));
+                }
+                self.tabs.active_mut().view.clear_selection();
+            }
+            Action::MoveToBin(paths) => {
+                let dir = paths
+                    .first()
+                    .and_then(|p| p.parent())
+                    .map(Path::to_path_buf);
+                self.run_background("Move to Recycle Bin", dir, move || {
+                    fsops::delete(&paths, true)
+                });
+            }
         }
     }
 
@@ -962,6 +1049,23 @@ impl OxApp {
             conflict: self.settings.transfer.default_conflict,
         });
         self.ui.show_transfers = true;
+    }
+
+    /// Run `op` on a helper thread; when it finishes, errors become a toast and
+    /// tabs showing `dir` (all tabs if `None`) are refreshed.
+    fn run_background(
+        &mut self,
+        label: &str,
+        dir: Option<PathBuf>,
+        op: impl FnOnce() -> Result<(), String> + Send + 'static,
+    ) {
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let ctx = self.ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(op());
+            ctx.request_repaint();
+        });
+        self.background.push((label.to_owned(), rx, dir));
     }
 
     fn after_create(&mut self, dir: &Path, created: PathBuf) {

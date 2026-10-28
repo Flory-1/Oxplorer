@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crossbeam_channel::Receiver;
 use ox_core::entry::{self, FileEntry, SortKey, SortOrder};
+use ox_core::recycle::BinListing;
 use ox_core::search::{Query, SearchHandle};
 use ox_core::settings::{Settings, ViewMode};
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,7 @@ pub enum Location {
         query: String,
     },
     Settings,
+    RecycleBin,
 }
 
 impl Location {
@@ -34,6 +36,7 @@ impl Location {
             Location::Folder(p) => entry::display_name(p),
             Location::Search { query, .. } => format!("Search: {query}"),
             Location::Settings => "Settings".into(),
+            Location::RecycleBin => "Recycle Bin".into(),
         }
     }
 
@@ -44,6 +47,7 @@ impl Location {
             Location::Folder(_) => "📁",
             Location::Search { .. } => "🔍",
             Location::Settings => "⚙",
+            Location::RecycleBin => "🗑",
         }
     }
 
@@ -56,7 +60,43 @@ impl Location {
     }
 
     pub fn shows_files(&self) -> bool {
-        matches!(self, Location::Folder(_) | Location::Search { .. })
+        matches!(
+            self,
+            Location::Folder(_) | Location::Search { .. } | Location::RecycleBin
+        )
+    }
+
+    pub fn is_bin(&self) -> bool {
+        matches!(self, Location::RecycleBin)
+    }
+}
+
+/// Result of loading a location in the background.
+pub struct Listing {
+    pub entries: Vec<FileEntry>,
+    /// Trash items behind the entries, when showing the Recycle Bin.
+    pub bin: BinListing,
+}
+
+impl Listing {
+    pub fn folder(path: &Path, show_hidden: bool) -> io::Result<Self> {
+        Ok(Self {
+            entries: entry::list_dir(path, show_hidden)?,
+            bin: BinListing::default(),
+        })
+    }
+
+    pub fn recycle_bin() -> Result<Self, String> {
+        let items = ox_core::recycle::list()?;
+        let mut bin = BinListing::default();
+        let entries = items
+            .into_iter()
+            .map(|b| {
+                bin.items.insert(b.entry.path.clone(), b.item);
+                b.entry
+            })
+            .collect();
+        Ok(Self { entries, bin })
     }
 }
 
@@ -67,7 +107,9 @@ pub struct FolderView {
     pub entries: Vec<FileEntry>,
     /// Indices into `entries` that pass the quick filter, in display order.
     pub visible: Vec<usize>,
-    pub loading: Option<Receiver<io::Result<Vec<FileEntry>>>>,
+    pub loading: Option<Receiver<Result<Listing, String>>>,
+    /// Trash items of the Recycle Bin view (empty for normal folders).
+    pub bin: BinListing,
     pub error: Option<String>,
     pub selection: HashSet<PathBuf>,
     /// Position (in `visible`) of the keyboard cursor and the shift-select anchor.
@@ -264,7 +306,8 @@ impl Tab {
             folders_first,
         );
         let query = Query::parse(&self.filter, case_sensitive);
-        let filtering = self.location().folder().is_some() && !query.is_empty();
+        let filtering =
+            (self.location().folder().is_some() || self.location().is_bin()) && !query.is_empty();
         self.view.visible = self
             .view
             .entries
@@ -564,11 +607,14 @@ impl Tabs {
     }
 
     /// Mark every tab showing `dir` (or every tab, if `None`) as needing a reload.
+    /// Recycle Bin tabs are always refreshed, since any change may have deleted
+    /// or restored something.
     pub fn mark_stale(&mut self, dir: Option<&Path>) {
         for t in &mut self.tabs {
             let hit = match (dir, t.location()) {
                 (None, _) => true,
                 (Some(d), Location::Folder(p)) => p == d,
+                (_, Location::RecycleBin) => true,
                 _ => false,
             };
             if hit {

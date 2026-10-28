@@ -62,7 +62,8 @@ impl FileEntry {
         if self.is_dir {
             return String::new();
         }
-        self.path
+        // From the name, not the path: Recycle Bin entries have internal paths.
+        Path::new(&self.name)
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default()
