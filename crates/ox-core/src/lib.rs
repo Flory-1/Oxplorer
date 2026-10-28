@@ -14,6 +14,7 @@ pub mod fuzzy;
 pub mod git;
 pub mod index;
 pub mod natural;
+pub mod pdf;
 pub mod places;
 pub mod recycle;
 pub mod rename;

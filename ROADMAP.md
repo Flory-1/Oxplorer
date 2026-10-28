@@ -111,7 +111,7 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 
 - ✅ Dual-pane / split view (Ctrl+\\): two panes side by side, each with its own tab; F6 or a click switches the focused pane, drag & drop between panes, narrow panes hide less important columns
 - ✅ Preview pane (Alt+P): images, text and code with line numbers, folder and multi-selection summaries
-- ⏳ Preview pane extras: syntax highlighting, PDF, audio/video metadata
+- ✅ Preview pane extras: syntax highlighting for code and config files, PDF first page (Windows' built-in PDF renderer), audio/video details with cover art
 - ✅ Bulk rename (F2 on several items): name patterns with `{name}`/`{n}`/`{date}` tokens, find & replace (text or regex), counters, case changes, live preview with conflict checks, all-or-nothing apply
 - ✅ Browse zip and tar (.tar, .tar.gz, .tgz) archives like folders, with previews; extract by drag & drop, copy/paste or *Extract here / Extract to*; *Compress to ZIP*
 - ⏳ 7z and rar archives

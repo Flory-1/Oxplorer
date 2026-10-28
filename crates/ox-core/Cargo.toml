@@ -25,6 +25,10 @@ flate2 = "1"
 clipboard-win = { version = "5", features = ["std"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl"] }
 windows = { version = "0.62", features = [
+    "Data_Pdf",
+    "Foundation",
+    "Storage",
+    "Storage_Streams",
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_Storage_FileSystem",
