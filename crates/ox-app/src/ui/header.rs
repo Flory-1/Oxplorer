@@ -506,7 +506,7 @@ fn breadcrumbs(ui: &mut Ui, path: &Path, actions: &mut Vec<Action>) {
     const MAX: usize = 5;
     let hidden = parts.len().saturating_sub(MAX);
     if hidden > 0 {
-        ui.menu_button("«", |ui| {
+        crumb_menu(ui, RichText::new("«"), |ui| {
             for p in &parts[..hidden] {
                 if ui.button(format!("📁 {}", crumb_name(p))).clicked() {
                     actions.push(Action::Navigate(Location::Folder(p.to_path_buf())));
@@ -529,7 +529,7 @@ fn breadcrumbs(ui: &mut Ui, path: &Path, actions: &mut Vec<Action>) {
         }
         super::drop_target(actions, &resp, p);
         // "›" opens a menu of the sub-folders, like Explorer's address bar.
-        ui.menu_button(RichText::new("›").size(14.0), |ui| {
+        crumb_menu(ui, RichText::new("›").size(14.0), |ui| {
             egui::ScrollArea::vertical()
                 .max_height(400.0)
                 .show(ui, |ui| {
@@ -541,6 +541,16 @@ fn breadcrumbs(ui: &mut Ui, path: &Path, actions: &mut Vec<Action>) {
                 });
         });
     }
+}
+
+/// A frameless menu button for the address bar's `«` and `›` arrows.
+fn crumb_menu(ui: &mut Ui, text: RichText, content: impl FnOnce(&mut Ui)) {
+    egui::containers::menu::MenuButton::from_button(
+        egui::Button::new(text)
+            .frame(false)
+            .min_size(egui::vec2(18.0, 0.0)),
+    )
+    .ui(ui, content);
 }
 
 fn crumb_name(p: &Path) -> String {
