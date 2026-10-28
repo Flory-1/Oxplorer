@@ -82,15 +82,17 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 - ⏳ Option to "Open folders in Oxplorer" by default (Win+E / folder association)
 - ⏳ Installer: MSIX / winget
 
-## Phase 3 — Copy Engine 2.0 ⏳
+## Phase 3 — Copy Engine 2.0 🚧
 
-- ⏳ Detect the device type (SSD / HDD / network) and tune worker count and buffer size per volume
-- ⏳ Per-disk queues: jobs on the same physical disk run one after another, jobs on different disks run in parallel
-- ⏳ Optional verification after copying (xxHash3 / BLAKE3)
+- ✅ Detect the drive type (HDD vs SSD) and pick the worker count: one file at a time on HDDs, 8 in parallel on SSDs ("Auto" setting). Linux via sysfs; Windows via the seek-penalty IOCTL *(untested)*
+- ✅ Per-disk queue: jobs on the same drive run one after another, jobs on different drives run in parallel
+- ✅ Optional verification after copying (xxh3-128). Moves only delete originals that were copied correctly
+- ✅ Retry failed files with one click (each file goes back to its exact target path)
+- ✅ Speed limit per transfer
+- ✅ Transfer history log (`transfers.log`, with errors), opened from the transfer panel or Settings
 - ⏳ Resume interrupted transfers (journal file)
-- ⏳ Per-file error dialog with retry / skip / skip all
-- ⏳ Speed limit, transfer history and log
-- ⏳ Keep ACLs, alternate data streams and attributes (optional)
+- ⏳ Per-file error dialog while the job runs (retry / skip / skip all) instead of collecting errors
+- ⏳ Keep ACLs (security descriptors), optional
 - ⏳ Benchmarks against Explorer, robocopy and TeraCopy in CI
 
 ## Phase 4 — Search 2.0 ⏳

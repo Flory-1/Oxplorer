@@ -53,7 +53,11 @@ Rust engine does the work and shows progress in a panel inside the window.
   `CopyFileExW` (the kernel fast path), and very large files use unbuffered I/O.
 - Moves on the same drive are a single rename and finish instantly. Across drives it copies, then deletes.
 - Asks **once per job** when files already exist (Replace / Skip / Keep both / Replace if newer), not once per file
-- Pause, resume, cancel, live speed and time left, a job queue, and a per-file error list
+- Pause, resume, cancel, live speed and time left, and a per-file error list
+- **Per-disk queue**: copies on the same drive wait for each other, copies between different drives run in parallel
+- **Auto worker count**: one file at a time on HDDs (no seek storms), 8 in parallel on SSDs
+- Optional **verification** (xxh3 hash of original and copy). Moves only delete originals that were copied correctly.
+- **Retry failed files** with one click, an optional **speed limit**, and a **transfer history** log
 - Shares the clipboard with Windows Explorer in both directions (CF_HDROP + Preferred DropEffect).
   Copy in Explorer and paste in Oxplorer, and the paste still runs through the fast engine.
 

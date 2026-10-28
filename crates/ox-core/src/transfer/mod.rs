@@ -19,9 +19,12 @@
 //! progress through lock-free counters, so the UI can poll them every frame.
 
 mod copy;
+pub mod history;
 mod plan;
+mod throttle;
+mod verify;
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
@@ -88,6 +91,26 @@ pub struct TransferRequest {
     /// Folder the sources are copied/moved into.
     pub destination: PathBuf,
     pub conflict: ConflictPolicy,
+    /// Individual files with their exact target path (used to retry failed
+    /// files). Copied in addition to `sources`.
+    pub pairs: Vec<(PathBuf, PathBuf)>,
+}
+
+impl TransferRequest {
+    pub fn new(
+        kind: TransferKind,
+        sources: Vec<PathBuf>,
+        destination: PathBuf,
+        conflict: ConflictPolicy,
+    ) -> Self {
+        Self {
+            kind,
+            sources,
+            destination,
+            conflict,
+            pairs: Vec::new(),
+        }
+    }
 }
 
 /// Tunables for the engine. Can be changed at runtime; new jobs pick up the
@@ -95,6 +118,7 @@ pub struct TransferRequest {
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
     /// Number of files copied in parallel within one job.
+    /// `0` = automatic: one at a time on HDDs, more on SSDs.
     pub workers: usize,
     /// Buffer size for the portable copy loop.
     pub buffer_size: usize,
@@ -102,17 +126,28 @@ pub struct EngineConfig {
     pub unbuffered_threshold: u64,
     /// How many jobs may run at the same time; extra jobs wait in a queue.
     pub max_concurrent_jobs: usize,
+    /// Jobs touching the same drive run one after another; jobs on
+    /// different drives run in parallel (up to `max_concurrent_jobs`).
+    pub per_disk_queue: bool,
     pub preserve_timestamps: bool,
+    /// Compare source and copy (xxh3 hash) after each file. Moves only delete
+    /// the source when the copy is verified.
+    pub verify: bool,
+    /// Bytes per second per job, `0` = unlimited.
+    pub speed_limit: u64,
 }
 
 impl Default for EngineConfig {
     fn default() -> Self {
         Self {
-            workers: 4,
+            workers: 0,
             buffer_size: 4 * 1024 * 1024,
             unbuffered_threshold: 256 * 1024 * 1024,
-            max_concurrent_jobs: 2,
+            max_concurrent_jobs: 4,
+            per_disk_queue: true,
             preserve_timestamps: true,
+            verify: false,
+            speed_limit: 0,
         }
     }
 }
@@ -148,6 +183,8 @@ impl JobState {
 #[derive(Debug, Clone)]
 pub struct TransferError {
     pub path: PathBuf,
+    /// Where the file should have gone, for errors that can be retried.
+    pub dest: Option<PathBuf>,
     pub message: String,
 }
 
@@ -158,6 +195,14 @@ pub struct Job {
     pub sources: Vec<PathBuf>,
     pub destination: PathBuf,
     conflict_policy: ConflictPolicy,
+    pairs: Vec<(PathBuf, PathBuf)>,
+    /// Volumes this job reads from or writes to (for per-disk queueing).
+    volumes: Vec<String>,
+    /// Parallel file copies actually used (after drive detection).
+    pub workers: AtomicU64,
+    /// A spinning disk was detected, so files are copied one at a time.
+    pub hdd: AtomicBool,
+    pub verified_files: AtomicU64,
 
     state: AtomicU8,
     pub total_bytes: AtomicU64,
@@ -185,6 +230,11 @@ impl Job {
             sources: req.sources.clone(),
             destination: req.destination.clone(),
             conflict_policy: req.conflict,
+            pairs: req.pairs.clone(),
+            volumes: job_volumes(req),
+            workers: AtomicU64::new(0),
+            hdd: AtomicBool::new(false),
+            verified_files: AtomicU64::new(0),
             state: AtomicU8::new(JobState::Queued as u8),
             total_bytes: AtomicU64::new(0),
             done_bytes: AtomicU64::new(0),
@@ -257,6 +307,31 @@ impl Job {
         self.errors.lock().unwrap().len()
     }
 
+    /// A new request that copies/moves just the files that failed, or `None`
+    /// if no failed file can be retried.
+    pub fn retry_request(&self) -> Option<TransferRequest> {
+        let pairs: Vec<(PathBuf, PathBuf)> = self
+            .errors
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|e| Some((e.path.clone(), e.dest.clone()?)))
+            .collect();
+        (!pairs.is_empty()).then(|| TransferRequest {
+            kind: self.kind,
+            sources: Vec::new(),
+            destination: self.destination.clone(),
+            // The failed copies were removed, so remaining conflicts are real ones.
+            conflict: ConflictPolicy::Ask,
+            pairs,
+        })
+    }
+
+    /// Total number of items the job was started with.
+    pub fn item_count(&self) -> usize {
+        self.sources.len() + self.pairs.len()
+    }
+
     /// The file currently being scanned or copied.
     pub fn current_item(&self) -> PathBuf {
         self.current.lock().unwrap().clone()
@@ -319,8 +394,13 @@ impl Job {
     }
 
     fn push_error(&self, path: &Path, message: impl Into<String>) {
+        self.push_file_error(path, None, message);
+    }
+
+    fn push_file_error(&self, path: &Path, dest: Option<&Path>, message: impl Into<String>) {
         self.errors.lock().unwrap().push(TransferError {
             path: path.to_path_buf(),
+            dest: dest.map(Path::to_path_buf),
             message: message.into(),
         });
     }
@@ -378,12 +458,61 @@ impl SpeedMeter {
 
 type Notifier = Arc<dyn Fn() + Send + Sync>;
 
+fn job_volumes(req: &TransferRequest) -> Vec<String> {
+    let mut paths: Vec<&Path> = vec![req.destination.as_path()];
+    paths.extend(req.sources.iter().map(PathBuf::as_path));
+    for (src, dst) in &req.pairs {
+        paths.push(src);
+        paths.push(dst);
+    }
+    let mut vols: Vec<String> = paths
+        .into_iter()
+        .filter_map(crate::disk::volume_id)
+        .collect();
+    vols.sort();
+    vols.dedup();
+    vols
+}
+
+/// Which jobs are running, and on which volumes.
+#[derive(Default)]
+struct Scheduler {
+    running: usize,
+    busy: HashMap<String, usize>,
+}
+
+impl Scheduler {
+    fn can_start(&self, job: &Job, cfg: &EngineConfig) -> bool {
+        self.running < cfg.max_concurrent_jobs.max(1)
+            && (!cfg.per_disk_queue || job.volumes.iter().all(|v| !self.busy.contains_key(v)))
+    }
+
+    fn start(&mut self, job: &Job) {
+        self.running += 1;
+        for v in &job.volumes {
+            *self.busy.entry(v.clone()).or_default() += 1;
+        }
+    }
+
+    fn finish(&mut self, job: &Job) {
+        self.running -= 1;
+        for v in &job.volumes {
+            if let Some(n) = self.busy.get_mut(v) {
+                *n -= 1;
+                if *n == 0 {
+                    self.busy.remove(v);
+                }
+            }
+        }
+    }
+}
+
 /// Owns all transfer jobs. Cheap to share: wrap it in an `Arc` or keep one per app.
 pub struct TransferEngine {
     config: Arc<RwLock<EngineConfig>>,
     jobs: Mutex<Vec<Arc<Job>>>,
     next_id: AtomicU64,
-    running: Arc<(Mutex<usize>, Condvar)>,
+    scheduler: Arc<(Mutex<Scheduler>, Condvar)>,
     notifier: Arc<RwLock<Option<Notifier>>>,
 }
 
@@ -399,14 +528,14 @@ impl TransferEngine {
             config: Arc::new(RwLock::new(config)),
             jobs: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
-            running: Arc::new((Mutex::new(0), Condvar::new())),
+            scheduler: Arc::new((Mutex::new(Scheduler::default()), Condvar::new())),
             notifier: Arc::new(RwLock::new(None)),
         }
     }
 
     pub fn set_config(&self, config: EngineConfig) {
         *self.config.write().unwrap() = config;
-        self.running.1.notify_all();
+        self.scheduler.1.notify_all();
     }
 
     /// Called whenever a job changes state (e.g. to request a UI repaint).
@@ -421,7 +550,7 @@ impl TransferEngine {
         self.jobs.lock().unwrap().push(job.clone());
 
         let config = self.config.clone();
-        let running = self.running.clone();
+        let scheduler = self.scheduler.clone();
         let notifier = self.notifier.clone();
         let worker_job = job.clone();
         thread::Builder::new()
@@ -432,23 +561,22 @@ impl TransferEngine {
                         n();
                     }
                 };
-                // Wait for a free job slot (queue).
+                // Wait in the queue until a slot (and our drives) are free.
                 {
-                    let (lock, cv) = &*running;
-                    let mut count = lock.lock().unwrap();
+                    let (lock, cv) = &*scheduler;
+                    let mut sched = lock.lock().unwrap();
                     loop {
                         if worker_job.is_cancelled() {
                             worker_job.set_state(JobState::Cancelled);
                             notify();
                             return;
                         }
-                        let max = config.read().unwrap().max_concurrent_jobs.max(1);
-                        if *count < max {
-                            *count += 1;
+                        if sched.can_start(&worker_job, &config.read().unwrap()) {
+                            sched.start(&worker_job);
                             break;
                         }
-                        count = cv
-                            .wait_timeout(count, Duration::from_millis(200))
+                        sched = cv
+                            .wait_timeout(sched, Duration::from_millis(200))
                             .unwrap()
                             .0;
                     }
@@ -456,8 +584,8 @@ impl TransferEngine {
                 let cfg = config.read().unwrap().clone();
                 run_job(&worker_job, &cfg, &notify);
                 {
-                    let (lock, cv) = &*running;
-                    *lock.lock().unwrap() -= 1;
+                    let (lock, cv) = &*scheduler;
+                    lock.lock().unwrap().finish(&worker_job);
                     cv.notify_all();
                 }
                 notify();
@@ -518,15 +646,40 @@ fn run_job(job: &Job, cfg: &EngineConfig, notify: &dyn Fn()) {
     }
     plan.apply_policy(job, policy);
 
+    let workers = worker_count(job, cfg);
+    job.workers.store(workers as u64, Ordering::Relaxed);
     job.set_state(JobState::Running);
     notify();
-    plan::execute(job, plan, cfg);
+    plan::execute(job, plan, cfg, workers);
 
     job.set_state(if job.is_cancelled() {
         JobState::Cancelled
     } else {
         JobState::Completed
     });
+}
+
+/// How many files to copy in parallel. In automatic mode HDDs get one
+/// worker (parallel reads mostly add seeking), SSDs get eight.
+fn worker_count(job: &Job, cfg: &EngineConfig) -> usize {
+    if cfg.workers > 0 {
+        return cfg.workers.min(64);
+    }
+    let mut paths = vec![job.destination.clone()];
+    paths.extend(job.sources.iter().take(1).cloned());
+    paths.extend(job.pairs.iter().take(1).map(|(s, _)| s.clone()));
+    let kinds: Vec<Option<bool>> = paths
+        .iter()
+        .map(|p| crate::disk::is_rotational(p))
+        .collect();
+    if kinds.contains(&Some(true)) {
+        job.hdd.store(true, Ordering::Relaxed);
+        1
+    } else if kinds.iter().all(|k| *k == Some(false)) {
+        8
+    } else {
+        4 // unknown (network share, virtual drive, …)
+    }
 }
 
 #[cfg(test)]

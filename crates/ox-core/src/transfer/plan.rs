@@ -7,7 +7,8 @@ use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
 use super::copy::{self, CopyError, CopyOptions};
-use super::{ConflictPolicy, EngineConfig, Job, TransferKind};
+use super::throttle::Throttle;
+use super::{verify, ConflictPolicy, EngineConfig, Job, TransferKind};
 use crate::fsops;
 
 #[derive(Debug)]
@@ -84,6 +85,19 @@ impl Plan {
 /// Walk all sources and build the plan. Same-volume moves happen right here.
 pub(super) fn build(job: &Job) -> Plan {
     let mut plan = Plan::default();
+    // Explicit files (a retry of failed files): each with its exact target.
+    for (src, dst) in &job.pairs {
+        match fs::symlink_metadata(src) {
+            Ok(meta) if !meta.is_dir() => {
+                if let Some(parent) = dst.parent() {
+                    plan.dirs.push(parent.to_path_buf());
+                }
+                add_file(job, src.clone(), dst.clone(), &meta, &mut plan);
+            }
+            Ok(_) => job.push_error(src, "Expected a file but found a folder."),
+            Err(e) => job.push_error(src, e.to_string()),
+        }
+    }
     for src in &job.sources {
         if job.is_cancelled() {
             break;
@@ -231,7 +245,7 @@ fn same_path(a: &Path, b: &Path) -> bool {
 }
 
 /// Run the plan: create folders, then copy files in parallel.
-pub(super) fn execute(job: &Job, plan: Plan, cfg: &EngineConfig) {
+pub(super) fn execute(job: &Job, plan: Plan, cfg: &EngineConfig, workers: usize) {
     for dir in &plan.dirs {
         if let Err(e) = fs::create_dir_all(dir) {
             job.push_error(dir, e.to_string());
@@ -243,7 +257,13 @@ pub(super) fn execute(job: &Job, plan: Plan, cfg: &EngineConfig) {
         unbuffered_threshold: cfg.unbuffered_threshold,
         preserve_timestamps: cfg.preserve_timestamps,
     };
-    let workers = cfg.workers.clamp(1, 64).min(plan.files.len().max(1));
+    let workers = workers.clamp(1, 64).min(plan.files.len().max(1));
+    let throttle = Throttle::new(cfg.speed_limit);
+    let ctx = FileCtx {
+        opts: &opts,
+        throttle: throttle.as_ref(),
+        verify: cfg.verify,
+    };
     let (tx, rx) = crossbeam_channel::unbounded();
     for task in plan.files {
         let _ = tx.send(task);
@@ -253,14 +273,14 @@ pub(super) fn execute(job: &Job, plan: Plan, cfg: &EngineConfig) {
     std::thread::scope(|scope| {
         for _ in 0..workers {
             let rx = rx.clone();
-            let opts = &opts;
+            let ctx = &ctx;
             scope.spawn(move || {
                 for task in rx.iter() {
                     if !job.checkpoint() {
                         break;
                     }
                     job.set_current(&task.src);
-                    transfer_file(job, &task, opts);
+                    transfer_file(job, &task, ctx);
                 }
             });
         }
@@ -275,7 +295,15 @@ pub(super) fn execute(job: &Job, plan: Plan, cfg: &EngineConfig) {
     }
 }
 
-fn transfer_file(job: &Job, task: &FileTask, opts: &CopyOptions) {
+/// Settings shared by all workers of a job.
+struct FileCtx<'a> {
+    opts: &'a CopyOptions,
+    throttle: Option<&'a Throttle>,
+    verify: bool,
+}
+
+fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) {
+    let opts = ctx.opts;
     let mut reported = 0u64;
     let result = (|| -> Result<(), CopyError> {
         if task.conflict {
@@ -293,8 +321,22 @@ fn transfer_file(job: &Job, task: &FileTask, opts: &CopyOptions) {
         copy::copy_file(&task.src, &task.dst, task.size, opts, &mut |delta| {
             reported += delta;
             job.done_bytes.fetch_add(delta, Ordering::Relaxed);
+            if let Some(t) = ctx.throttle {
+                t.consume(delta);
+            }
             job.checkpoint()
         })?;
+        if ctx.verify {
+            let checkpoint = || job.checkpoint();
+            if !verify::same_contents(&task.src, &task.dst, opts.buffer_size, &checkpoint)? {
+                // Never keep (or move away the original of) a bad copy.
+                let _ = fsops::remove_file_forced(&task.dst);
+                return Err(CopyError::Io(io::Error::other(
+                    "Verification failed: the copy differs from the original.",
+                )));
+            }
+            job.verified_files.fetch_add(1, Ordering::Relaxed);
+        }
         if job.kind == TransferKind::Move {
             fsops::remove_file_forced(&task.src).map_err(CopyError::Io)?;
         }
@@ -311,7 +353,7 @@ fn transfer_file(job: &Job, task: &FileTask, opts: &CopyOptions) {
             job.done_files.fetch_add(1, Ordering::Relaxed);
         }
         Err(CopyError::Cancelled) => {}
-        Err(CopyError::Io(e)) => job.push_error(&task.src, describe(&e)),
+        Err(CopyError::Io(e)) => job.push_file_error(&task.src, Some(&task.dst), describe(&e)),
     }
 }
 

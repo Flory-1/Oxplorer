@@ -48,6 +48,7 @@ fn req(
         sources,
         destination: dest.to_path_buf(),
         conflict,
+        pairs: Vec::new(),
     }
 }
 
@@ -254,3 +255,168 @@ fn queue_limits_concurrent_jobs() {
 }
 
 use std::time::SystemTime;
+
+fn engine_with(cfg: EngineConfig) -> TransferEngine {
+    TransferEngine::new(EngineConfig {
+        buffer_size: 64 * 1024,
+        ..cfg
+    })
+}
+
+#[test]
+fn verify_counts_checked_files_and_moves_after_check() {
+    let tmp = tempfile::tempdir().unwrap();
+    tree(tmp.path());
+    let dest = tmp.path().join("dest");
+    fs::create_dir(&dest).unwrap();
+    let engine = engine_with(EngineConfig {
+        verify: true,
+        ..EngineConfig::default()
+    });
+
+    let job = engine.submit(req(
+        TransferKind::Copy,
+        vec![tmp.path().join("src")],
+        &dest,
+        ConflictPolicy::Ask,
+    ));
+    assert_eq!(wait_finished(&job), JobState::Completed);
+    assert!(job.errors().is_empty(), "{:?}", job.errors());
+    assert_eq!(job.verified_files.load(Ordering::Relaxed), 3);
+
+    // Moving to another folder of the same volume is a rename: nothing to verify.
+    let moved = tmp.path().join("moved");
+    fs::create_dir(&moved).unwrap();
+    let job = engine.submit(req(
+        TransferKind::Move,
+        vec![dest.join("src")],
+        &moved,
+        ConflictPolicy::Ask,
+    ));
+    assert_eq!(wait_finished(&job), JobState::Completed);
+    assert!(moved.join("src/sub/b.bin").exists());
+    assert!(!dest.join("src").exists());
+}
+
+#[test]
+fn retry_copies_failed_files_to_their_exact_target() {
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("a.txt");
+    fs::write(&src, "retry me").unwrap();
+    let target = tmp.path().join("out/nested/renamed.txt");
+
+    // A finished job whose only file failed.
+    let failed = Job::new(
+        1,
+        &req(
+            TransferKind::Copy,
+            vec![src.clone()],
+            tmp.path(),
+            ConflictPolicy::Ask,
+        ),
+    );
+    failed.push_file_error(&src, Some(&target), "disk full");
+    failed.push_error(tmp.path(), "a scan error can't be retried");
+    let retry = failed.retry_request().expect("one retryable file");
+    assert_eq!(retry.pairs, vec![(src.clone(), target.clone())]);
+
+    let job = engine().submit(retry);
+    assert_eq!(wait_finished(&job), JobState::Completed);
+    assert!(job.errors().is_empty(), "{:?}", job.errors());
+    assert_eq!(fs::read_to_string(&target).unwrap(), "retry me");
+
+    let ok = Job::new(
+        2,
+        &req(TransferKind::Copy, vec![], tmp.path(), ConflictPolicy::Ask),
+    );
+    assert!(ok.retry_request().is_none());
+}
+
+#[test]
+fn speed_limit_slows_the_copy() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(tmp.path().join("f.bin"), vec![1u8; 3 * 1024 * 1024 / 2]).unwrap();
+    let dest = tmp.path().join("dest");
+    fs::create_dir(&dest).unwrap();
+    let engine = engine_with(EngineConfig {
+        speed_limit: 1024 * 1024,
+        ..EngineConfig::default()
+    });
+    let start = Instant::now();
+    let job = engine.submit(req(
+        TransferKind::Copy,
+        vec![tmp.path().join("f.bin")],
+        &dest,
+        ConflictPolicy::Ask,
+    ));
+    assert_eq!(wait_finished(&job), JobState::Completed);
+    // 1.5 MiB at 1 MiB/s.
+    assert!(
+        start.elapsed() >= Duration::from_millis(1200),
+        "{:?}",
+        start.elapsed()
+    );
+}
+
+/// Two slow jobs on the same drive: with the per-disk queue the second waits.
+fn second_job_waits(per_disk_queue: bool) -> bool {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(tmp.path().join("f.bin"), vec![1u8; 1024 * 1024]).unwrap();
+    let engine = engine_with(EngineConfig {
+        speed_limit: 1024 * 1024,
+        max_concurrent_jobs: 8,
+        per_disk_queue,
+        ..EngineConfig::default()
+    });
+    let jobs: Vec<_> = (0..2)
+        .map(|i| {
+            let dest = tmp.path().join(format!("d{i}"));
+            fs::create_dir(&dest).unwrap();
+            engine.submit(req(
+                TransferKind::Copy,
+                vec![tmp.path().join("f.bin")],
+                &dest,
+                ConflictPolicy::Ask,
+            ))
+        })
+        .collect();
+    // Either job may grab the drive first; wait until one is copying.
+    let start = Instant::now();
+    while !jobs.iter().any(|j| j.state() == JobState::Running) {
+        assert!(start.elapsed() < Duration::from_secs(10), "no job started");
+        thread::sleep(Duration::from_millis(5));
+    }
+    thread::sleep(Duration::from_millis(200));
+    // Each copy takes ~1 s, so the other job is still queued if it had to wait.
+    let one_waiting = jobs.iter().any(|j| j.state() == JobState::Queued);
+    for j in &jobs {
+        assert_eq!(wait_finished(j), JobState::Completed);
+    }
+    one_waiting
+}
+
+#[test]
+fn per_disk_queue_serializes_jobs_on_the_same_drive() {
+    assert!(second_job_waits(true));
+    assert!(!second_job_waits(false));
+}
+
+#[test]
+fn explicit_worker_count_is_used() {
+    let tmp = tempfile::tempdir().unwrap();
+    tree(tmp.path());
+    let dest = tmp.path().join("dest");
+    fs::create_dir(&dest).unwrap();
+    let engine = engine_with(EngineConfig {
+        workers: 3,
+        ..EngineConfig::default()
+    });
+    let job = engine.submit(req(
+        TransferKind::Copy,
+        vec![tmp.path().join("src")],
+        &dest,
+        ConflictPolicy::Ask,
+    ));
+    assert_eq!(wait_finished(&job), JobState::Completed);
+    assert_eq!(job.workers.load(Ordering::Relaxed), 3);
+}
