@@ -326,6 +326,13 @@ fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) {
             }
             job.checkpoint()
         })?;
+        // The OS may report little or no progress (e.g. copy offload on
+        // Windows); still apply the speed limit to the whole file.
+        if let Some(t) = ctx.throttle {
+            if task.size > reported {
+                t.consume(task.size - reported);
+            }
+        }
         if ctx.verify {
             let checkpoint = || job.checkpoint();
             if !verify::same_contents(&task.src, &task.dst, opts.buffer_size, &checkpoint)? {
