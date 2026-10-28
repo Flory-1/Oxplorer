@@ -245,7 +245,12 @@ fn tab_widget(
     let icon = match tab.location() {
         Location::Folder(p) if p.parent().is_none() => Icon::Drive,
         Location::Folder(_) => Icon::Folder,
+        Location::Tagged(c) => Icon::Dot(super::tag_color(*c)),
         other => Icon::Glyph(other.icon()),
+    };
+    let title = match tab.location() {
+        Location::Tagged(c) => app.tags.label(*c).to_owned(),
+        _ => tab.title(),
     };
     let accent = crate::theme::accent(&app.settings);
     crate::icons::paint_icon(
@@ -258,7 +263,7 @@ fn tab_widget(
     painter.text(
         egui::pos2(body.left() + 30.0, body.center().y),
         Align2::LEFT_CENTER,
-        tab.title(),
+        title,
         FontId::proportional(13.0),
         text_color,
     );
@@ -446,9 +451,16 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) {
             Location::Folder(p) => p.display().to_string(),
             _ => String::new(),
         };
+        let tag_label = match &location {
+            Location::Tagged(c) => app.tags.label(*c).to_owned(),
+            _ => String::new(),
+        };
         ui.horizontal_centered(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             match &location {
+                Location::Tagged(_) => {
+                    ui.label(format!("🏷  Items tagged \"{tag_label}\""));
+                }
                 Location::Folder(p) => breadcrumbs(ui, p, actions),
                 Location::Home => {
                     ui.label(format!("{}  Home", crate::icons::HOME));

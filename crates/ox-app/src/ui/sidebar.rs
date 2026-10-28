@@ -5,6 +5,7 @@ use std::path::Path;
 use egui::{vec2, Align2, Color32, CornerRadius, FontId, RichText, Sense, Stroke, Ui};
 use ox_core::entry::display_name;
 use ox_core::format;
+use ox_core::tags::TagColor;
 
 use crate::app::{Action, OxApp};
 use crate::icons::{self, Icon};
@@ -168,6 +169,66 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                             actions.push(Action::ForgetRecent(path.clone()));
                         }
                     });
+                }
+            }
+
+            let counts = app.tags.counts();
+            if counts.iter().any(|&n| n > 0) {
+                section(ui, "Tags");
+                for color in TagColor::ALL.into_iter().filter(|c| counts[c.index()] > 0) {
+                    let loc = Location::Tagged(color);
+                    let resp = item(
+                        ui,
+                        Icon::Dot(super::tag_color(color)),
+                        app.tags.label(color),
+                        None,
+                        current == loc,
+                        accent,
+                    );
+                    ui.painter().text(
+                        resp.rect.right_center() - vec2(10.0, 0.0),
+                        Align2::RIGHT_CENTER,
+                        counts[color.index()].to_string(),
+                        FontId::proportional(11.5),
+                        ui.visuals().weak_text_color(),
+                    );
+                    if resp.clicked() {
+                        actions.push(Action::Navigate(loc.clone()));
+                    }
+                    if resp.middle_clicked() {
+                        actions.push(Action::OpenInNewTab(loc.clone(), false));
+                    }
+                    let custom = app.tags.custom_label(color).to_owned();
+                    let tagged = app.tags.with_tag(color);
+                    // Stays open while the name is being typed.
+                    egui::Popup::context_menu(&resp)
+                        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                        .show(|ui| {
+                            if ui.button("📑 Open in new tab").clicked() {
+                                actions.push(Action::OpenInNewTab(loc.clone(), true));
+                                ui.close();
+                            }
+                            ui.separator();
+                            ui.label(RichText::new("Name").weak().small());
+                            let mut name = custom.clone();
+                            let edit = egui::TextEdit::singleline(&mut name)
+                                .hint_text(color.name())
+                                .desired_width(160.0);
+                            if ui.add(edit).changed() {
+                                actions.push(Action::RenameTag(color, name));
+                            }
+                            ui.separator();
+                            if ui
+                                .button(format!(
+                                    "✖ Remove from {}",
+                                    format::count(tagged.len() as u64, "item")
+                                ))
+                                .clicked()
+                            {
+                                actions.push(Action::ToggleTag(tagged.clone(), color));
+                                ui.close();
+                            }
+                        });
                 }
             }
 

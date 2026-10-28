@@ -5,6 +5,7 @@ use std::time::SystemTime;
 
 use crossbeam_channel::Receiver;
 use egui::{ColorImage, RichText, TextureHandle, TextureOptions, Ui};
+use ox_core::dirsize::DirSize;
 use ox_core::entry::{FileEntry, FileKind};
 use ox_core::format;
 
@@ -210,7 +211,11 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                         .update(ui.ctx(), entry, app.settings.browsing.show_hidden);
                     header(ui, entry, &date_fmt);
                     ui.separator();
-                    body(ui, &app.preview, entry, &mut actions);
+                    let total = entry
+                        .is_dir
+                        .then(|| app.folder_sizes.get(&entry.path))
+                        .flatten();
+                    body(ui, &app.preview, entry, total, &mut actions);
                 }
                 [entry] => {
                     app.preview.clear();
@@ -253,7 +258,13 @@ fn header(ui: &mut Ui, e: &FileEntry, date_fmt: &str) {
     ui.label(RichText::new(info.join(" · ")).weak().small());
 }
 
-fn body(ui: &mut Ui, state: &PreviewState, e: &FileEntry, actions: &mut Vec<Action>) {
+fn body(
+    ui: &mut Ui,
+    state: &PreviewState,
+    e: &FileEntry,
+    total: Option<DirSize>,
+    actions: &mut Vec<Action>,
+) {
     match &state.content {
         None | Some(Content::Loading(_)) => {
             ui.spinner();
@@ -299,6 +310,14 @@ fn body(ui: &mut Ui, state: &PreviewState, e: &FileEntry, actions: &mut Vec<Acti
                 format::count(*files as u64, "file"),
                 format::size(*bytes)
             ));
+            if let Some(t) = total.filter(|t| t.folders > 0) {
+                ui.label(format!(
+                    "Total with sub-folders: {} ({}, {})",
+                    format::size(t.bytes),
+                    format::count(t.files, "file"),
+                    format::count(t.folders, "folder")
+                ));
+            }
             if ui.button("📂 Open").clicked() {
                 actions.push(Action::Open(e.path.clone()));
             }

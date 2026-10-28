@@ -81,6 +81,8 @@ pub struct Browsing {
     pub show_preview: bool,
     /// Refresh folders automatically when they change on disk.
     pub auto_refresh: bool,
+    /// Calculate folder sizes in the background for the Size column.
+    pub folder_sizes: bool,
 }
 
 impl Default for Browsing {
@@ -99,6 +101,7 @@ impl Default for Browsing {
             show_status_bar: true,
             show_preview: false,
             auto_refresh: true,
+            folder_sizes: true,
         }
     }
 }

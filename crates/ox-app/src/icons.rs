@@ -233,6 +233,8 @@ pub enum Icon<'a> {
     Folder,
     Drive,
     File(FileKind),
+    /// A filled circle, e.g. a colour tag.
+    Dot(Color32),
 }
 
 pub fn paint_icon(p: &Painter, rect: Rect, icon: Icon<'_>, text_color: Color32, accent: Color32) {
@@ -249,5 +251,8 @@ pub fn paint_icon(p: &Painter, rect: Rect, icon: Icon<'_>, text_color: Color32, 
         Icon::Folder => paint_folder(p, rect, false),
         Icon::Drive => paint_drive(p, rect, accent),
         Icon::File(kind) => paint_file(p, rect, kind_color(kind), None, false),
+        Icon::Dot(color) => {
+            p.circle_filled(rect.center(), rect.height() * 0.3, color);
+        }
     }
 }

@@ -44,7 +44,7 @@ Rust engine does the work and shows progress in a panel inside the window.
 
 **Quick access**
 - **Home start page** with pinned favorites, drives with usage bars, recent folders and recent files
-- **Sidebar** with Home, Favorites, This PC (drives), Recent and Saved searches.
+- **Sidebar** with Home, Favorites, This PC (drives), Recent, Tags and Saved searches.
   Recycle Bin and Settings are pinned at the bottom.
 - Pin or unpin any folder from its context menu; drop files onto a favorite to copy or move them there
 
@@ -95,6 +95,11 @@ Rust engine does the work and shows progress in a panel inside the window.
   caught in the preview, and if one rename fails the others are rolled back.
 - **Command palette** (Ctrl+Shift+P or F1): type a few letters to run any command or
   jump to a favorite, drive, recent folder or saved search
+- **Folder sizes** in the Size column, calculated in the background and cached. Sort by
+  size to find what fills your disk.
+- **Colour tags**: right-click → Tags to mark files and folders. Tagged items get coloured
+  dots and show up under *Tags* in the sidebar. Rename a tag (e.g. Red → Urgent) from its
+  right-click menu. Tags follow items you rename or move in Oxplorer.
 
 **Settings page**
 - Appearance (system/light/dark theme, accent colour, UI scale, compact rows)
@@ -108,6 +113,8 @@ Rust engine does the work and shows progress in a panel inside the window.
 | ![Recycle Bin](docs/screenshots/recycle-bin-dark.png) | ![Settings](docs/screenshots/settings-light.png) |
 | **Search as you type, filter chips, saved searches** | **Preview pane** |
 | ![Search](docs/screenshots/search-dark.png) | ![Preview](docs/screenshots/preview-dark.png) |
+| **Colour tags and folder sizes** | |
+| ![Tags and folder sizes](docs/screenshots/tags-sizes-dark.png) | |
 
 *The screenshots were taken on Linux during development, which is why the drives
 show as mount points and the built-in icons are used. On Windows the drives show
@@ -147,6 +154,8 @@ crates/
     index.rs          persistent file-name index (build, query, cache)
     rename.rs         bulk rename: patterns, preview, safe apply with rollback
     fuzzy.rs          fuzzy matching for the command palette
+    dirsize.rs        background folder sizes with a shared cache
+    tags.rs           colour tags (stored in tags.toml)
     disk.rs           volume ids, HDD/SSD detection
     entry.rs          directory listing, file kinds, sorting
     clipboard.rs      file clipboard, shared with Windows Explorer
@@ -189,8 +198,8 @@ rendered). That keeps the app a single small native `.exe` with no web runtime.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md). Next up: the rest of Phase 5 (folder size
-column, colour tags, archives, dual-pane view), then Phase 6 polish with an
+See [ROADMAP.md](ROADMAP.md). Next up: the rest of Phase 5 (archives,
+dual-pane view, Git status, terminal panel), then Phase 6 polish with an
 in-app Help page.
 
 ## License

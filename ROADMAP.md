@@ -114,8 +114,8 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 - ⏳ Preview pane extras: syntax highlighting, PDF, audio/video metadata
 - ✅ Bulk rename (F2 on several items): name patterns with `{name}`/`{n}`/`{date}` tokens, find & replace (text or regex), counters, case changes, live preview with conflict checks, all-or-nothing apply
 - ⏳ Browse archives (zip, 7z, tar) like folders, compress/extract
-- ⏳ Folder size column (computed in the background and cached)
-- ⏳ Colour tags and labels
+- ✅ Folder size column: computed in the background (one walker, easy on HDDs), sub-folders cached on the way, refreshed when files change; sorting by size includes folders
+- ✅ Colour tags with custom names: tag from the context menu or palette, dots in the file view, a Tags section in the sidebar, tags follow renames and moves
 - ✅ Command palette (Ctrl+Shift+P / F1): fuzzy search over commands, favorites, drives, recent folders and saved searches
 - ⏳ Custom keyboard shortcuts
 - ⏳ Git status column for repositories

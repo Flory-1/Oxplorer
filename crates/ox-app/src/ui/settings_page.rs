@@ -224,6 +224,12 @@ fn browsing(ui: &mut Ui, s: &mut Settings) {
         "Refresh automatically",
         "Update the view when files change on disk.",
     );
+    toggle(
+        ui,
+        &mut b.folder_sizes,
+        "Show folder sizes",
+        "Calculate the size of folders in the background for the Size column.",
+    );
     toggle(ui, &mut b.show_status_bar, "Show status bar", "");
     row(
         ui,

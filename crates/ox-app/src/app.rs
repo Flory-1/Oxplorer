@@ -13,12 +13,14 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::Receiver;
 use egui::{Context, Key, Modifiers};
 use ox_core::clipboard::{ClipMode, FileClipboard};
+use ox_core::dirsize::FolderSizes;
 use ox_core::entry::{self, FileEntry};
 use ox_core::index::{IndexService, IndexState};
 use ox_core::places::{self, Drive, QuickAccess};
 use ox_core::recycle::{self, TrashItem};
 use ox_core::search::{self, Query, SearchEvent, SearchOptions};
 use ox_core::settings::{Settings, StartPage};
+use ox_core::tags::{TagColor, TagStore};
 use ox_core::transfer::{TransferEngine, TransferKind, TransferRequest};
 use ox_core::watcher::DirWatcher;
 use ox_core::{format, fsops};
@@ -46,6 +48,13 @@ pub enum Action {
     Rename(PathBuf),
     /// Rename several items at once with a pattern.
     BulkRename(Vec<PathBuf>),
+    /// Add the tag to all items, or remove it if all have it.
+    ToggleTag(Vec<PathBuf>, TagColor),
+    ClearTags(Vec<PathBuf>),
+    /// Items were renamed or moved (old path, new path): tags go along.
+    PathsMoved(Vec<(PathBuf, PathBuf)>),
+    /// Give a tag colour a custom name (empty = default).
+    RenameTag(TagColor, String),
     NewFolder(PathBuf),
     NewFile(PathBuf),
     Pin(PathBuf),
@@ -181,6 +190,12 @@ pub struct OxApp {
     pub icons: crate::icons::IconCache,
     pub index: IndexService,
     pub preview: crate::ui::preview::PreviewState,
+    pub folder_sizes: FolderSizes,
+    pub tags: TagStore,
+    /// (tab, listing version, cache epoch) the folder sizes were requested for.
+    sizes_key: Option<(u64, u64, u64)>,
+    /// `folder_sizes.version()` last copied into the listing.
+    sizes_applied: u64,
     /// The index was (re)built at least once this session.
     index_started: bool,
     index_next: Option<Instant>,
@@ -255,6 +270,13 @@ impl OxApp {
                 })
             },
             preview: Default::default(),
+            folder_sizes: {
+                let repaint = cc.egui_ctx.clone();
+                FolderSizes::new(move || repaint.request_repaint())
+            },
+            tags: TagStore::load(),
+            sizes_key: None,
+            sizes_applied: 0,
             index_started: false,
             index_next: None,
             index_settings: None,
@@ -302,6 +324,7 @@ impl OxApp {
         self.manage_index();
         self.load_active_tab();
         self.poll_tabs();
+        self.poll_folder_sizes();
         self.poll_watcher();
         self.poll_jobs();
         self.poll_background();
@@ -419,6 +442,15 @@ impl OxApp {
                 });
                 tab.view.loading = Some(rx);
             }
+            Location::Tagged(color) => {
+                let paths = self.tags.with_tag(color);
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                std::thread::spawn(move || {
+                    let _ = tx.send(Ok(Listing::items(&paths)));
+                    ctx.request_repaint();
+                });
+                tab.view.loading = Some(rx);
+            }
             Location::Home | Location::Settings => {}
         }
     }
@@ -437,6 +469,7 @@ impl OxApp {
                             tab.view.selection.retain(|p| existing.contains(p));
                             tab.view.entries = listing.entries;
                             tab.view.bin = listing.bin;
+                            tab.view.version += 1;
                             tab.view.error = None;
                         }
                         Err(e) => {
@@ -506,6 +539,9 @@ impl OxApp {
         if let Some(at) = self.refresh_at {
             if Instant::now() >= at {
                 self.refresh_at = None;
+                if let Some(folder) = self.current_folder() {
+                    self.folder_sizes.invalidate(&folder);
+                }
                 self.tabs.active_mut().stale = true;
             } else {
                 self.ctx.request_repaint_after(at - Instant::now());
@@ -521,10 +557,22 @@ impl OxApp {
             if let Err(e) = ox_core::transfer::history::append(&job) {
                 eprintln!("could not write transfer log: {e}");
             }
-            self.tabs.mark_stale(Some(&job.destination));
+            self.mark_changed(Some(&job.destination));
+            if job.kind == TransferKind::Move && !self.tags.is_empty() {
+                // Tags follow moved items (those that left their old place).
+                let moved = job
+                    .sources
+                    .iter()
+                    .filter_map(|src| {
+                        let to = job.destination.join(src.file_name()?);
+                        (!src.exists() && to.exists()).then(|| (src.clone(), to))
+                    })
+                    .collect();
+                self.push(Action::PathsMoved(moved));
+            }
             for src in &job.sources {
                 if let Some(parent) = src.parent() {
-                    self.tabs.mark_stale(Some(parent));
+                    self.mark_changed(Some(parent));
                 }
             }
             let errors = job.error_count();
@@ -553,7 +601,76 @@ impl OxApp {
             if let Err(e) = result {
                 self.toast(format!("{label} failed: {e}"));
             }
-            self.tabs.mark_stale(dir.as_deref());
+            self.mark_changed(dir.as_deref());
+        }
+    }
+
+    /// Save the tag store and reload tag views.
+    pub fn tags_changed(&mut self) {
+        if let Err(e) = self.tags.save() {
+            self.toast(format!("Could not save tags: {e}"));
+        }
+        for t in &mut self.tabs.tabs {
+            if matches!(t.location(), Location::Tagged(_)) {
+                t.stale = true;
+            }
+        }
+    }
+
+    /// Files in `dir` changed: reload tabs showing it and forget folder sizes
+    /// that included it.
+    pub fn mark_changed(&mut self, dir: Option<&Path>) {
+        if let Some(d) = dir {
+            self.folder_sizes.invalidate(d);
+        }
+        self.tabs.mark_stale(dir);
+    }
+
+    /// Ask for the sizes of the folders listed in the active tab, and copy
+    /// finished sizes into the listing (so sorting by size works).
+    fn poll_folder_sizes(&mut self) {
+        let tab = self.tabs.active();
+        let wanted = self.settings.browsing.folder_sizes
+            && matches!(tab.location(), Location::Folder(_))
+            && tab.view.loading.is_none();
+        if !wanted {
+            if self.sizes_key.take().is_some() {
+                self.folder_sizes.clear_requests();
+            }
+            return;
+        }
+        let key = (tab.id, tab.view.version, self.folder_sizes.epoch());
+        if self.sizes_key != Some(key) {
+            self.sizes_key = Some(key);
+            let dirs = tab
+                .view
+                .entries
+                .iter()
+                .filter(|e| e.is_dir && !e.is_symlink)
+                .map(|e| e.path.clone())
+                .collect();
+            self.folder_sizes.request(dirs);
+            self.sizes_applied = u64::MAX;
+        }
+        let version = self.folder_sizes.version();
+        if version == self.sizes_applied {
+            return;
+        }
+        self.sizes_applied = version;
+        let (folders_first, case) = (
+            self.settings.browsing.folders_first,
+            self.settings.search.case_sensitive,
+        );
+        let tab = self.tabs.active_mut();
+        let mut changed = false;
+        for e in tab.view.entries.iter_mut().filter(|e| e.is_dir) {
+            if let Some(s) = self.folder_sizes.get(&e.path) {
+                changed |= e.size != s.bytes;
+                e.size = s.bytes;
+            }
+        }
+        if changed && tab.sort_key == entry::SortKey::Size {
+            tab.refresh_visible(folders_first, case);
         }
     }
 
@@ -838,6 +955,9 @@ impl OxApp {
             Action::Forward => self.tabs.active_mut().forward(),
             Action::Up => self.tabs.active_mut().up(),
             Action::Refresh => {
+                if let Some(folder) = self.current_folder() {
+                    self.folder_sizes.invalidate_tree(&folder);
+                }
                 self.tabs.active_mut().stale = true;
                 self.drives_at = Instant::now() - Duration::from_secs(60);
             }
@@ -957,6 +1077,26 @@ impl OxApp {
             Action::Pin(p) => {
                 self.quick.pin(&p);
                 self.save_quick();
+            }
+            Action::ToggleTag(paths, color) => {
+                self.tags.toggle(&paths, color);
+                self.tags_changed();
+            }
+            Action::ClearTags(paths) => {
+                self.tags.clear(&paths);
+                self.tags_changed();
+            }
+            Action::PathsMoved(pairs) => {
+                if !self.tags.is_empty() {
+                    for (from, to) in &pairs {
+                        self.tags.moved(from, to);
+                    }
+                    self.tags_changed();
+                }
+            }
+            Action::RenameTag(color, name) => {
+                self.tags.set_label(color, &name);
+                self.tags_changed();
             }
             Action::Unpin(p) => {
                 self.quick.unpin(&p);
@@ -1223,7 +1363,7 @@ impl OxApp {
     }
 
     fn after_create(&mut self, dir: &Path, created: PathBuf) {
-        self.tabs.mark_stale(Some(dir));
+        self.mark_changed(Some(dir));
         self.tabs.active_mut().view.select_after_load = Some(created.clone());
         self.process(Action::Rename(created));
     }
