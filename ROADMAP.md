@@ -119,7 +119,7 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 - ✅ Colour tags with custom names: tag from the context menu or palette, dots in the file view, a Tags section in the sidebar, tags follow renames and moves
 - ✅ Command palette (Ctrl+Shift+P / F1): fuzzy search over commands, favorites, drives, recent folders and saved searches
 - ⏳ Custom keyboard shortcuts
-- ⏳ Git status column for repositories
+- ✅ Git status column for repositories (M/A/D/R/?/I, folders summarise their contents) and the branch with ahead/behind in the status bar
 - ⏳ Built-in terminal panel
 
 ## Phase 6 — Polish & 1.0 ⏳

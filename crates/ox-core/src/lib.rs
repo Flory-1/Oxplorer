@@ -11,6 +11,7 @@ pub mod entry;
 pub mod format;
 pub mod fsops;
 pub mod fuzzy;
+pub mod git;
 pub mod index;
 pub mod natural;
 pub mod places;
