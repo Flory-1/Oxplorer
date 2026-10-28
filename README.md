@@ -7,7 +7,7 @@ quick-access start page, much faster search and its own copy engine. When you
 copy or move files you don't get the slow Windows copy dialog. A multi-threaded
 Rust engine does the work and shows progress in a panel inside the window.
 
-![Details view with tab groups and a paused transfer](docs/screenshots/details-dark.png)
+![Details view with tab groups, a selection and a running transfer](docs/screenshots/details-dark.png)
 
 ## Download
 
@@ -152,19 +152,23 @@ Help page, messages and key names (*Strg+C*, *Entf*), and numbers use a decimal 
 - Browsing, startup, sidebar, copy engine and search options, plus a list of keyboard shortcuts
 - Saved as TOML in `%APPDATA%\Oxplorer\`
 
-| Home / Quick access | Grid view (light) |
+| Home / Quick access | Grid view with thumbnails (light) |
 |---|---|
-| ![Home](docs/screenshots/home-dark.png) | ![Grid](docs/screenshots/grid-light.png) |
-| **Recycle Bin** | **Settings** |
-| ![Recycle Bin](docs/screenshots/recycle-bin-dark.png) | ![Settings](docs/screenshots/settings-light.png) |
-| **Search as you type, filter chips, saved searches** | **Preview pane** |
+| ![Home](docs/screenshots/home-dark.png) | ![Grid with thumbnails](docs/screenshots/grid-light.png) |
+| **Search: deep search from the index, filter chips** | **Preview pane** |
 | ![Search](docs/screenshots/search-dark.png) | ![Preview](docs/screenshots/preview-dark.png) |
-| **Colour tags and folder sizes** | **Split view** |
-| ![Tags and folder sizes](docs/screenshots/tags-sizes-dark.png) | ![Split view](docs/screenshots/split-dark.png) |
+| **Git status, colour tags and folder sizes** | **Split view** |
+| ![Git, tags and folder sizes](docs/screenshots/tags-sizes-dark.png) | ![Split view](docs/screenshots/split-dark.png) |
+| **Font preview with the Glyphs grid** | **Nord theme and code preview** |
+| ![Font glyphs](docs/screenshots/fonts-dark.png) | ![Nord theme](docs/screenshots/theme-nord.png) |
+| **Recycle Bin** | **Settings (light)** |
+| ![Recycle Bin](docs/screenshots/recycle-bin-dark.png) | ![Settings](docs/screenshots/settings-light.png) |
+| **Help page (F1)** | **German interface** |
+| ![Help](docs/screenshots/help-dark.png) | ![German](docs/screenshots/german-dark.png) |
 
-*The screenshots were taken on Linux during development, which is why the drives
-show as mount points and the built-in icons are used. On Windows the drives show
-as `Local Disk (C:)` and so on, with the real Windows file icons.*
+*The screenshots were taken on Linux, which is why the drives show as mount points and the
+built-in icons are used. On Windows the drives show as `Local Disk (C:)` and so on, with
+the real Windows file icons and thumbnails.*
 
 ## Building
 
