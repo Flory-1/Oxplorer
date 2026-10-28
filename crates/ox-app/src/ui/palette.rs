@@ -192,6 +192,20 @@ fn entries(app: &OxApp) -> Vec<Entry> {
     }
 
     cmd(
+        "◫",
+        "Toggle split view",
+        "Ctrl+\\",
+        act(|| Action::Tab(TabAction::ToggleSplit)),
+    );
+    if app.tabs.panes.is_some() {
+        cmd(
+            "⇆",
+            "Switch pane",
+            "F6",
+            act(|| Action::Tab(TabAction::SwitchPane)),
+        );
+    }
+    cmd(
         "👁",
         "Toggle preview pane",
         "Alt+P",

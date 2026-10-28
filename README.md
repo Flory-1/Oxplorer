@@ -95,6 +95,8 @@ Rust engine does the work and shows progress in a panel inside the window.
   caught in the preview, and if one rename fails the others are rolled back.
 - **Command palette** (Ctrl+Shift+P or F1): type a few letters to run any command or
   jump to a favorite, drive, recent folder or saved search
+- **Split view** (Ctrl+\\ or the ◫ button): two folders side by side. Click a pane or press
+  F6 to work in it, and drag files from one pane to the other.
 - **Folder sizes** in the Size column, calculated in the background and cached. Sort by
   size to find what fills your disk.
 - **Colour tags**: right-click → Tags to mark files and folders. Tagged items get coloured
@@ -113,8 +115,8 @@ Rust engine does the work and shows progress in a panel inside the window.
 | ![Recycle Bin](docs/screenshots/recycle-bin-dark.png) | ![Settings](docs/screenshots/settings-light.png) |
 | **Search as you type, filter chips, saved searches** | **Preview pane** |
 | ![Search](docs/screenshots/search-dark.png) | ![Preview](docs/screenshots/preview-dark.png) |
-| **Colour tags and folder sizes** | |
-| ![Tags and folder sizes](docs/screenshots/tags-sizes-dark.png) | |
+| **Colour tags and folder sizes** | **Split view** |
+| ![Tags and folder sizes](docs/screenshots/tags-sizes-dark.png) | ![Split view](docs/screenshots/split-dark.png) |
 
 *The screenshots were taken on Linux during development, which is why the drives
 show as mount points and the built-in icons are used. On Windows the drives show
@@ -195,11 +197,12 @@ rendered). That keeps the app a single small native `.exe` with no web runtime.
 | Ctrl+, | Settings |
 | Ctrl+Shift+P / F1 | Command palette |
 | Alt+P | Preview pane |
+| Ctrl+\\ / F6 | Split view / switch pane |
 
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md). Next up: the rest of Phase 5 (archives,
-dual-pane view, Git status, terminal panel), then Phase 6 polish with an
+Git status, terminal panel, custom shortcuts), then Phase 6 polish with an
 in-app Help page.
 
 ## License

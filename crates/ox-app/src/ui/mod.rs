@@ -12,13 +12,13 @@ mod transfers;
 
 use std::path::{Path, PathBuf};
 
-use egui::{Align2, Color32, FontId, Id, LayerId, Order, Response, RichText, Ui};
+use egui::{Align2, Color32, FontId, Id, LayerId, Order, Rect, Response, RichText, Ui};
 use ox_core::entry::display_name;
 use ox_core::format;
 use ox_core::tags::{TagColor, TagStore};
 use ox_core::transfer::TransferKind;
 
-use crate::app::{Action, OxApp};
+use crate::app::{Action, OxApp, TabAction};
 use crate::tabs::{Location, TabId};
 
 /// Drag payload: files/folders being dragged inside the app.
@@ -72,21 +72,119 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let central = egui::Frame::central_panel(ui.style())
         .inner_margin(egui::Margin::same(0))
         .fill(ui.visuals().extreme_bg_color);
-    egui::CentralPanel::default().frame(central).show(ui, |ui| {
-        match app.tabs.active().location().clone() {
-            Location::Home => home::show(app, ui),
-            Location::Settings => settings_page::show(app, ui),
-            Location::Folder(_)
-            | Location::Search { .. }
-            | Location::RecycleBin
-            | Location::Tagged(_) => files::show(app, ui),
-        }
-    });
+    egui::CentralPanel::default()
+        .frame(central)
+        .show(ui, |ui| match app.tabs.panes {
+            Some(panes) => split_view(app, ui, panes),
+            None => content(app, ui),
+        });
 
     dialogs::show(app, ui.ctx());
     palette::show(app, ui.ctx());
     toasts(app, ui.ctx());
     drag_preview(ui.ctx());
+}
+
+/// The page of the active tab.
+fn content(app: &mut OxApp, ui: &mut Ui) {
+    match app.tabs.active().location().clone() {
+        Location::Home => home::show(app, ui),
+        Location::Settings => settings_page::show(app, ui),
+        Location::Folder(_)
+        | Location::Search { .. }
+        | Location::RecycleBin
+        | Location::Tagged(_) => files::show(app, ui),
+    }
+}
+
+/// Two panes side by side. Everything acts on the active tab, so the other
+/// pane is drawn with its tab made active for the moment, and pressing the
+/// mouse in it moves the focus there before any of its actions run.
+fn split_view(app: &mut OxApp, ui: &mut Ui, panes: [TabId; 2]) {
+    let rect = ui.available_rect_before_wrap();
+    let half = (rect.width() - 1.0) / 2.0;
+    for (i, id) in panes.into_iter().enumerate() {
+        let pane = Rect::from_min_size(
+            egui::pos2(rect.left() + i as f32 * (half + 1.0), rect.top()),
+            egui::vec2(half, rect.height()),
+        );
+        let pressed = ui.input(|inp| {
+            inp.pointer.any_pressed()
+                && inp.pointer.press_origin().is_some_and(|p| pane.contains(p))
+        });
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(pane).id_salt(("pane", id)));
+        child.set_clip_rect(pane.intersect(ui.clip_rect()));
+        let focused = id == app.tabs.active;
+        pane_bar(app, &mut child, id, focused);
+        if focused {
+            content(app, &mut child);
+        } else {
+            let start = app.actions.len();
+            let active = app.tabs.active;
+            app.tabs.active = id;
+            content(app, &mut child);
+            app.tabs.active = active;
+            if pressed {
+                app.actions
+                    .insert(start, Action::Tab(TabAction::Activate(id)));
+            }
+        }
+    }
+    let x = rect.left() + half + 0.5;
+    ui.painter().vline(
+        x,
+        rect.y_range(),
+        ui.visuals().widgets.noninteractive.bg_stroke,
+    );
+    ui.allocate_rect(rect, egui::Sense::hover());
+}
+
+/// Title strip above a pane: where it is, with the accent on the focused one.
+fn pane_bar(app: &OxApp, ui: &mut Ui, id: TabId, focused: bool) {
+    let Some(tab) = app.tabs.get(id) else { return };
+    let title = match tab.location() {
+        Location::Folder(p) => p.display().to_string(),
+        Location::Tagged(c) => format!("Tagged \"{}\"", app.tags.label(*c)),
+        other => other.title(),
+    };
+    let (bar, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 26.0), egui::Sense::hover());
+    let v = ui.visuals();
+    ui.painter().rect_filled(bar, 0.0, v.panel_fill);
+    let accent = crate::theme::accent(&app.settings);
+    if focused {
+        ui.painter().hline(
+            bar.x_range(),
+            bar.bottom() - 1.0,
+            egui::Stroke::new(2.0, accent),
+        );
+    }
+    let color = if focused {
+        v.strong_text_color()
+    } else {
+        v.weak_text_color()
+    };
+    let icon = match tab.location() {
+        Location::Folder(p) if p.parent().is_none() => crate::icons::Icon::Drive,
+        Location::Folder(_) => crate::icons::Icon::Folder,
+        Location::Tagged(c) => crate::icons::Icon::Dot(tag_color(*c)),
+        other => crate::icons::Icon::Glyph(other.icon()),
+    };
+    let painter = ui.painter().with_clip_rect(bar.shrink(2.0));
+    crate::icons::paint_icon(
+        &painter,
+        crate::icons::icon_rect(bar.left() + 10.0, bar.center().y, 14.0),
+        icon,
+        color,
+        accent,
+    );
+    painter.text(
+        bar.left_center() + egui::vec2(30.0, 0.0),
+        Align2::LEFT_CENTER,
+        title,
+        FontId::proportional(12.5),
+        color,
+    );
 }
 
 fn status_bar(app: &mut OxApp, ui: &mut Ui) {

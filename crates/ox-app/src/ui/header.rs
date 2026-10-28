@@ -172,6 +172,8 @@ fn tab_widget(
     let tab = &app.tabs.tabs[idx];
     let id = tab.id;
     let is_active = id == active;
+    // In split view the other pane's tab looks open too, but without the accent.
+    let is_partner = app.tabs.split_partner() == Some(id);
     let (rect, resp) = ui.allocate_exact_size(vec2(width, TAB_HEIGHT), Sense::click_and_drag());
     let visuals = ui.visuals().clone();
 
@@ -194,7 +196,7 @@ fn tab_widget(
         super::drop_target(actions, &resp, folder);
     }
 
-    let fill = if is_active {
+    let fill = if is_active || is_partner {
         visuals.extreme_bg_color
     } else if resp.hovered() {
         visuals.widgets.hovered.weak_bg_fill
@@ -203,12 +205,21 @@ fn tab_widget(
     };
     let body = rect.shrink2(vec2(0.0, 1.0));
     ui.painter().rect_filled(body, CornerRadius::same(7), fill);
-    if is_active {
+    if is_active || is_partner {
         ui.painter().rect_stroke(
             body,
             CornerRadius::same(7),
             visuals.widgets.noninteractive.bg_stroke,
             egui::StrokeKind::Inside,
+        );
+    }
+    if is_active && app.tabs.panes.is_some() {
+        ui.painter().line_segment(
+            [
+                egui::pos2(body.left() + 7.0, body.top() + 1.0),
+                egui::pos2(body.right() - 7.0, body.top() + 1.0),
+            ],
+            Stroke::new(2.0, crate::theme::accent(&app.settings)),
         );
     }
     if tab_hover {
@@ -807,6 +818,10 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 if changed {
                     actions.push(Action::SettingsChanged);
                 }
+                let mut split = app.tabs.panes.is_some();
+                if ui.checkbox(&mut split, "Split view (Ctrl+\\)").changed() {
+                    actions.push(Action::Tab(TabAction::ToggleSplit));
+                }
             });
         });
         ui.separator();
@@ -838,6 +853,9 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
             if btn(ui, true, "◧", "Toggle sidebar") {
                 app.settings.sidebar.visible = !app.settings.sidebar.visible;
                 actions.push(Action::SettingsChanged);
+            }
+            if btn(ui, true, "◫", "Split view (Ctrl+\\)") {
+                actions.push(Action::Tab(TabAction::ToggleSplit));
             }
             let jobs = app.engine.jobs().len();
             if jobs > 0 {

@@ -391,7 +391,12 @@ pub struct TabGroup {
 pub struct Tabs {
     pub tabs: Vec<Tab>,
     pub groups: Vec<TabGroup>,
+    /// The tab in the focused pane; every command acts on it.
     pub active: TabId,
+    /// Split view: the tabs in the left and right pane. One of them is `active`.
+    pub panes: Option<[TabId; 2]>,
+    /// Pane (0 = left, 1 = right) that holds the active tab.
+    focus: usize,
     next_id: u64,
 }
 
@@ -402,6 +407,8 @@ impl Tabs {
             active: tab.id,
             tabs: vec![tab],
             groups: Vec::new(),
+            panes: None,
+            focus: 0,
             next_id: 2,
         }
     }
@@ -489,6 +496,67 @@ impl Tabs {
             self.active = self.tabs[next].id;
         }
         self.drop_empty_groups();
+    }
+
+    /// The tab shown in the other (unfocused) pane of the split view.
+    pub fn split_partner(&self) -> Option<TabId> {
+        self.panes
+            .and_then(|p| p.into_iter().find(|&id| id != self.active))
+    }
+
+    pub fn get(&self, id: TabId) -> Option<&Tab> {
+        self.tabs.iter().find(|t| t.id == id)
+    }
+
+    pub fn get_mut(&mut self, id: TabId) -> Option<&mut Tab> {
+        self.tabs.iter_mut().find(|t| t.id == id)
+    }
+
+    /// Turn the split view on (the second pane opens the same place in a
+    /// new tab) or off.
+    pub fn toggle_split(&mut self, settings: &Settings) {
+        if self.panes.take().is_some() {
+            return;
+        }
+        let src = self.active();
+        let (loc, mode, key, order) = (
+            src.location().clone(),
+            src.view_mode,
+            src.sort_key,
+            src.sort_order,
+        );
+        let active = self.active;
+        let id = self.open(loc, Some(active), false, settings);
+        if let Some(t) = self.get_mut(id) {
+            t.view_mode = mode;
+            t.sort_key = key;
+            t.sort_order = order;
+        }
+        self.panes = Some([active, id]);
+        self.focus = 0;
+    }
+
+    /// Move the focus to the other pane.
+    pub fn switch_pane(&mut self) {
+        if let Some(other) = self.split_partner() {
+            self.activate(other);
+        }
+    }
+
+    /// Keep the split view consistent after tabs were activated or closed:
+    /// the focused pane shows whatever tab is active now, and closing a
+    /// pane's tab ends the split.
+    pub fn fix_panes(&mut self) {
+        let Some(mut p) = self.panes else { return };
+        if !p.iter().all(|&id| self.index_of(id).is_some()) {
+            self.panes = None;
+            return;
+        }
+        match p.iter().position(|&id| id == self.active) {
+            Some(i) => self.focus = i,
+            None => p[self.focus] = self.active,
+        }
+        self.panes = (p[0] != p[1]).then_some(p);
     }
 
     pub fn close_others(&mut self, keep: TabId) {
@@ -687,6 +755,8 @@ impl Tabs {
             tabs: Vec::new(),
             groups: session.groups,
             active: 0,
+            panes: None,
+            focus: 0,
             next_id: 1,
         };
         tabs.next_id = tabs.groups.iter().map(|g| g.id + 1).max().unwrap_or(1);
@@ -745,6 +815,37 @@ mod tests {
         t.open(Location::Folder("/b".into()), None, false, &s);
         t.open(Location::Folder("/c".into()), None, false, &s);
         (t, s)
+    }
+
+    #[test]
+    fn split_view_follows_the_focused_pane() {
+        let (mut t, s) = tabs();
+        t.activate(2);
+        t.toggle_split(&s);
+        let [left, right] = t.panes.unwrap();
+        assert_eq!(left, 2);
+        assert_eq!(t.active, 2);
+        assert_eq!(t.split_partner(), Some(right));
+        assert_eq!(
+            t.get(right).unwrap().location(),
+            &Location::Folder("/a".into())
+        );
+
+        // Activating another tab replaces the focused pane only.
+        t.switch_pane();
+        t.fix_panes();
+        assert_eq!(t.active, right);
+        t.activate(4);
+        t.fix_panes();
+        assert_eq!(t.panes, Some([2, 4]));
+
+        // Closing a pane's tab ends the split; toggling twice turns it off.
+        t.close(2, &s);
+        t.fix_panes();
+        assert_eq!(t.panes, None);
+        t.toggle_split(&s);
+        t.toggle_split(&s);
+        assert_eq!(t.panes, None);
     }
 
     fn order(t: &Tabs) -> Vec<TabId> {
