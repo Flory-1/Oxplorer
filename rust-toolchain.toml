@@ -1,0 +1,5 @@
+# Pinned so a new Rust release (with new clippy lints) can't break CI by surprise.
+# Bump deliberately: change the version, run `cargo clippy` for Linux and Windows.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
