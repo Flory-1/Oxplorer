@@ -2911,6 +2911,7 @@ dependencies = [
  "lofty",
  "ox-core",
  "serde",
+ "tempfile",
  "toml",
  "ttf-parser",
 ]

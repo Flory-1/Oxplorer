@@ -1,5 +1,5 @@
-//! Windows Shell integration: real file icons, the native context menu
-//! ("Show more options"), the native Properties dialog and "Open with…".
+//! Windows Shell integration: real file icons, thumbnails, the native context
+//! menu ("Show more options"), the native Properties dialog and "Open with…".
 //!
 //! All Shell calls run on one dedicated background thread that owns a hidden
 //! helper window and pumps its messages. The UI thread only sends requests,
@@ -65,6 +65,31 @@ impl IconKey {
 pub struct IconImage {
     pub size: u32,
     pub rgba: Vec<u8>,
+}
+
+/// A thumbnail: RGBA with premultiplied alpha.
+#[derive(Debug, Clone)]
+pub struct Thumbnail {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// The Shell's thumbnail of a file (pictures, videos, PDFs, … — whatever has
+/// a thumbnail handler), at most `size` pixels on the long side. Blocks, so
+/// call it from a background thread. `None` on other platforms, for files
+/// without a thumbnail and on errors.
+pub fn thumbnail(path: &Path, size: u32) -> Option<Thumbnail> {
+    #[cfg(windows)]
+    {
+        // SAFETY: COM is set up for the calling thread inside.
+        unsafe { imp::thumbnail(path, size) }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (path, size);
+        None
+    }
 }
 
 /// Is the Windows Shell available?
@@ -146,7 +171,7 @@ impl Shell {
 
 #[cfg(windows)]
 mod imp {
-    use super::{IconImage, IconKey, Request};
+    use super::{IconImage, IconKey, Request, Thumbnail};
     use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
     use std::cell::RefCell;
     use std::ffi::c_void;
@@ -154,7 +179,7 @@ mod imp {
     use std::path::{Path, PathBuf};
     use std::time::Duration;
     use windows::core::{w, Interface, PCSTR, PCWSTR};
-    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, SIZE, WPARAM};
     use windows::Win32::Graphics::Gdi::{
         CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO,
         BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
@@ -165,11 +190,12 @@ mod imp {
     use windows::Win32::UI::Controls::{IImageList, ILD_TRANSPARENT};
     use windows::Win32::UI::Shell::Common::ITEMIDLIST;
     use windows::Win32::UI::Shell::{
-        IContextMenu, IContextMenu2, IContextMenu3, IShellFolder, SHBindToParent, SHGetFileInfoW,
-        SHGetImageList, SHOpenWithDialog, SHParseDisplayName, ShellExecuteExW, CMF_EXPLORE,
-        CMF_NORMAL, CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX, OAIF_ALLOW_REGISTRATION, OAIF_EXEC,
-        OPENASINFO, SEE_MASK_INVOKEIDLIST, SHELLEXECUTEINFOW, SHFILEINFOW, SHGFI_SYSICONINDEX,
-        SHGFI_USEFILEATTRIBUTES, SHIL_EXTRALARGE,
+        IContextMenu, IContextMenu2, IContextMenu3, IShellFolder, IShellItemImageFactory,
+        SHBindToParent, SHCreateItemFromParsingName, SHGetFileInfoW, SHGetImageList,
+        SHOpenWithDialog, SHParseDisplayName, ShellExecuteExW, CMF_EXPLORE, CMF_NORMAL,
+        CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX, OAIF_ALLOW_REGISTRATION, OAIF_EXEC, OPENASINFO,
+        SEE_MASK_INVOKEIDLIST, SHELLEXECUTEINFOW, SHFILEINFOW, SHGFI_SYSICONINDEX,
+        SHGFI_USEFILEATTRIBUTES, SHIL_EXTRALARGE, SIIGBF_THUMBNAILONLY,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu,
@@ -356,10 +382,10 @@ mod imp {
                     return None;
                 }
                 let size = bm.bmWidth;
-                let mut pixels = read_bitmap(info.hbmColor, size)?;
+                let mut pixels = read_bitmap(info.hbmColor, size, size)?;
                 if pixels.as_chunks::<4>().0.iter().all(|p| p[3] == 0) {
                     // Old-style icon without alpha: use the AND mask instead.
-                    let mask = read_bitmap(info.hbmMask, size)?;
+                    let mask = read_bitmap(info.hbmMask, size, size)?;
                     let mask = mask.as_chunks::<4>().0;
                     for (p, m) in pixels.as_chunks_mut::<4>().0.iter_mut().zip(mask) {
                         p[3] = if m[0] == 0 { 255 } else { 0 };
@@ -383,15 +409,15 @@ mod imp {
         }
     }
 
-    /// 32-bit top-down BGRA pixels of a square bitmap.
-    unsafe fn read_bitmap(bitmap: HBITMAP, size: i32) -> Option<Vec<u8>> {
+    /// 32-bit top-down BGRA pixels of a bitmap.
+    unsafe fn read_bitmap(bitmap: HBITMAP, width: i32, height: i32) -> Option<Vec<u8>> {
         unsafe {
             let dc = CreateCompatibleDC(None);
             let mut bmi = BITMAPINFO {
                 bmiHeader: BITMAPINFOHEADER {
                     biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: size,
-                    biHeight: -size,
+                    biWidth: width,
+                    biHeight: -height,
                     biPlanes: 1,
                     biBitCount: 32,
                     biCompression: BI_RGB.0,
@@ -399,18 +425,62 @@ mod imp {
                 },
                 ..Default::default()
             };
-            let mut buf = vec![0u8; (size * size * 4) as usize];
+            let mut buf = vec![0u8; (width * height * 4) as usize];
             let lines = GetDIBits(
                 dc,
                 bitmap,
                 0,
-                size as u32,
+                height as u32,
                 Some(buf.as_mut_ptr() as *mut c_void),
                 &mut bmi,
                 DIB_RGB_COLORS,
             );
             let _ = DeleteDC(dc);
-            (lines == size).then_some(buf)
+            (lines == height).then_some(buf)
+        }
+    }
+
+    // ---- thumbnails --------------------------------------------------------------
+
+    pub(super) unsafe fn thumbnail(path: &Path, size: u32) -> Option<Thumbnail> {
+        unsafe {
+            // Once per thread; later calls just return S_FALSE.
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            let name = wide(std::path::absolute(path).ok()?);
+            let factory: IShellItemImageFactory =
+                SHCreateItemFromParsingName(PCWSTR(name.as_ptr()), None).ok()?;
+            let side = size as i32;
+            let bitmap = factory
+                .GetImage(SIZE { cx: side, cy: side }, SIIGBF_THUMBNAILONLY)
+                .ok()?;
+            let result = (|| {
+                let mut bm = BITMAP::default();
+                let n = GetObjectW(
+                    HGDIOBJ(bitmap.0),
+                    std::mem::size_of::<BITMAP>() as i32,
+                    Some(&mut bm as *mut BITMAP as *mut c_void),
+                );
+                let (w, h) = (bm.bmWidth, bm.bmHeight.abs());
+                if n == 0 || w <= 0 || h <= 0 || w > 4096 || h > 4096 {
+                    return None;
+                }
+                let mut pixels = read_bitmap(bitmap, w, h)?;
+                // Photos come without alpha (all zero): make them opaque.
+                let opaque = pixels.as_chunks::<4>().0.iter().all(|p| p[3] == 0);
+                for p in pixels.as_chunks_mut::<4>().0 {
+                    p.swap(0, 2); // BGRA -> RGBA
+                    if opaque {
+                        p[3] = 255;
+                    }
+                }
+                Some(Thumbnail {
+                    width: w as u32,
+                    height: h as u32,
+                    rgba: pixels,
+                })
+            })();
+            let _ = DeleteObject(HGDIOBJ(bitmap.0));
+            result
         }
     }
 

@@ -344,6 +344,12 @@ fn appearance(ui: &mut Ui, app: &mut OxApp) {
         "Compact rows",
         "Smaller row height in the details view.",
     );
+    toggle(
+        ui,
+        &mut a.thumbnails,
+        "Thumbnails",
+        "Show previews of pictures and videos in the grid view.",
+    );
     if ox_core::shell::supported() {
         toggle(
             ui,

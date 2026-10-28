@@ -92,6 +92,8 @@ struct Ctx<'a> {
 
     /// Shell icons (Windows), or `None` to paint the built-in icons.
     icons: Option<&'a crate::icons::IconCache>,
+    /// Picture and video previews in the grid, or `None` when they are off.
+    thumbs: Option<&'a crate::thumbs::Thumbnails>,
     /// Trash items behind the entries when showing the Recycle Bin.
     bin: &'a BinListing,
     tags: &'a ox_core::tags::TagStore,
@@ -139,6 +141,11 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         is_bin: app.tabs.active().location().is_bin(),
         read_only: app.tabs.active().location().is_read_only(),
         icons: app.settings.appearance.system_icons.then_some(&app.icons),
+        // Bin and archive entries aren't real files the Shell can read.
+        thumbs: (app.settings.appearance.thumbnails
+            && !app.tabs.active().location().is_bin()
+            && !app.tabs.active().location().is_read_only())
+        .then_some(&app.thumbs),
         bin: &bin,
         sizes: (app.settings.browsing.folder_sizes
             && matches!(app.tabs.active().location(), Location::Folder(_)))
@@ -723,10 +730,48 @@ fn paint_tile(
         egui::pos2(rect.center().x, rect.top() + 32.0),
         vec2(48.0, 48.0),
     );
-    let texture = cx
-        .icons
-        .and_then(|c| c.texture(e, cx.is_bin || cx.read_only));
-    icons::paint_entry(ui.painter(), icon_rect, e, dim, texture);
+    let thumb = cx
+        .thumbs
+        .filter(|_| crate::thumbs::wanted(e))
+        .and_then(|t| t.get(e));
+    if let Some((tex, size)) = thumb {
+        let area = Rect::from_center_size(
+            egui::pos2(rect.center().x, rect.top() + 31.0),
+            vec2(rect.width() - 16.0, 52.0),
+        );
+        let r = crate::thumbs::fit(area, size);
+        let tint = if dim {
+            Color32::from_white_alpha(110)
+        } else {
+            Color32::WHITE
+        };
+        let uv = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+        ui.painter().image(tex, r, uv, tint);
+        ui.painter().rect_stroke(
+            r,
+            CornerRadius::ZERO,
+            Stroke::new(1.0, v.widgets.noninteractive.bg_stroke.color),
+            egui::StrokeKind::Outside,
+        );
+        if e.kind() == ox_core::entry::FileKind::Video {
+            // Play badge so videos stand out from pictures.
+            let c = r.left_bottom() + vec2(9.0, -9.0);
+            ui.painter()
+                .circle_filled(c, 7.0, Color32::from_black_alpha(160));
+            ui.painter().text(
+                c + vec2(0.5, 0.0),
+                egui::Align2::CENTER_CENTER,
+                "▶",
+                FontId::proportional(8.0),
+                Color32::WHITE,
+            );
+        }
+    } else {
+        let texture = cx
+            .icons
+            .and_then(|c| c.texture(e, cx.is_bin || cx.read_only));
+        icons::paint_entry(ui.painter(), icon_rect, e, dim, texture);
+    }
     // Tag dots in the top-right corner of the icon.
     for (i, &tag) in cx.tags.tags(&e.path).iter().enumerate() {
         let c = egui::pos2(

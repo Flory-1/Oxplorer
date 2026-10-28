@@ -215,6 +215,7 @@ pub struct OxApp {
     text_clipboard: Option<arboard::Clipboard>,
     applied_settings: Option<Settings>,
     pub icons: crate::icons::IconCache,
+    pub thumbs: crate::thumbs::Thumbnails,
     pub index: IndexService,
     pub preview: crate::ui::preview::PreviewState,
     pub folder_sizes: FolderSizes,
@@ -315,6 +316,7 @@ impl OxApp {
             text_clipboard: None,
             applied_settings: None,
             icons: crate::icons::IconCache::new(&cc.egui_ctx),
+            thumbs: crate::thumbs::Thumbnails::new(&cc.egui_ctx),
             index: {
                 let repaint = cc.egui_ctx.clone();
                 IndexService::start(ox_core::index::default_cache_path(), move || {
@@ -383,6 +385,7 @@ impl OxApp {
         }
         self.remap_text_clipboard_keys(ctx);
         self.icons.poll(ctx);
+        self.thumbs.poll(ctx);
         self.manage_index();
         self.tabs.fix_panes();
         self.load_active_tab();

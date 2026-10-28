@@ -6,6 +6,7 @@ mod shortcuts;
 mod tabs;
 mod terminal;
 mod theme;
+mod thumbs;
 mod ui;
 
 use std::path::PathBuf;
