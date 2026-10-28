@@ -20,7 +20,7 @@ use ox_core::index::{IndexService, IndexState};
 use ox_core::places::{self, Drive, QuickAccess};
 use ox_core::recycle::{self, TrashItem};
 use ox_core::search::{self, Query, SearchEvent, SearchOptions};
-use ox_core::settings::{Settings, StartPage};
+use ox_core::settings::{Backdrop, Settings, StartPage};
 use ox_core::tags::{TagColor, TagStore};
 use ox_core::transfer::{TransferEngine, TransferKind, TransferRequest};
 use ox_core::watcher::DirWatcher;
@@ -230,6 +230,10 @@ pub struct OxApp {
     /// A native drag ended inside its own message loop, so egui never saw
     /// the mouse button go up; tell it on the next frame.
     release_pointer: bool,
+    /// The window is transparent, so a backdrop can show through it.
+    see_through: bool,
+    /// Backdrop and dark title bar last given to the window.
+    window_style: Option<(Backdrop, bool)>,
     /// The terminal panel's shell, started the first time the panel opens.
     pub terminal: Option<crate::terminal::Terminal>,
     /// Folder the terminal was last sent to (for "follow the folder").
@@ -255,7 +259,8 @@ pub struct OxApp {
 }
 
 impl OxApp {
-    pub fn new(cc: &eframe::CreationContext<'_>, open: Option<PathBuf>) -> Self {
+    /// `see_through`: the window was created transparent (for Mica/Acrylic).
+    pub fn new(cc: &eframe::CreationContext<'_>, open: Option<PathBuf>, see_through: bool) -> Self {
         let ctx = cc.egui_ctx.clone();
         let settings = Settings::load();
         let quick = QuickAccess::load();
@@ -338,6 +343,8 @@ impl OxApp {
             themes: ox_core::themes::load_all(),
             themes_changed: false,
             release_pointer: false,
+            see_through,
+            window_style: None,
             terminal: None,
             terminal_dir: None,
             sizes_key: None,
@@ -382,7 +389,12 @@ impl OxApp {
     fn pre_frame(&mut self, ctx: &Context) {
         if self.applied_settings.as_ref() != Some(&self.settings) || self.themes_changed {
             self.themes_changed = false;
-            theme::apply(ctx, &self.settings, &self.themes);
+            theme::apply(
+                ctx,
+                &self.settings,
+                &self.themes,
+                self.backdrop() != Backdrop::Off,
+            );
             self.keymap = crate::shortcuts::Keymap::new(&self.settings.shortcuts);
             crate::shortcuts::set_current(&self.keymap);
             self.engine
@@ -1756,6 +1768,31 @@ impl OxApp {
 }
 
 impl OxApp {
+    /// The backdrop in effect: turning one on needs a restart, as the window
+    /// must be created see-through.
+    fn backdrop(&self) -> Backdrop {
+        if self.see_through {
+            self.settings.appearance.backdrop
+        } else {
+            Backdrop::Off
+        }
+    }
+
+    /// Give the window its Windows 11 look (backdrop, corners, title bar).
+    fn style_window(&mut self, ctx: &Context, frame: &eframe::Frame) {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let style = (self.backdrop(), ctx.global_style().visuals.dark_mode);
+        if !ox_core::shell::supported() || self.window_style == Some(style) {
+            return;
+        }
+        if let Ok(handle) = frame.window_handle() {
+            if let RawWindowHandle::Win32(h) = handle.as_raw() {
+                ox_core::shell::set_window_style(h.hwnd.get(), style.0, style.1);
+                self.window_style = Some(style);
+            }
+        }
+    }
+
     /// Files dragged past the window's edge go on as a Windows drag & drop,
     /// so they can be dropped into other programs (Explorer, mail, editors…).
     fn drag_out_of_window(&mut self, ctx: &Context) {
@@ -1797,9 +1834,18 @@ impl eframe::App for OxApp {
         }
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        if self.backdrop() != Backdrop::Off {
+            [0.0; 4] // let the backdrop show through
+        } else {
+            visuals.panel_fill.to_normalized_gamma_f32()
+        }
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.pre_frame(&ctx);
+        self.style_window(&ctx, frame);
         ui::show(self, ui);
         self.drag_out_of_window(&ctx);
         self.process_actions();

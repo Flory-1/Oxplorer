@@ -18,8 +18,15 @@ fn main() -> eframe::Result {
         .map(PathBuf::from)
         .filter(|p| p.is_dir());
 
-    let options = eframe::NativeOptions {
+    // Mica/Acrylic need a see-through window, which can only be chosen now.
+    let backdrop = ox_core::shell::supported()
+        && ox_core::settings::Settings::load().appearance.backdrop
+            != ox_core::settings::Backdrop::Off;
+
+    #[cfg_attr(not(windows), allow(unused_mut))]
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
+            .with_transparent(backdrop)
             .with_title(ox_core::APP_NAME)
             .with_app_id("oxplorer")
             .with_inner_size([1280.0, 800.0])
@@ -33,9 +40,13 @@ fn main() -> eframe::Result {
         clipboard_shortcuts: false,
         ..Default::default()
     };
+    #[cfg(windows)]
+    if backdrop {
+        options.renderer = eframe::Renderer::Glow;
+    }
     eframe::run_native(
         ox_core::APP_NAME,
         options,
-        Box::new(move |cc| Ok(Box::new(app::OxApp::new(cc, open)))),
+        Box::new(move |cc| Ok(Box::new(app::OxApp::new(cc, open, backdrop)))),
     )
 }

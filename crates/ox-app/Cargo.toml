@@ -24,7 +24,12 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 egui_extras = { version = "0.37", default-features = false, features = ["syntect"] }
 lofty = "0.25"
 ttf-parser = "0.25"
+raw-window-handle = "0.6"
 alacritty_terminal = { version = "0.26", default-features = false }
+
+# Glow can draw see-through windows on Windows (for Mica/Acrylic); wgpu can't reliably.
+[target.'cfg(windows)'.dependencies]
+eframe = { version = "0.37", features = ["glow"] }
 
 [dev-dependencies]
 tempfile = "3"

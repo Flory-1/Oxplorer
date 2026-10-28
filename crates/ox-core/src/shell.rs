@@ -109,6 +109,22 @@ pub fn drag_out(paths: &[PathBuf]) -> bool {
     }
 }
 
+/// Window look on Windows 11: the backdrop material behind see-through
+/// parts of the window (Mica, Acrylic or none), rounded corners and a dark
+/// or light title bar. `hwnd` is the window's handle. Older Windows ignore
+/// what they don't know; other platforms ignore it all.
+pub fn set_window_style(hwnd: isize, backdrop: crate::settings::Backdrop, dark: bool) {
+    #[cfg(windows)]
+    {
+        // SAFETY: only window attributes of the given window are set.
+        unsafe { imp::set_window_style(hwnd, backdrop, dark) }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (hwnd, backdrop, dark);
+    }
+}
+
 /// Is the Windows Shell available?
 pub fn supported() -> bool {
     cfg!(windows)
@@ -599,6 +615,51 @@ mod imp {
                 );
             }
             let _ = DestroyMenu(hmenu);
+        }
+    }
+
+    // ---- window style ----------------------------------------------------------------
+
+    pub(super) unsafe fn set_window_style(
+        hwnd: isize,
+        backdrop: crate::settings::Backdrop,
+        dark: bool,
+    ) {
+        use crate::settings::Backdrop;
+        use windows::Win32::Graphics::Dwm::{
+            DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMSBT_MAINWINDOW, DWMSBT_NONE,
+            DWMSBT_TRANSIENTWINDOW, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE,
+            DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DWMWINDOWATTRIBUTE,
+        };
+        use windows::Win32::UI::Controls::MARGINS;
+        unsafe {
+            let hwnd = HWND(hwnd as *mut c_void);
+            let set = |attr: DWMWINDOWATTRIBUTE, value: i32| {
+                let _ = DwmSetWindowAttribute(
+                    hwnd,
+                    attr,
+                    &value as *const i32 as *const c_void,
+                    std::mem::size_of::<i32>() as u32,
+                );
+            };
+            set(DWMWA_USE_IMMERSIVE_DARK_MODE, dark as i32);
+            set(DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND.0);
+            let kind = match backdrop {
+                Backdrop::Off => DWMSBT_NONE,
+                Backdrop::Mica => DWMSBT_MAINWINDOW,
+                Backdrop::Acrylic => DWMSBT_TRANSIENTWINDOW,
+            };
+            set(DWMWA_SYSTEMBACKDROP_TYPE, kind.0);
+            // The material shows through the client area only where the
+            // frame is extended into it (all of it, with -1 margins).
+            let m = if backdrop == Backdrop::Off { 0 } else { -1 };
+            let margins = MARGINS {
+                cxLeftWidth: m,
+                cxRightWidth: m,
+                cyTopHeight: m,
+                cyBottomHeight: m,
+            };
+            let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
         }
     }
 

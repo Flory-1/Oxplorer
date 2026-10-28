@@ -17,6 +17,15 @@ pub enum Theme {
     Dark,
 }
 
+/// Windows 11 material behind the window's panels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Backdrop {
+    #[default]
+    Off,
+    Mica,
+    Acrylic,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ViewMode {
     #[default]
@@ -48,6 +57,8 @@ pub struct Appearance {
     pub system_icons: bool,
     /// Pictures and videos show a preview in the grid view.
     pub thumbnails: bool,
+    /// Mica or Acrylic behind the sidebar and header (Windows 11).
+    pub backdrop: Backdrop,
     /// Colour scheme used in dark mode (see `themes`).
     pub dark_theme: String,
     /// Colour scheme used in light mode.
@@ -63,6 +74,7 @@ impl Default for Appearance {
             compact_rows: false,
             system_icons: true,
             thumbnails: true,
+            backdrop: Backdrop::Off,
             dark_theme: crate::themes::DEFAULT_DARK.to_owned(),
             light_theme: crate::themes::DEFAULT_LIGHT.to_owned(),
         }

@@ -3,7 +3,7 @@
 use egui::{vec2, Color32, RichText, Ui};
 use ox_core::entry::{SortKey, SortOrder};
 use ox_core::index::IndexState;
-use ox_core::settings::{Settings, StartPage, Theme, ViewMode};
+use ox_core::settings::{Backdrop, Settings, StartPage, Theme, ViewMode};
 use ox_core::transfer::ConflictPolicy;
 
 use crate::app::{Action, OxApp};
@@ -351,6 +351,16 @@ fn appearance(ui: &mut Ui, app: &mut OxApp) {
         "Show previews of pictures and videos in the grid view.",
     );
     if ox_core::shell::supported() {
+        row(
+            ui,
+            "Window backdrop",
+            "Windows 11 material behind the sidebar and header. Turning it on takes effect after restarting Oxplorer.",
+            |ui| {
+                ui.selectable_value(&mut a.backdrop, Backdrop::Off, "Off");
+                ui.selectable_value(&mut a.backdrop, Backdrop::Mica, "Mica");
+                ui.selectable_value(&mut a.backdrop, Backdrop::Acrylic, "Acrylic");
+            },
+        );
         toggle(
             ui,
             &mut a.system_icons,
