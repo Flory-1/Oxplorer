@@ -109,7 +109,7 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 
 ## Phase 5 — Power-user features ⏳
 
-- ⏳ Dual-pane / split view
+- ✅ Dual-pane / split view (Ctrl+\\): two panes side by side, each with its own tab; F6 or a click switches the focused pane, drag & drop between panes, narrow panes hide less important columns
 - ✅ Preview pane (Alt+P): images, text and code with line numbers, folder and multi-selection summaries
 - ⏳ Preview pane extras: syntax highlighting, PDF, audio/video metadata
 - ✅ Bulk rename (F2 on several items): name patterns with `{name}`/`{n}`/`{date}` tokens, find & replace (text or regex), counters, case changes, live preview with conflict checks, all-or-nothing apply

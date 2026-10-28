@@ -645,6 +645,8 @@ fn shortcuts(ui: &mut Ui) {
                 ("Shift+F10", "Windows context menu (Windows only)"),
                 ("Ctrl+Shift+P / F1", "Command palette"),
                 ("Alt+P", "Preview pane"),
+                ("Ctrl+\\", "Split view (two panes)"),
+                ("F6", "Switch between panes"),
                 ("F2 (several items)", "Bulk rename"),
                 ("Ctrl+,", "Settings"),
             ] {

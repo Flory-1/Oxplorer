@@ -22,6 +22,44 @@ const TYPE_W: f32 = 150.0;
 const SIZE_W: f32 = 90.0;
 const FOLDER_W: f32 = 260.0;
 const TILE: egui::Vec2 = egui::Vec2::new(108.0, 104.0);
+const MIN_NAME_W: f32 = 180.0;
+
+/// Widths of the details columns (0 = hidden). Narrow views (e.g. a split
+/// pane) drop Type first, then shrink or drop Folder, then drop Date.
+#[derive(Clone, Copy)]
+struct Columns {
+    name: f32,
+    folder: f32,
+    date: f32,
+    kind: f32,
+    size: f32,
+}
+
+impl Columns {
+    fn fit(width: f32, with_folder: bool) -> Self {
+        let avail = width - 16.0;
+        let mut c = Columns {
+            name: 0.0,
+            folder: if with_folder { FOLDER_W } else { 0.0 },
+            date: DATE_W,
+            kind: TYPE_W,
+            size: SIZE_W,
+        };
+        let rest = |c: &Columns| avail - (c.folder + c.date + c.kind + c.size);
+        if rest(&c) < MIN_NAME_W {
+            c.kind = 0.0;
+        }
+        if rest(&c) < MIN_NAME_W && c.folder > 0.0 {
+            let w = c.folder - (MIN_NAME_W - rest(&c));
+            c.folder = if w >= 120.0 { w } else { 0.0 };
+        }
+        if rest(&c) < MIN_NAME_W {
+            c.date = 0.0;
+        }
+        c.name = rest(&c).max(MIN_NAME_W.min(avail - c.size)).max(60.0);
+        c
+    }
+}
 
 /// Everything the rows need besides the tab itself.
 struct Ctx<'a> {
@@ -302,8 +340,7 @@ fn details(
 ) {
     let width = ui.available_width();
     let with_folder = cx.is_search || cx.is_bin;
-    let fixed = DATE_W + TYPE_W + SIZE_W + if with_folder { FOLDER_W } else { 0.0 };
-    let name_w = (width - fixed - 16.0).max(160.0);
+    let columns = Columns::fit(width, with_folder);
 
     // Column header
     let (header, _) = ui.allocate_exact_size(vec2(width, 28.0), Sense::hover());
@@ -313,14 +350,15 @@ fn details(
         v.widgets.noninteractive.bg_stroke,
     );
     let mut x = header.left() + 8.0;
-    let mut cols: Vec<(&str, f32, Option<SortKey>)> = vec![("Name", name_w, Some(SortKey::Name))];
-    if with_folder {
+    let mut cols: Vec<(&str, f32, Option<SortKey>)> =
+        vec![("Name", columns.name, Some(SortKey::Name))];
+    if columns.folder > 0.0 {
         let label = if cx.is_bin {
             "Original location"
         } else {
             "Folder"
         };
-        cols.push((label, FOLDER_W, None));
+        cols.push((label, columns.folder, None));
     }
     let date_label = if cx.is_bin {
         "Date deleted"
@@ -328,11 +366,11 @@ fn details(
         "Date modified"
     };
     cols.extend([
-        (date_label, DATE_W, Some(SortKey::Modified)),
-        ("Type", TYPE_W, Some(SortKey::Type)),
-        ("Size", SIZE_W, Some(SortKey::Size)),
+        (date_label, columns.date, Some(SortKey::Modified)),
+        ("Type", columns.kind, Some(SortKey::Type)),
+        ("Size", columns.size, Some(SortKey::Size)),
     ]);
-    for (label, w, key) in cols {
+    for (label, w, key) in cols.into_iter().filter(|c| c.1 > 0.0) {
         let rect = Rect::from_min_size(egui::pos2(x, header.top()), vec2(w, header.height()));
         let resp = ui.interact(rect, Id::unique(("col", tab_id, label)), Sense::click());
         if resp.hovered() && key.is_some() {
@@ -374,7 +412,7 @@ fn details(
             };
             let selected = view.selection.contains(&entry.path);
             let drop_hover = item_interact(view, i, &entry, &resp, cx, actions);
-            paint_row(ui, rect, &entry, selected, drop_hover, &resp, cx, name_w);
+            paint_row(ui, rect, &entry, selected, drop_hover, &resp, cx, columns);
             item_context_menu(&resp, view, &entry, cx, actions);
         }
     });
@@ -419,8 +457,9 @@ fn paint_row(
     drop_hover: bool,
     resp: &Response,
     cx: &Ctx<'_>,
-    name_w: f32,
+    columns: Columns,
 ) {
+    let name_w = columns.name;
     let v = ui.visuals();
     if selected {
         ui.painter()
@@ -492,15 +531,15 @@ fn paint_row(
             );
         }
     };
-    if cx.is_bin {
+    if cx.is_bin && columns.folder > 0.0 {
         let original = cx
             .bin
             .get(&e.path)
             .map(|i| i.original_parent.display().to_string())
             .unwrap_or_default();
-        col(x, FOLDER_W, original, false);
-        x += FOLDER_W;
-    } else if cx.is_search {
+        col(x, columns.folder, original, false);
+        x += columns.folder;
+    } else if cx.is_search && columns.folder > 0.0 {
         let parent = e.path.parent().unwrap_or(&e.path);
         let parent = match &cx.search_root {
             Some(root) => {
@@ -513,20 +552,24 @@ fn paint_row(
             }
             None => parent.display().to_string(),
         };
-        col(x, FOLDER_W, parent, false);
-        x += FOLDER_W;
+        col(x, columns.folder, parent, false);
+        x += columns.folder;
     }
-    col(
-        x,
-        DATE_W,
-        e.modified
-            .map(|t| format::time(t, cx.date_format))
-            .unwrap_or_default(),
-        false,
-    );
-    x += DATE_W;
-    col(x, TYPE_W, e.type_label(), false);
-    x += TYPE_W;
+    if columns.date > 0.0 {
+        col(
+            x,
+            columns.date,
+            e.modified
+                .map(|t| format::time(t, cx.date_format))
+                .unwrap_or_default(),
+            false,
+        );
+        x += columns.date;
+    }
+    if columns.kind > 0.0 {
+        col(x, columns.kind, e.type_label(), false);
+        x += columns.kind;
+    }
     let size = match (e.is_dir, cx.sizes) {
         (false, _) => format::size(e.size),
         (true, Some(sizes)) if !e.is_symlink => match sizes.get(&e.path) {
@@ -535,14 +578,14 @@ fn paint_row(
         },
         (true, _) => String::new(),
     };
-    col(x, SIZE_W, size, true);
+    col(x, columns.size, size, true);
 }
 
 fn grid(ui: &mut Ui, view: &mut FolderView, tab_id: u64, cx: &Ctx<'_>, actions: &mut Vec<Action>) {
     let width = ui.available_width();
     let gap = 6.0;
     let cols = (((width - 12.0) / (TILE.x + gap)).floor() as usize).max(1);
-    ui.data_mut(|d| d.insert_temp(Id::unique("grid_columns"), cols));
+    ui.data_mut(|d| d.insert_temp(Id::unique(("grid_columns", tab_id)), cols));
     let n = view.visible.len();
     let rows = n.div_ceil(cols);
     let row_h = TILE.y + gap;

@@ -107,6 +107,10 @@ pub enum TabAction {
     NewTabInGroup(GroupId),
     Move(TabId, usize),
     Cycle(isize),
+    /// Turn the split view (two panes) on or off.
+    ToggleSplit,
+    /// Focus the other pane.
+    SwitchPane,
 }
 
 pub enum Dialog {
@@ -180,9 +184,10 @@ pub struct OxApp {
     pub toasts: Vec<Toast>,
     pub ui: UiState,
     pub ctx: Context,
-    watcher: DirWatcher,
+    /// Watch the folders of the focused and the other pane.
+    watchers: [DirWatcher; 2],
     drives_at: Instant,
-    refresh_at: Option<Instant>,
+    refresh_at: [Option<Instant>; 2],
     background: Vec<BackgroundOp>,
     seen_jobs: HashSet<u64>,
     text_clipboard: Option<arboard::Clipboard>,
@@ -192,8 +197,8 @@ pub struct OxApp {
     pub preview: crate::ui::preview::PreviewState,
     pub folder_sizes: FolderSizes,
     pub tags: TagStore,
-    /// (tab, listing version, cache epoch) the folder sizes were requested for.
-    sizes_key: Option<(u64, u64, u64)>,
+    /// (tabs, listing versions, cache epoch) the folder sizes were requested for.
+    sizes_key: Option<(Vec<(TabId, u64)>, u64)>,
     /// `folder_sizes.version()` last copied into the listing.
     sizes_applied: u64,
     /// The index was (re)built at least once this session.
@@ -230,8 +235,11 @@ impl OxApp {
             tabs.open(Location::Folder(path), None, true, &settings);
         }
 
-        let repaint = ctx.clone();
-        let watcher = DirWatcher::new(move || repaint.request_repaint());
+        let watcher = || {
+            let repaint = ctx.clone();
+            DirWatcher::new(move || repaint.request_repaint())
+        };
+        let watchers = [watcher(), watcher()];
 
         Self {
             settings,
@@ -255,9 +263,9 @@ impl OxApp {
                 type_ahead_at: Instant::now(),
             },
             ctx,
-            watcher,
+            watchers,
             drives_at: Instant::now(),
-            refresh_at: None,
+            refresh_at: [None; 2],
             background: Vec::new(),
             seen_jobs: HashSet::new(),
             text_clipboard: None,
@@ -322,7 +330,15 @@ impl OxApp {
         self.remap_text_clipboard_keys(ctx);
         self.icons.poll(ctx);
         self.manage_index();
+        self.tabs.fix_panes();
         self.load_active_tab();
+        if let Some(other) = self.tabs.split_partner() {
+            // Load the other pane's tab too (`load_active_tab` works on the active one).
+            let focused = self.tabs.active;
+            self.tabs.active = other;
+            self.load_active_tab();
+            self.tabs.active = focused;
+        }
         self.poll_tabs();
         self.poll_folder_sizes();
         self.poll_watcher();
@@ -526,25 +542,27 @@ impl OxApp {
     }
 
     fn poll_watcher(&mut self) {
-        let folder = if self.settings.browsing.auto_refresh {
-            self.current_folder()
-        } else {
-            None
-        };
-        self.watcher.watch(folder.as_deref());
-        if self.watcher.take_dirty() && self.refresh_at.is_none() {
-            // Debounce bursts of file system events.
-            self.refresh_at = Some(Instant::now() + Duration::from_millis(250));
-        }
-        if let Some(at) = self.refresh_at {
-            if Instant::now() >= at {
-                self.refresh_at = None;
-                if let Some(folder) = self.current_folder() {
-                    self.folder_sizes.invalidate(&folder);
+        let panes = [Some(self.tabs.active), self.tabs.split_partner()];
+        for (i, id) in panes.into_iter().enumerate() {
+            let folder = id
+                .and_then(|id| self.tabs.get(id))
+                .and_then(|t| t.location().folder().map(Path::to_path_buf))
+                .filter(|_| self.settings.browsing.auto_refresh);
+            self.watchers[i].watch(folder.as_deref());
+            if self.watchers[i].take_dirty() && self.refresh_at[i].is_none() {
+                // Debounce bursts of file system events.
+                self.refresh_at[i] = Some(Instant::now() + Duration::from_millis(250));
+            }
+            if let Some(at) = self.refresh_at[i] {
+                if Instant::now() >= at {
+                    self.refresh_at[i] = None;
+                    if let Some(folder) = &folder {
+                        self.folder_sizes.invalidate(folder);
+                        self.tabs.mark_stale(Some(folder));
+                    }
+                } else {
+                    self.ctx.request_repaint_after(at - Instant::now());
                 }
-                self.tabs.active_mut().stale = true;
-            } else {
-                self.ctx.request_repaint_after(at - Instant::now());
             }
         }
     }
@@ -629,23 +647,33 @@ impl OxApp {
     /// Ask for the sizes of the folders listed in the active tab, and copy
     /// finished sizes into the listing (so sorting by size works).
     fn poll_folder_sizes(&mut self) {
-        let tab = self.tabs.active();
-        let wanted = self.settings.browsing.folder_sizes
-            && matches!(tab.location(), Location::Folder(_))
-            && tab.view.loading.is_none();
-        if !wanted {
+        // The focused pane first, so its sizes come first.
+        let panes: Vec<TabId> = [Some(self.tabs.active), self.tabs.split_partner()]
+            .into_iter()
+            .flatten()
+            .filter(|&id| {
+                self.tabs.get(id).is_some_and(|t| {
+                    matches!(t.location(), Location::Folder(_)) && t.view.loading.is_none()
+                })
+            })
+            .collect();
+        if !self.settings.browsing.folder_sizes || panes.is_empty() {
             if self.sizes_key.take().is_some() {
                 self.folder_sizes.clear_requests();
             }
             return;
         }
-        let key = (tab.id, tab.view.version, self.folder_sizes.epoch());
-        if self.sizes_key != Some(key) {
+        let versions: Vec<(TabId, u64)> = panes
+            .iter()
+            .filter_map(|&id| self.tabs.get(id).map(|t| (id, t.view.version)))
+            .collect();
+        let key = (versions, self.folder_sizes.epoch());
+        if self.sizes_key.as_ref() != Some(&key) {
             self.sizes_key = Some(key);
-            let dirs = tab
-                .view
-                .entries
+            let dirs = panes
                 .iter()
+                .filter_map(|&id| self.tabs.get(id))
+                .flat_map(|t| t.view.entries.iter())
                 .filter(|e| e.is_dir && !e.is_symlink)
                 .map(|e| e.path.clone())
                 .collect();
@@ -661,16 +689,20 @@ impl OxApp {
             self.settings.browsing.folders_first,
             self.settings.search.case_sensitive,
         );
-        let tab = self.tabs.active_mut();
-        let mut changed = false;
-        for e in tab.view.entries.iter_mut().filter(|e| e.is_dir) {
-            if let Some(s) = self.folder_sizes.get(&e.path) {
-                changed |= e.size != s.bytes;
-                e.size = s.bytes;
+        for id in panes {
+            let Some(tab) = self.tabs.get_mut(id) else {
+                continue;
+            };
+            let mut changed = false;
+            for e in tab.view.entries.iter_mut().filter(|e| e.is_dir) {
+                if let Some(s) = self.folder_sizes.get(&e.path) {
+                    changed |= e.size != s.bytes;
+                    e.size = s.bytes;
+                }
             }
-        }
-        if changed && tab.sort_key == entry::SortKey::Size {
-            tab.refresh_visible(folders_first, case);
+            if changed && tab.sort_key == entry::SortKey::Size {
+                tab.refresh_visible(folders_first, case);
+            }
         }
     }
 
@@ -716,6 +748,12 @@ impl OxApp {
             }
             if i.consume_key(cmd, Key::Tab) {
                 actions.push(Action::Tab(TabAction::Cycle(1)));
+            }
+            if i.consume_key(cmd, Key::Backslash) {
+                actions.push(Action::Tab(TabAction::ToggleSplit));
+            }
+            if i.consume_key(Modifiers::NONE, Key::F6) {
+                actions.push(Action::Tab(TabAction::SwitchPane));
             }
             if i.consume_key(Modifiers::ALT, Key::ArrowLeft)
                 || i.pointer.button_pressed(PointerButton::Extra1)
@@ -833,7 +871,7 @@ impl OxApp {
         let mut open = false;
         let mut typed = String::new();
         let grid_cols = ctx
-            .data(|d| d.get_temp::<usize>(egui::Id::unique("grid_columns")))
+            .data(|d| d.get_temp::<usize>(egui::Id::unique(("grid_columns", tab.id))))
             .unwrap_or(1)
             .max(1);
         let step = if tab.view_mode == ox_core::settings::ViewMode::Grid {
@@ -1231,6 +1269,8 @@ impl OxApp {
             }
             TabAction::Close(id) => self.tabs.close(id, s),
             TabAction::Activate(id) => self.tabs.activate(id),
+            TabAction::ToggleSplit => self.tabs.toggle_split(s),
+            TabAction::SwitchPane => self.tabs.switch_pane(),
             TabAction::Duplicate(id) => self.tabs.duplicate(id, s),
             TabAction::CloseOthers(id) => self.tabs.close_others(id),
             TabAction::NewGroup(id) => {
