@@ -227,11 +227,10 @@ impl FileIndex {
         let want = path.file_name().map(|n| n.to_string_lossy());
         self.entries.iter().enumerate().find_map(|(i, e)| {
             let i = i as u32;
+            // Roots are stored under their full path, everything else by name.
             let candidate = e.flags & F_DIR != 0
-                && match &want {
-                    Some(n) => self.name(e) == n.as_ref(),
-                    None => e.parent == NO_PARENT,
-                };
+                && (e.parent == NO_PARENT
+                    || want.as_ref().is_some_and(|n| self.name(e) == n.as_ref()));
             (candidate && self.path_of(i) == path).then_some(i)
         })
     }
@@ -753,6 +752,13 @@ mod tests {
             names(&idx, "*", &within),
             vec!["Taxes 2026", "notes.txt", "receipt.pdf"]
         );
+
+        // Searching in an indexed root itself (e.g. the home folder).
+        let in_root = IndexQuery {
+            within: Some(dir.path().to_path_buf()),
+            ..opts()
+        };
+        assert_eq!(names(&idx, "*.pdf", &in_root), vec!["receipt.pdf"]);
 
         let (ids, _) = idx.search(&Query::parse("receipt", false), &opts());
         let e = idx.file_entry(ids[0]);
