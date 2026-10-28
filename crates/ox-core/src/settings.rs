@@ -46,6 +46,10 @@ pub struct Appearance {
     pub compact_rows: bool,
     /// Show the real Windows file icons instead of the built-in ones.
     pub system_icons: bool,
+    /// Colour scheme used in dark mode (see `themes`).
+    pub dark_theme: String,
+    /// Colour scheme used in light mode.
+    pub light_theme: String,
 }
 
 impl Default for Appearance {
@@ -56,6 +60,8 @@ impl Default for Appearance {
             ui_scale: 1.0,
             compact_rows: false,
             system_icons: true,
+            dark_theme: crate::themes::DEFAULT_DARK.to_owned(),
+            light_theme: crate::themes::DEFAULT_LIGHT.to_owned(),
         }
     }
 }

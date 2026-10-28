@@ -60,6 +60,8 @@ pub enum Action {
     },
     /// Put these items into a new zip file next to them.
     Compress(Vec<PathBuf>),
+    /// Copy a theme file into the themes folder and use it.
+    InstallTheme(PathBuf),
     /// Show or hide the terminal panel (starting the shell the first time).
     ToggleTerminal,
     RestartTerminal,
@@ -218,6 +220,10 @@ pub struct OxApp {
     pub folder_sizes: FolderSizes,
     /// Keyboard shortcuts in effect (defaults + the user's changes).
     pub keymap: crate::shortcuts::Keymap,
+    /// Colour schemes: built-in ones and the user's (see `ox_core::themes`).
+    pub themes: Vec<ox_core::themes::ColorTheme>,
+    /// A scheme was edited; apply the look again.
+    pub themes_changed: bool,
     /// The terminal panel's shell, started the first time the panel opens.
     pub terminal: Option<crate::terminal::Terminal>,
     /// Folder the terminal was last sent to (for "follow the folder").
@@ -322,6 +328,8 @@ impl OxApp {
             },
             tags: TagStore::load(),
             keymap: Default::default(),
+            themes: ox_core::themes::load_all(),
+            themes_changed: false,
             terminal: None,
             terminal_dir: None,
             sizes_key: None,
@@ -364,8 +372,9 @@ impl OxApp {
     // ---- per-frame housekeeping --------------------------------------------
 
     fn pre_frame(&mut self, ctx: &Context) {
-        if self.applied_settings.as_ref() != Some(&self.settings) {
-            theme::apply(ctx, &self.settings);
+        if self.applied_settings.as_ref() != Some(&self.settings) || self.themes_changed {
+            self.themes_changed = false;
+            theme::apply(ctx, &self.settings, &self.themes);
             self.keymap = crate::shortcuts::Keymap::new(&self.settings.shortcuts);
             crate::shortcuts::set_current(&self.keymap);
             self.engine
@@ -1262,6 +1271,26 @@ impl OxApp {
                         .map_err(|e| e.to_string())
                 });
             }
+            Action::InstallTheme(path) => match ox_core::themes::install(&path) {
+                Ok(t) => {
+                    let a = &mut self.settings.appearance;
+                    if t.dark {
+                        a.dark_theme = t.name.clone();
+                        a.theme = ox_core::settings::Theme::Dark;
+                    } else {
+                        a.light_theme = t.name.clone();
+                        a.theme = ox_core::settings::Theme::Light;
+                    }
+                    if let Some(accent) = t.accent {
+                        a.accent = accent.0;
+                    }
+                    self.themes = ox_core::themes::load_all();
+                    self.themes_changed = true;
+                    self.push(Action::SettingsChanged);
+                    self.toast(format!("Theme \"{}\" installed and in use.", t.name));
+                }
+                Err(e) => self.toast(format!("This isn't a theme file: {e}")),
+            },
             Action::ToggleTerminal => {
                 self.ui.show_terminal = !self.ui.show_terminal;
                 self.ui.terminal_focused = false;
