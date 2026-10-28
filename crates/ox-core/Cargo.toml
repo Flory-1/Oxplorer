@@ -1,0 +1,24 @@
+[package]
+name = "ox-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+crossbeam-channel.workspace = true
+serde.workspace = true
+toml.workspace = true
+dirs.workspace = true
+chrono.workspace = true
+ignore = "0.4"
+trash = "5"
+sysinfo = "0.39"
+notify = "8"
+open = "5"
+
+[target.'cfg(windows)'.dependencies]
+clipboard-win = { version = "5", features = ["std"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+tempfile = "3"

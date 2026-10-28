@@ -1,0 +1,239 @@
+//! Left sidebar: Home, Favorites, Drives and Recent folders.
+
+use std::path::Path;
+
+use egui::{vec2, Align2, Color32, CornerRadius, FontId, RichText, Sense, Stroke, Ui};
+use ox_core::entry::display_name;
+use ox_core::format;
+
+use crate::app::{Action, OxApp};
+use crate::icons::{self, Icon};
+use crate::tabs::Location;
+
+pub fn show(app: &mut OxApp, ui: &mut Ui) {
+    let mut actions = Vec::new();
+    let current = app.tabs.active().location().clone();
+    let accent = crate::theme::accent(&app.settings);
+
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 1.0;
+            let home = item(
+                ui,
+                Icon::Glyph(icons::HOME),
+                "Home",
+                None,
+                current == Location::Home,
+                accent,
+            );
+            if home.clicked() {
+                actions.push(Action::Navigate(Location::Home));
+            }
+            if home.middle_clicked() {
+                actions.push(Action::OpenInNewTab(Location::Home, false));
+            }
+
+            if app.settings.sidebar.show_favorites {
+                section(ui, "Favorites");
+                if app.quick.favorites.is_empty() {
+                    ui.label(
+                        RichText::new("  Right-click a folder → Pin to Favorites")
+                            .weak()
+                            .small(),
+                    );
+                }
+                for fav in app.quick.favorites.clone() {
+                    let selected = current.folder() == Some(fav.path.as_path());
+                    let missing = !fav.path.exists();
+                    let icon = if fav.path.parent().is_none() {
+                        Icon::Drive
+                    } else {
+                        Icon::Folder
+                    };
+                    let resp = item(ui, icon, &fav.label(), None, selected, accent);
+                    let resp = resp.on_hover_text(fav.path.display().to_string());
+                    if missing {
+                        ui.painter().text(
+                            resp.rect.right_center() - vec2(8.0, 0.0),
+                            Align2::RIGHT_CENTER,
+                            "⚠",
+                            FontId::proportional(12.0),
+                            Color32::from_rgb(0xe5, 0x48, 0x4d),
+                        );
+                    }
+                    super::open_link(&mut actions, &resp, &fav.path);
+                    highlight_drop(
+                        ui,
+                        &resp,
+                        super::drop_target(&mut actions, &resp, &fav.path),
+                        accent,
+                    );
+                    resp.context_menu(|ui| {
+                        super::folder_link_menu(ui, &fav.path, true, &mut actions)
+                    });
+                }
+            }
+
+            if app.settings.sidebar.show_drives {
+                section(ui, "This PC");
+                for drive in app.drives().to_vec() {
+                    let selected = current.folder() == Some(drive.mount.as_path());
+                    let resp = item(
+                        ui,
+                        Icon::Drive,
+                        &drive.title(),
+                        Some(drive.used_fraction()),
+                        selected,
+                        accent,
+                    );
+                    let resp = resp.on_hover_text(format!(
+                        "{}\n{} free of {}",
+                        drive.mount.display(),
+                        format::size(drive.available),
+                        format::size(drive.total)
+                    ));
+                    super::open_link(&mut actions, &resp, &drive.mount);
+                    highlight_drop(
+                        ui,
+                        &resp,
+                        super::drop_target(&mut actions, &resp, &drive.mount),
+                        accent,
+                    );
+                    let pinned = app.quick.is_favorite(&drive.mount);
+                    resp.context_menu(|ui| {
+                        super::folder_link_menu(ui, &drive.mount, pinned, &mut actions)
+                    });
+                }
+            }
+
+            if app.settings.sidebar.show_recent && !app.quick.recent_folders.is_empty() {
+                section(ui, "Recent");
+                let recent: Vec<_> = app
+                    .quick
+                    .recent_folders(app.settings.sidebar.recent_count)
+                    .map(|r| r.path.clone())
+                    .collect();
+                for path in recent {
+                    let selected = current.folder() == Some(path.as_path());
+                    let resp = item(ui, Icon::Folder, &label_for(&path), None, selected, accent)
+                        .on_hover_text(path.display().to_string());
+                    super::open_link(&mut actions, &resp, &path);
+                    let pinned = app.quick.is_favorite(&path);
+                    resp.context_menu(|ui| {
+                        super::folder_link_menu(ui, &path, pinned, &mut actions);
+                        ui.separator();
+                        if ui.button("🗑 Remove from Recent").clicked() {
+                            actions.push(Action::ForgetRecent(path.clone()));
+                        }
+                    });
+                }
+            }
+
+            ui.add_space(12.0);
+            let settings = item(
+                ui,
+                Icon::Glyph("⚙"),
+                "Settings",
+                None,
+                current == Location::Settings,
+                accent,
+            );
+            if settings.clicked() {
+                actions.push(Action::OpenInNewTab(Location::Settings, true));
+            }
+        });
+    app.actions.extend(actions);
+}
+
+fn label_for(path: &Path) -> String {
+    let name = display_name(path);
+    if name.is_empty() {
+        path.display().to_string()
+    } else {
+        name
+    }
+}
+
+fn section(ui: &mut Ui, title: &str) {
+    ui.add_space(10.0);
+    ui.label(RichText::new(title.to_uppercase()).small().strong().weak());
+    ui.add_space(2.0);
+}
+
+/// A full-width sidebar row with optional usage bar (for drives).
+fn item(
+    ui: &mut Ui,
+    icon: Icon<'_>,
+    label: &str,
+    usage: Option<f32>,
+    selected: bool,
+    accent: Color32,
+) -> egui::Response {
+    let height = if usage.is_some() { 38.0 } else { 28.0 };
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
+    let v = ui.visuals();
+    let fill = if selected {
+        accent.gamma_multiply(if v.dark_mode { 0.3 } else { 0.18 })
+    } else if resp.hovered() {
+        v.widgets.hovered.weak_bg_fill
+    } else {
+        Color32::TRANSPARENT
+    };
+    ui.painter().rect_filled(rect, CornerRadius::same(6), fill);
+    if selected {
+        let bar = egui::Rect::from_min_size(
+            rect.left_top() + vec2(0.0, 6.0),
+            vec2(3.0, rect.height() - 12.0),
+        );
+        ui.painter().rect_filled(bar, CornerRadius::same(2), accent);
+    }
+    let top = if usage.is_some() {
+        rect.top() + 14.0
+    } else {
+        rect.center().y
+    };
+    let painter = ui.painter().with_clip_rect(rect.shrink(2.0));
+    icons::paint_icon(
+        &painter,
+        icons::icon_rect(rect.left() + 12.0, top, 16.0),
+        icon,
+        v.text_color(),
+        accent,
+    );
+    painter.text(
+        egui::pos2(rect.left() + 34.0, top),
+        Align2::LEFT_CENTER,
+        label,
+        FontId::proportional(13.5),
+        v.text_color(),
+    );
+    if let Some(frac) = usage {
+        let bar = egui::Rect::from_min_size(
+            egui::pos2(rect.left() + 34.0, rect.bottom() - 10.0),
+            vec2(rect.width() - 46.0, 4.0),
+        );
+        ui.painter()
+            .rect_filled(bar, CornerRadius::same(2), v.widgets.inactive.bg_fill);
+        let color = if frac > 0.9 {
+            Color32::from_rgb(0xe5, 0x48, 0x4d)
+        } else {
+            accent
+        };
+        let mut used = bar;
+        used.set_width(bar.width() * frac.clamp(0.0, 1.0));
+        ui.painter().rect_filled(used, CornerRadius::same(2), color);
+    }
+    resp
+}
+
+fn highlight_drop(ui: &Ui, resp: &egui::Response, hovering: bool, accent: Color32) {
+    if hovering {
+        ui.painter().rect_stroke(
+            resp.rect,
+            CornerRadius::same(6),
+            Stroke::new(1.5, accent),
+            egui::StrokeKind::Inside,
+        );
+    }
+}

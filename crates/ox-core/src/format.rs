@@ -1,0 +1,87 @@
+//! Human readable formatting helpers.
+
+use std::time::{Duration, SystemTime};
+
+const UNITS: [&str; 6] = ["B", "KB", "MB", "GB", "TB", "PB"];
+
+/// Format a byte count like Explorer does (`1.4 MB`).
+pub fn size(bytes: u64) -> String {
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if value >= 100.0 {
+        format!("{value:.0} {}", UNITS[unit])
+    } else if value >= 10.0 {
+        format!("{value:.1} {}", UNITS[unit])
+    } else {
+        format!("{value:.2} {}", UNITS[unit])
+    }
+}
+
+/// `1 file`, `3 files`. `noun` is the singular; an "s" is appended for the plural.
+pub fn count(n: impl Into<u64>, noun: &str) -> String {
+    let n = n.into();
+    if n == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{n} {noun}s")
+    }
+}
+
+/// Format a transfer rate in bytes per second.
+pub fn rate(bytes_per_sec: f64) -> String {
+    format!("{}/s", size(bytes_per_sec.max(0.0) as u64))
+}
+
+/// Format a duration as `1h 02m`, `3m 05s` or `12s`.
+pub fn duration(d: Duration) -> String {
+    let secs = d.as_secs();
+    if secs >= 3600 {
+        format!("{}h {:02}m", secs / 3600, (secs % 3600) / 60)
+    } else if secs >= 60 {
+        format!("{}m {:02}s", secs / 60, secs % 60)
+    } else {
+        format!("{secs}s")
+    }
+}
+
+/// Format a timestamp in local time using a `chrono` format string.
+pub fn time(t: SystemTime, fmt: &str) -> String {
+    let dt: chrono::DateTime<chrono::Local> = t.into();
+    dt.format(fmt).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sizes() {
+        assert_eq!(size(0), "0 B");
+        assert_eq!(size(1023), "1023 B");
+        assert_eq!(size(1024), "1.00 KB");
+        assert_eq!(size(1536), "1.50 KB");
+        assert_eq!(size(15 * 1024 * 1024), "15.0 MB");
+        assert_eq!(size(500 * 1024 * 1024 * 1024), "500 GB");
+    }
+
+    #[test]
+    fn counts() {
+        assert_eq!(count(1u64, "file"), "1 file");
+        assert_eq!(count(0u64, "file"), "0 files");
+        assert_eq!(count(12u64, "item"), "12 items");
+    }
+
+    #[test]
+    fn durations() {
+        assert_eq!(duration(Duration::from_secs(5)), "5s");
+        assert_eq!(duration(Duration::from_secs(125)), "2m 05s");
+        assert_eq!(duration(Duration::from_secs(3720)), "1h 02m");
+    }
+}

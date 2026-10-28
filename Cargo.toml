@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = ["crates/ox-core", "crates/ox-app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/Flory-1/oxplorer"
+
+[workspace.dependencies]
+ox-core = { path = "crates/ox-core" }
+crossbeam-channel = "0.5"
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+dirs = "7"
+chrono = "0.4"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
