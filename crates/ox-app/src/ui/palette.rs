@@ -2,7 +2,9 @@
 
 use egui::{Context, Id, Key, RichText};
 use ox_core::entry::display_name;
+use ox_core::format;
 use ox_core::settings::{Theme, ViewMode};
+use ox_core::tags::TagColor;
 
 use crate::app::{Action, OxApp, TabAction};
 use crate::tabs::Location;
@@ -168,6 +170,24 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             "Properties of selection",
             "Alt+Enter",
             act(move || Action::Properties(s3)),
+        );
+        for color in TagColor::ALL {
+            let sel = selection.clone();
+            cmd(
+                "🏷",
+                &format!("Tag selection: {}", app.tags.label(color)),
+                "",
+                act(move || Action::ToggleTag(sel, color)),
+            );
+        }
+    }
+    let counts = app.tags.counts();
+    for color in TagColor::ALL.into_iter().filter(|c| counts[c.index()] > 0) {
+        cmd(
+            "🏷",
+            &format!("Show items tagged {}", app.tags.label(color)),
+            &format::count(counts[color.index()] as u64, "item"),
+            act(move || Action::Navigate(Location::Tagged(color))),
         );
     }
 

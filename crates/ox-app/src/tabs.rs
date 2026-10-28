@@ -9,6 +9,7 @@ use ox_core::entry::{self, FileEntry, SortKey, SortOrder};
 use ox_core::recycle::BinListing;
 use ox_core::search::{Query, SearchHandle};
 use ox_core::settings::{Settings, ViewMode};
+use ox_core::tags::TagColor;
 use serde::{Deserialize, Serialize};
 
 pub type TabId = u64;
@@ -27,6 +28,8 @@ pub enum Location {
     },
     Settings,
     RecycleBin,
+    /// Everything with this colour tag, wherever it is.
+    Tagged(TagColor),
 }
 
 impl Location {
@@ -37,6 +40,7 @@ impl Location {
             Location::Search { query, .. } => format!("Search: {query}"),
             Location::Settings => "Settings".into(),
             Location::RecycleBin => "Recycle Bin".into(),
+            Location::Tagged(c) => c.name().into(),
         }
     }
 
@@ -48,6 +52,7 @@ impl Location {
             Location::Search { .. } => "🔍",
             Location::Settings => "⚙",
             Location::RecycleBin => "🗑",
+            Location::Tagged(_) => "🏷",
         }
     }
 
@@ -62,7 +67,10 @@ impl Location {
     pub fn shows_files(&self) -> bool {
         matches!(
             self,
-            Location::Folder(_) | Location::Search { .. } | Location::RecycleBin
+            Location::Folder(_)
+                | Location::Search { .. }
+                | Location::RecycleBin
+                | Location::Tagged(_)
         )
     }
 
@@ -84,6 +92,17 @@ impl Listing {
             entries: entry::list_dir(path, show_hidden)?,
             bin: BinListing::default(),
         })
+    }
+
+    /// The items in `paths` that still exist.
+    pub fn items(paths: &[PathBuf]) -> Self {
+        Self {
+            entries: paths
+                .iter()
+                .filter_map(|p| FileEntry::from_path(p).ok())
+                .collect(),
+            bin: BinListing::default(),
+        }
     }
 
     pub fn recycle_bin() -> Result<Self, String> {
@@ -119,6 +138,8 @@ pub struct FolderView {
     pub scroll_to: Option<usize>,
     /// After a reload, select this path (e.g. a freshly created folder).
     pub select_after_load: Option<PathBuf>,
+    /// Bumped whenever a new listing arrives.
+    pub version: u64,
 }
 
 impl FolderView {
@@ -627,7 +648,7 @@ impl Tabs {
             let hit = match (dir, t.location()) {
                 (None, _) => true,
                 (Some(d), Location::Folder(p)) => p == d,
-                (_, Location::RecycleBin) => true,
+                (_, Location::RecycleBin | Location::Tagged(_)) => true,
                 _ => false,
             };
             if hit {

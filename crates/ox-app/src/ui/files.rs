@@ -37,6 +37,9 @@ struct Ctx<'a> {
     icons: Option<&'a crate::icons::IconCache>,
     /// Trash items behind the entries when showing the Recycle Bin.
     bin: &'a BinListing,
+    tags: &'a ox_core::tags::TagStore,
+    /// Folder sizes for the Size column (`None` when they are off).
+    sizes: Option<&'a ox_core::dirsize::FolderSizes>,
     /// Root of the current search; result folders are shown relative to it.
     search_root: Option<PathBuf>,
     folder: Option<PathBuf>,
@@ -67,10 +70,17 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         row_h: crate::theme::row_height(&app.settings),
         accent: crate::theme::accent(&app.settings),
         selection_fill: crate::theme::selection_fill(&app.settings, dark),
-        is_search: matches!(app.tabs.active().location(), Location::Search { .. }),
+        is_search: matches!(
+            app.tabs.active().location(),
+            Location::Search { .. } | Location::Tagged(_)
+        ),
+        tags: &app.tags,
         is_bin: app.tabs.active().location().is_bin(),
         icons: app.settings.appearance.system_icons.then_some(&app.icons),
         bin: &bin,
+        sizes: (app.settings.browsing.folder_sizes
+            && matches!(app.tabs.active().location(), Location::Folder(_)))
+        .then_some(&app.folder_sizes),
         search_root: match app.tabs.active().location() {
             Location::Search { root, .. } => root.clone(),
             _ => None,
@@ -134,6 +144,15 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             ui.put(
                 Rect::from_center_size(bg_rect.center(), vec2(40.0, 40.0)),
                 egui::Spinner::new().size(28.0),
+            );
+        } else if let Location::Tagged(c) = tab.location() {
+            centered_message(
+                ui,
+                "🏷",
+                &format!(
+                    "Nothing is tagged \"{}\" yet.\nRight-click files or folders → Tags.",
+                    cx.tags.label(*c)
+                ),
             );
         } else if cx.is_search {
             centered_message(ui, "🔍", "No results.");
@@ -437,13 +456,17 @@ fn paint_row(
     } else {
         e.display_name(cx.show_ext).to_owned()
     };
-    p.text(
+    let name_rect = p.text(
         egui::pos2(x + 28.0, y),
         Align2::LEFT_CENTER,
         name,
         FontId::proportional(13.5),
         text,
     );
+    for (i, &tag) in cx.tags.tags(&e.path).iter().enumerate() {
+        let c = egui::pos2(name_rect.right() + 10.0 + i as f32 * 10.0, y);
+        p.circle_filled(c, 4.0, fade(super::tag_color(tag)));
+    }
     x += name_w;
 
     let col = |x: f32, w: f32, s: String, align_right: bool| {
@@ -504,16 +527,15 @@ fn paint_row(
     x += DATE_W;
     col(x, TYPE_W, e.type_label(), false);
     x += TYPE_W;
-    col(
-        x,
-        SIZE_W,
-        if e.is_dir {
-            String::new()
-        } else {
-            format::size(e.size)
+    let size = match (e.is_dir, cx.sizes) {
+        (false, _) => format::size(e.size),
+        (true, Some(sizes)) if !e.is_symlink => match sizes.get(&e.path) {
+            Some(s) => format::size(s.bytes),
+            None => "…".into(),
         },
-        true,
-    );
+        (true, _) => String::new(),
+    };
+    col(x, SIZE_W, size, true);
 }
 
 fn grid(ui: &mut Ui, view: &mut FolderView, tab_id: u64, cx: &Ctx<'_>, actions: &mut Vec<Action>) {
@@ -602,6 +624,19 @@ fn paint_tile(
     );
     let texture = cx.icons.and_then(|c| c.texture(e, cx.is_bin));
     icons::paint_entry(ui.painter(), icon_rect, e, dim, texture);
+    // Tag dots in the top-right corner of the icon.
+    for (i, &tag) in cx.tags.tags(&e.path).iter().enumerate() {
+        let c = egui::pos2(
+            icon_rect.right() - 2.0 - i as f32 * 9.0,
+            icon_rect.top() + 6.0,
+        );
+        ui.painter().circle(
+            c,
+            4.5,
+            fade(super::tag_color(tag)),
+            Stroke::new(1.5, v.panel_fill),
+        );
+    }
     let mut job = LayoutJob::single_section(
         e.display_name(cx.show_ext).to_owned(),
         TextFormat::simple(FontId::proportional(12.5), fade(v.text_color())),
@@ -726,6 +761,7 @@ fn item_context_menu(
         }
         let target = MenuTarget {
             selection: &selection,
+            tags: cx.tags,
             single_dir,
             pinned: cx.favorites.contains(&e.path),
             can_paste: cx.can_paste || e.is_dir,

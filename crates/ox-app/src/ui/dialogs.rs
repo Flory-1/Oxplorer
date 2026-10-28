@@ -165,6 +165,12 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
                                     "Renamed {}",
                                     format::count(n as u64, "item")
                                 )));
+                                actions.push(Action::PathsMoved(
+                                    plan.iter()
+                                        .filter(|p| p.changes())
+                                        .map(|p| (p.from.clone(), p.to.clone()))
+                                        .collect(),
+                                ));
                                 app.tabs.mark_stale(None);
                                 keep = false;
                             }
@@ -221,6 +227,10 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
                             match fsops::rename(path, text.trim()) {
                                 Ok(new_path) => {
                                     keep = false;
+                                    actions.push(Action::PathsMoved(vec![(
+                                        path.clone(),
+                                        new_path.clone(),
+                                    )]));
                                     let dir = new_path.parent().map(|p| p.to_path_buf());
                                     let tab = app.tabs.active_mut();
                                     tab.view.select_after_load = Some(new_path);

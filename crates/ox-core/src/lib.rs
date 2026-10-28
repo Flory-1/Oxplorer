@@ -4,6 +4,7 @@
 //! tested (and reused by a future CLI or alternative front-end).
 
 pub mod clipboard;
+pub mod dirsize;
 pub mod disk;
 pub mod entry;
 pub mod format;
@@ -17,6 +18,7 @@ pub mod rename;
 pub mod search;
 pub mod settings;
 pub mod shell;
+pub mod tags;
 pub mod transfer;
 pub mod watcher;
 

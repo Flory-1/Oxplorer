@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use egui::{Align2, Color32, FontId, Id, LayerId, Order, Response, RichText, Ui};
 use ox_core::entry::display_name;
 use ox_core::format;
+use ox_core::tags::{TagColor, TagStore};
 use ox_core::transfer::TransferKind;
 
 use crate::app::{Action, OxApp};
@@ -75,9 +76,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         match app.tabs.active().location().clone() {
             Location::Home => home::show(app, ui),
             Location::Settings => settings_page::show(app, ui),
-            Location::Folder(_) | Location::Search { .. } | Location::RecycleBin => {
-                files::show(app, ui)
-            }
+            Location::Folder(_)
+            | Location::Search { .. }
+            | Location::RecycleBin
+            | Location::Tagged(_) => files::show(app, ui),
         }
     });
 
@@ -96,7 +98,8 @@ fn status_bar(app: &mut OxApp, ui: &mut Ui) {
             let selected = tab.view.selected_entries();
             if !selected.is_empty() {
                 ui.separator();
-                let bytes: u64 = selected.iter().filter(|e| !e.is_dir).map(|e| e.size).sum();
+                // Folders count once their size is known (see `poll_folder_sizes`).
+                let bytes: u64 = selected.iter().map(|e| e.size).sum();
                 if bytes > 0 {
                     ui.label(format!(
                         "{} selected · {}",
@@ -192,6 +195,7 @@ pub fn drop_target(actions: &mut Vec<Action>, response: &Response, dest: &Path) 
 /// Context information for the item context menu.
 pub struct MenuTarget<'a> {
     pub selection: &'a [PathBuf],
+    pub tags: &'a TagStore,
     pub single_dir: Option<&'a Path>,
     pub pinned: bool,
     pub can_paste: bool,
@@ -216,6 +220,28 @@ pub fn quick_destinations(app: &OxApp) -> Vec<(String, PathBuf)> {
         }
     }
     out
+}
+
+pub fn tag_color(c: TagColor) -> Color32 {
+    let [r, g, b] = c.rgb();
+    Color32::from_rgb(r, g, b)
+}
+
+/// Tick a colour to tag the selection, again to remove the tag.
+pub fn tag_menu(ui: &mut Ui, tags: &TagStore, sel: &[PathBuf], actions: &mut Vec<Action>) {
+    for color in TagColor::ALL {
+        let all = sel.iter().all(|p| tags.has(p, color));
+        let label = RichText::new(format!("●  {}", tags.label(color))).color(tag_color(color));
+        if ui.add(egui::Button::selectable(all, label)).clicked() {
+            actions.push(Action::ToggleTag(sel.to_vec(), color));
+        }
+    }
+    if sel.iter().any(|p| !tags.tags(p).is_empty()) {
+        ui.separator();
+        if ui.button("✖ Remove all tags").clicked() {
+            actions.push(Action::ClearTags(sel.to_vec()));
+        }
+    }
 }
 
 pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
@@ -312,6 +338,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         actions.push(Action::Delete(sel.clone(), true));
     }
     ui.separator();
+    ui.menu_button("🏷 Tags", |ui| tag_menu(ui, t.tags, &sel, actions));
     if let Some(dir) = t.single_dir {
         if t.pinned {
             if ui.button("☆ Unpin from Favorites").clicked() {
