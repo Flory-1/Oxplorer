@@ -22,6 +22,7 @@ pub mod search;
 pub mod settings;
 pub mod shell;
 pub mod tags;
+pub mod themes;
 pub mod transfer;
 pub mod watcher;
 

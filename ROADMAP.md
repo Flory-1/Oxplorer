@@ -125,7 +125,7 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 
 ## Phase 6 — Polish & 1.0 ⏳
 
-- ⏳ Themes and theme import/export
+- ✅ Themes and theme import/export: a colour theme per mode (6 built in), colour editor, themes as shareable `.toml` files (export, *Use as theme*)
 - ⏳ Localisation (English, German, …)
 - ⏳ Accessibility pass (keyboard-only use)
 - ✅ In-app **Help** page (F1, or Help at the bottom of the sidebar): getting started, features, search syntax, the keyboard shortcuts in use, questions, and a topic filter

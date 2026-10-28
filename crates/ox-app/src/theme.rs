@@ -2,6 +2,7 @@
 
 use egui::{vec2, Color32, Context, CornerRadius, Stroke, Theme, ThemePreference};
 use ox_core::settings::{self, Settings};
+use ox_core::themes::{self, ColorTheme, Rgb};
 
 pub fn accent(settings: &Settings) -> Color32 {
     let [r, g, b] = settings.appearance.accent;
@@ -21,7 +22,26 @@ pub fn row_height(settings: &Settings) -> f32 {
     }
 }
 
-pub fn apply(ctx: &Context, settings: &Settings) {
+fn color(c: Rgb) -> Color32 {
+    let [r, g, b] = c.0;
+    Color32::from_rgb(r, g, b)
+}
+
+/// The scheme called `name` (or the built-in default for the mode).
+pub fn scheme<'a>(all: &'a [ColorTheme], name: &str, dark: bool) -> &'a ColorTheme {
+    let default = if dark {
+        themes::DEFAULT_DARK
+    } else {
+        themes::DEFAULT_LIGHT
+    };
+    all.iter()
+        .find(|t| t.name == name && t.dark == dark)
+        .or_else(|| all.iter().find(|t| t.name == default))
+        .or_else(|| all.iter().find(|t| t.dark == dark))
+        .expect("the built-in themes exist")
+}
+
+pub fn apply(ctx: &Context, settings: &Settings, all: &[ColorTheme]) {
     ctx.set_theme(match settings.appearance.theme {
         settings::Theme::System => ThemePreference::System,
         settings::Theme::Light => ThemePreference::Light,
@@ -34,6 +54,46 @@ pub fn apply(ctx: &Context, settings: &Settings) {
         ctx.style_mut_of(theme, |style| {
             let dark = theme == Theme::Dark;
             let v = &mut style.visuals;
+            let name = if dark {
+                &settings.appearance.dark_theme
+            } else {
+                &settings.appearance.light_theme
+            };
+            let t = scheme(all, name, dark);
+            // Start from egui's look for the mode, so switching schemes
+            // doesn't keep colours of the previous one.
+            let base = if dark {
+                egui::Visuals::dark()
+            } else {
+                egui::Visuals::light()
+            };
+            v.widgets = base.widgets;
+            v.window_stroke = base.window_stroke;
+            v.override_text_color = None;
+            v.panel_fill = color(t.panel);
+            v.window_fill = color(t.window);
+            v.extreme_bg_color = color(t.background);
+            v.text_edit_bg_color = None;
+            v.faint_bg_color = color(t.faint);
+            if let Some(text) = t.text.map(color) {
+                // Buttons and lines are mixed from the panel and text colours.
+                let panel = color(t.panel);
+                let mix = |amount: f32| panel.lerp_to_gamma(text, amount);
+                v.widgets.noninteractive.bg_stroke.color = mix(0.18);
+                v.widgets.noninteractive.fg_stroke.color = text;
+                for (w, amount) in [
+                    (&mut v.widgets.inactive, 0.10),
+                    (&mut v.widgets.hovered, 0.18),
+                    (&mut v.widgets.active, 0.26),
+                    (&mut v.widgets.open, 0.14),
+                ] {
+                    w.bg_fill = mix(amount);
+                    w.weak_bg_fill = mix(amount);
+                    w.fg_stroke.color = text;
+                }
+                v.window_stroke.color = mix(0.2);
+            }
+
             v.selection.bg_fill = accent.gamma_multiply(if dark { 0.6 } else { 0.35 });
             v.selection.stroke =
                 Stroke::new(1.0, if dark { Color32::WHITE } else { Color32::BLACK });
@@ -48,17 +108,6 @@ pub fn apply(ctx: &Context, settings: &Settings) {
                 &mut v.widgets.open,
             ] {
                 w.corner_radius = CornerRadius::same(6);
-            }
-            if dark {
-                v.panel_fill = Color32::from_rgb(0x20, 0x21, 0x24);
-                v.window_fill = Color32::from_rgb(0x2a, 0x2b, 0x2f);
-                v.extreme_bg_color = Color32::from_rgb(0x17, 0x18, 0x1a);
-                v.faint_bg_color = Color32::from_rgb(0x26, 0x27, 0x2b);
-            } else {
-                v.panel_fill = Color32::from_rgb(0xf3, 0xf4, 0xf6);
-                v.window_fill = Color32::from_rgb(0xff, 0xff, 0xff);
-                v.extreme_bg_color = Color32::from_rgb(0xff, 0xff, 0xff);
-                v.faint_bg_color = Color32::from_rgb(0xec, 0xee, 0xf1);
             }
             style.spacing.item_spacing = vec2(6.0, 4.0);
             style.spacing.button_padding = vec2(8.0, 4.0);

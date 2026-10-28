@@ -120,7 +120,10 @@ the search syntax, your current keyboard shortcuts and common questions, with a 
 find a topic.
 
 **Settings page**
-- Appearance (system/light/dark theme, accent colour, UI scale, compact rows)
+- Appearance: system/light/dark mode, a **colour theme** for each mode (Dark, Light, Nord, Dracula,
+  Solarized Light, High contrast or your own), accent colour, UI scale, compact rows.
+  Change any theme's colours; **export** a theme as a small `.toml` file to share it, and
+  right-click a theme file → *Use as theme* to install one.
 - Browsing, startup, sidebar, copy engine and search options, plus a list of keyboard shortcuts
 - Saved as TOML in `%APPDATA%\Oxplorer\`
 
@@ -177,6 +180,7 @@ crates/
     git.rs            Git status via the git command line
     pdf.rs            PDF first-page previews (Windows.Data.Pdf)
     tags.rs           colour tags (stored in tags.toml)
+    themes.rs         colour themes (built-in + .toml files)
     disk.rs           volume ids, HDD/SSD detection
     entry.rs          directory listing, file kinds, sorting
     clipboard.rs      file clipboard, shared with Windows Explorer
@@ -227,8 +231,8 @@ Menus, tooltips and the command palette always show the keys in use.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md). Phase 5 is done. Next up: Phase 6 (themes,
-localisation and accessibility) and the 1.0 release.
+See [ROADMAP.md](ROADMAP.md). Phase 5 is done. Next up: Phase 6
+(localisation and accessibility) and the 1.0 release.
 
 ## License
 

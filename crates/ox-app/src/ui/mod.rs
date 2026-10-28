@@ -601,6 +601,14 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     if ui.button("🗜 Compress to ZIP").clicked() {
         actions.push(Action::Compress(sel.clone()));
     }
+    let theme_file = sel.len() == 1
+        && sel[0]
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("toml"))
+        && ox_core::themes::read(&sel[0]).is_ok();
+    if theme_file && ui.button("🎨 Use as theme").clicked() {
+        actions.push(Action::InstallTheme(sel[0].clone()));
+    }
     if let Some(dir) = t.single_dir {
         if t.pinned {
             if ui.button("☆ Unpin from Favorites").clicked() {
