@@ -461,6 +461,9 @@ impl OxApp {
             if !job.state().is_finished() || !self.seen_jobs.insert(job.id) {
                 continue;
             }
+            if let Err(e) = ox_core::transfer::history::append(&job) {
+                eprintln!("could not write transfer log: {e}");
+            }
             self.tabs.mark_stale(Some(&job.destination));
             for src in &job.sources {
                 if let Some(parent) = src.parent() {
@@ -1042,12 +1045,12 @@ impl OxApp {
         if sources.is_empty() {
             return;
         }
-        self.engine.submit(TransferRequest {
+        self.engine.submit(TransferRequest::new(
             kind,
             sources,
-            destination: dest,
-            conflict: self.settings.transfer.default_conflict,
-        });
+            dest,
+            self.settings.transfer.default_conflict,
+        ));
         self.ui.show_transfers = true;
     }
 

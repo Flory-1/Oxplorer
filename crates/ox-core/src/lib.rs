@@ -4,6 +4,7 @@
 //! tested (and reused by a future CLI or alternative front-end).
 
 pub mod clipboard;
+pub mod disk;
 pub mod entry;
 pub mod format;
 pub mod fsops;

@@ -300,9 +300,17 @@ fn transfer(ui: &mut Ui, s: &mut Settings) {
     row(
         ui,
         "Parallel file copies",
-        "More helps with many small files on SSDs; use 1–2 for HDDs.",
+        "Auto: one file at a time on HDDs, 8 on SSDs. More helps with many small files on SSDs.",
         |ui| {
-            ui.add(egui::Slider::new(&mut t.workers, 1..=32));
+            ui.add(
+                egui::Slider::new(&mut t.workers, 0..=32).custom_formatter(|v, _| {
+                    if v == 0.0 {
+                        "Auto".into()
+                    } else {
+                        format!("{v:.0}")
+                    }
+                }),
+            );
         },
     );
     row(
@@ -311,6 +319,36 @@ fn transfer(ui: &mut Ui, s: &mut Settings) {
         "How many copy jobs run at once; the rest wait in a queue.",
         |ui| {
             ui.add(egui::Slider::new(&mut t.max_concurrent_jobs, 1..=8));
+        },
+    );
+    toggle(
+        ui,
+        &mut t.per_disk_queue,
+        "One job per drive at a time",
+        "Copies on the same drive wait for each other; different drives still run in parallel.",
+    );
+    toggle(
+        ui,
+        &mut t.verify,
+        "Verify copied files",
+        "Compare every copy with its original (xxh3). Slower, but moves only delete originals that were copied correctly.",
+    );
+    row(
+        ui,
+        "Speed limit",
+        "Per transfer. 0 = unlimited. Useful to keep the PC responsive during big copies.",
+        |ui| {
+            ui.add(
+                egui::DragValue::new(&mut t.speed_limit_mib)
+                    .range(0..=10_000)
+                    .custom_formatter(|v, _| {
+                        if v == 0.0 {
+                            "Unlimited".into()
+                        } else {
+                            format!("{v:.0} MiB/s")
+                        }
+                    }),
+            );
         },
     );
     row(ui, "Buffer size", "Used by the portable copy loop.", |ui| {
@@ -363,6 +401,20 @@ fn transfer(ui: &mut Ui, s: &mut Settings) {
         &mut t.drag_moves_on_same_drive,
         "Dragging moves on the same drive",
         "Like Explorer. Hold Ctrl to copy, Shift to move.",
+    );
+    row(
+        ui,
+        "Transfer history",
+        "Every finished copy and move, with errors.",
+        |ui| {
+            let log = ox_core::transfer::history::log_path();
+            if ui
+                .add_enabled(log.exists(), egui::Button::new("📜 Open log"))
+                .clicked()
+            {
+                let _ = ox_core::fsops::open_default(&log);
+            }
+        },
     );
 }
 

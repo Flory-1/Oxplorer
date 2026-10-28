@@ -110,12 +110,18 @@ pub struct Startup {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Transfer {
-    /// Files copied in parallel within one job.
+    /// Files copied in parallel within one job. `0` = automatic (by drive type).
     pub workers: usize,
     pub buffer_kib: usize,
     /// Files at least this large use unbuffered I/O.
     pub unbuffered_threshold_mib: u64,
     pub max_concurrent_jobs: usize,
+    /// Run jobs on the same drive one after another.
+    pub per_disk_queue: bool,
+    /// Check every copied file against the original.
+    pub verify: bool,
+    /// Per-transfer speed limit in MiB/s, `0` = unlimited.
+    pub speed_limit_mib: u32,
     pub default_conflict: ConflictPolicy,
     pub preserve_timestamps: bool,
     /// Share copied/cut files with Windows Explorer and other apps.
@@ -132,6 +138,9 @@ impl Default for Transfer {
             buffer_kib: cfg.buffer_size / 1024,
             unbuffered_threshold_mib: cfg.unbuffered_threshold / (1024 * 1024),
             max_concurrent_jobs: cfg.max_concurrent_jobs,
+            per_disk_queue: cfg.per_disk_queue,
+            verify: cfg.verify,
+            speed_limit_mib: 0,
             default_conflict: ConflictPolicy::Ask,
             preserve_timestamps: cfg.preserve_timestamps,
             use_system_clipboard: true,
@@ -143,11 +152,14 @@ impl Default for Transfer {
 impl Transfer {
     pub fn engine_config(&self) -> EngineConfig {
         EngineConfig {
-            workers: self.workers.max(1),
+            workers: self.workers,
             buffer_size: self.buffer_kib.max(64) * 1024,
             unbuffered_threshold: self.unbuffered_threshold_mib.max(1) * 1024 * 1024,
             max_concurrent_jobs: self.max_concurrent_jobs.max(1),
+            per_disk_queue: self.per_disk_queue,
             preserve_timestamps: self.preserve_timestamps,
+            verify: self.verify,
+            speed_limit: u64::from(self.speed_limit_mib) * 1024 * 1024,
         }
     }
 }

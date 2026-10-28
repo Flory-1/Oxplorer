@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 use egui::{Color32, RichText, Ui};
 use ox_core::entry::display_name;
 use ox_core::format;
-use ox_core::transfer::{ConflictPolicy, Job, JobState};
+use ox_core::transfer::{history, ConflictPolicy, Job, JobState, TransferRequest};
 
 use crate::app::OxApp;
 
@@ -13,11 +13,24 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let accent = crate::theme::accent(&app.settings);
     let jobs = app.engine.jobs();
     let mut remove = Vec::new();
+    let mut retries = Vec::new();
     ui.horizontal(|ui| {
         ui.label(RichText::new("Transfers").strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.small_button("✖").on_hover_text("Hide").clicked() {
                 app.ui.show_transfers = false;
+            }
+            if ui
+                .small_button("📜 History")
+                .on_hover_text("Open the log of finished transfers")
+                .clicked()
+            {
+                let log = history::log_path();
+                if !log.exists() {
+                    app.toast("No transfers have finished yet.");
+                } else if let Err(e) = ox_core::fsops::open_default(&log) {
+                    app.toast(format!("Couldn't open the transfer log: {e}"));
+                }
             }
             if jobs.iter().any(|j| j.state().is_finished())
                 && ui.small_button("Clear finished").clicked()
@@ -31,29 +44,38 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         .auto_shrink([false, false])
         .show(ui, |ui| {
             for job in jobs.iter().rev() {
-                job_row(ui, job, accent, &mut remove);
+                job_row(ui, job, accent, &mut remove, &mut retries);
                 ui.add_space(6.0);
             }
         });
     for id in remove {
         app.engine.remove(id);
     }
+    for req in retries {
+        app.engine.submit(req);
+    }
 }
 
-fn job_row(ui: &mut Ui, job: &Job, accent: Color32, remove: &mut Vec<u64>) {
+fn job_row(
+    ui: &mut Ui,
+    job: &Job,
+    accent: Color32,
+    remove: &mut Vec<u64>,
+    retries: &mut Vec<TransferRequest>,
+) {
     let state = job.state();
     let files = job.total_files.load(Ordering::Relaxed);
     let done_files = job.done_files.load(Ordering::Relaxed);
     let dest = display_name(&job.destination);
     let title = match state {
         JobState::Queued => format!(
-            "Waiting · {} {} to {dest}",
+            "Waiting for the drive · {} {} to {dest}",
             job.kind.verb(),
-            format::count(job.sources.len() as u64, "item")
+            format::count(job.item_count() as u64, "item")
         ),
         JobState::Scanning => format!(
             "Preparing · {} to {dest} · {} found",
-            format::count(job.sources.len() as u64, "item"),
+            format::count(job.item_count() as u64, "item"),
             format::count(files, "file")
         ),
         JobState::AwaitingDecision => {
@@ -66,11 +88,17 @@ fn job_row(ui: &mut Ui, job: &Job, accent: Color32, remove: &mut Vec<u64>) {
                 format::count(files, "file")
             )
         }
-        JobState::Running => format!(
-            "{} {} to {dest}",
-            job.kind.verb(),
-            format::count(files, "file")
-        ),
+        JobState::Running => {
+            let mut t = format!(
+                "{} {} to {dest}",
+                job.kind.verb(),
+                format::count(files, "file")
+            );
+            if job.hdd.load(Ordering::Relaxed) {
+                t.push_str(" · one at a time (HDD)");
+            }
+            t
+        }
         JobState::Completed => format!(
             "✔ Done · {done_files} of {} to {dest} in {}",
             format::count(files, "file"),
@@ -181,7 +209,27 @@ fn job_row(ui: &mut Ui, job: &Job, accent: Color32, remove: &mut Vec<u64>) {
                 }
             }
 
+            let verified = job.verified_files.load(Ordering::Relaxed);
+            if verified > 0 {
+                ui.label(
+                    RichText::new(format!("✔ {} verified", format::count(verified, "file")))
+                        .small()
+                        .weak(),
+                );
+            }
             let errors = job.errors();
+            if state.is_finished() && !errors.is_empty() {
+                if let Some(req) = job.retry_request() {
+                    let n = req.pairs.len() as u64;
+                    if ui
+                        .button(format!("↻ Retry {}", format::count(n, "failed file")))
+                        .clicked()
+                    {
+                        retries.push(req);
+                        remove.push(job.id);
+                    }
+                }
+            }
             if !errors.is_empty() {
                 egui::CollapsingHeader::new(
                     RichText::new(format!("⚠ {}", format::count(errors.len() as u64, "error")))
