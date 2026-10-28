@@ -98,6 +98,9 @@ fn reset_section(s: &mut Settings, section: usize) {
         5 => s.search = d.search,
         _ => {}
     }
+    if section == 1 {
+        s.terminal = d.terminal;
+    }
 }
 
 /// One labelled row with an optional description.
@@ -257,6 +260,33 @@ fn browsing(ui: &mut Ui, s: &mut Settings) {
                 .weak(),
             );
         },
+    );
+
+    ui.add_space(14.0);
+    ui.label(RichText::new("Terminal panel").size(16.0).strong());
+    let t = &mut s.terminal;
+    let default_shell = if cfg!(windows) {
+        "powershell.exe -NoLogo"
+    } else {
+        "$SHELL"
+    };
+    row(
+        ui,
+        "Shell",
+        "Used the next time the terminal starts. Empty uses the default.",
+        |ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut t.shell)
+                    .hint_text(default_shell)
+                    .desired_width(220.0),
+            );
+        },
+    );
+    toggle(
+        ui,
+        &mut t.follow_folder,
+        "Follow the current folder",
+        "Change the terminal's folder whenever you open another folder.",
     );
 }
 

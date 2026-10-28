@@ -4,6 +4,7 @@ mod app;
 mod icons;
 mod shortcuts;
 mod tabs;
+mod terminal;
 mod theme;
 mod ui;
 

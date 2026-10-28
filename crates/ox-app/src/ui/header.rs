@@ -905,6 +905,16 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 if changed {
                     actions.push(Action::SettingsChanged);
                 }
+                let mut terminal = app.ui.show_terminal;
+                if ui
+                    .checkbox(
+                        &mut terminal,
+                        shortcuts::hint("Terminal panel", Command::ToggleTerminal),
+                    )
+                    .changed()
+                {
+                    actions.push(Action::ToggleTerminal);
+                }
                 let mut split = app.tabs.panes.is_some();
                 if ui
                     .checkbox(

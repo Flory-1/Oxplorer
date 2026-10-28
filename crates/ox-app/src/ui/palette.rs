@@ -259,6 +259,12 @@ fn entries(app: &OxApp) -> Vec<Entry> {
     }
 
     cmd(
+        "▭",
+        "Toggle terminal panel",
+        &shortcuts::label(Command::ToggleTerminal),
+        act(|| Action::ToggleTerminal),
+    );
+    cmd(
         "◫",
         "Toggle split view",
         &shortcuts::label(Command::ToggleSplit),

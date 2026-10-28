@@ -62,6 +62,19 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             .show(ui, |ui| sidebar::show(app, ui));
     }
 
+    if app.ui.show_terminal {
+        egui::Panel::bottom("terminal")
+            .resizable(true)
+            .default_size(240.0)
+            .min_size(90.0)
+            .frame(
+                egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(8, 4)),
+            )
+            .show(ui, |ui| terminal_panel(app, ui));
+    } else {
+        app.ui.terminal_focused = false;
+    }
+
     if app.settings.browsing.show_preview && app.tabs.active().location().shows_files() {
         egui::Panel::right("preview")
             .resizable(true)
@@ -84,6 +97,60 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     palette::show(app, ui.ctx());
     toasts(app, ui.ctx());
     drag_preview(ui.ctx());
+}
+
+/// Title row with the shell's buttons, then the terminal itself.
+fn terminal_panel(app: &mut OxApp, ui: &mut Ui) {
+    let mut actions = Vec::new();
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Terminal").strong());
+        if let Some(t) = &app.terminal {
+            if !t.title.is_empty() {
+                ui.label(RichText::new(&t.title).weak());
+            }
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .small_button("✖")
+                .on_hover_text(shortcuts::hint("Close", Command::ToggleTerminal))
+                .clicked()
+            {
+                actions.push(Action::ToggleTerminal);
+            }
+            let exited = app.terminal.as_ref().is_none_or(|t| t.exited);
+            if exited && ui.small_button("⟲ Restart").clicked() {
+                actions.push(Action::RestartTerminal);
+            }
+            if let Some(folder) = app.current_folder().filter(|_| !exited) {
+                if ui
+                    .small_button("📂 cd here")
+                    .on_hover_text(folder.display().to_string())
+                    .clicked()
+                {
+                    actions.push(Action::TerminalCd(folder));
+                }
+            }
+        });
+    });
+    match &mut app.terminal {
+        Some(t) => {
+            app.ui.terminal_focused = t.ui(ui);
+            if t.exited {
+                ui.painter().text(
+                    ui.min_rect().center_bottom() - egui::vec2(0.0, 16.0),
+                    Align2::CENTER_CENTER,
+                    "The shell has ended.",
+                    FontId::proportional(13.0),
+                    ui.visuals().weak_text_color(),
+                );
+            }
+        }
+        None => {
+            app.ui.terminal_focused = false;
+            ui.label(RichText::new("The shell couldn't be started.").weak());
+        }
+    }
+    app.actions.extend(actions);
 }
 
 /// The page of the active tab.

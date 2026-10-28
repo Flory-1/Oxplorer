@@ -34,6 +34,7 @@ pub enum Command {
     Rename,
     Properties,
     ShellMenu,
+    ToggleTerminal,
 }
 
 pub struct CommandInfo {
@@ -135,6 +136,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         "shell_menu",
         "Windows context menu",
         &["Shift+F10"],
+    ),
+    info(
+        Command::ToggleTerminal,
+        "terminal",
+        "Terminal panel",
+        &["Ctrl+Backtick"],
     ),
 ];
 

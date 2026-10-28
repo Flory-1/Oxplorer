@@ -104,6 +104,9 @@ Rust engine does the work and shows progress in a panel inside the window.
 - **Git status**: inside a Git repository a *Git* column shows what changed (M, A, D, R, ?, I).
   Folders show the most important change inside them, and the status bar shows the branch
   (`Git: main ↑2 · 3 changes`). Needs Git installed.
+- **Terminal panel** (Ctrl+`): a real terminal under the file view running PowerShell (or any
+  shell you set), with colours, scrollback and full-screen programs. *cd here* sends it to the
+  current folder, or let it follow the folder automatically (Settings → Browsing).
 - **Folder sizes** in the Size column, calculated in the background and cached. Sort by
   size to find what fills your disk.
 - **Colour tags**: right-click → Tags to mark files and folders. Tagged items get coloured
@@ -181,6 +184,7 @@ crates/
     app.rs            state + action dispatcher + keyboard shortcuts
     tabs.rs           tabs, tab groups, history, session restore
     shortcuts.rs      keyboard shortcuts: commands, defaults, the user's keys
+    terminal.rs       terminal panel (alacritty_terminal + egui)
     ui/               header (tabs, address, search, commands), sidebar,
                       home page, file view, preview pane, command palette,
                       settings page, transfers, dialogs
@@ -212,10 +216,11 @@ Menus, tooltips and the command palette always show the keys in use.
 | Ctrl+Shift+P / F1 | Command palette |
 | Alt+P | Preview pane |
 | Ctrl+\\ / F6 | Split view / switch pane |
+| Ctrl+` | Terminal panel |
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md). Next up: the built-in terminal panel, then Phase 6 polish with an
+See [ROADMAP.md](ROADMAP.md). Phase 5 is done except rar archives. Next up: Phase 6, then Phase 6 polish with an
 in-app Help page.
 
 ## License
