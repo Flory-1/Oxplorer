@@ -38,6 +38,8 @@ pub enum Action {
     Refresh,
     /// Windows' "Map network drive" (`true`) or "Disconnect" (`false`) dialog.
     NetworkDriveDialog(bool),
+    /// Open folders in Oxplorer instead of Explorer (or stop doing so).
+    SetDefaultFolderHandler(bool),
     /// Open a folder (navigate) or file (default app).
     Open(PathBuf),
     CopyItems(Vec<PathBuf>),
@@ -185,6 +187,8 @@ pub struct UiState {
     pub focus_search: bool,
     pub show_transfers: bool,
     pub settings_section: usize,
+    /// Whether folders open in Oxplorer (read from the registry when needed).
+    pub default_folder_handler: Option<bool>,
     pub palette: Option<crate::ui::palette::PaletteState>,
     /// The settings page is waiting for keys for this command.
     pub recording: Option<crate::shortcuts::Command>,
@@ -309,6 +313,7 @@ impl OxApp {
                 focus_search: false,
                 show_transfers: true,
                 settings_section: 0,
+                default_folder_handler: None,
                 palette: None,
                 recording: None,
                 show_terminal: false,
@@ -1312,6 +1317,17 @@ impl OxApp {
                 }
                 Err(e) => self.toast(format!("This isn't a theme file: {e}")),
             },
+            Action::SetDefaultFolderHandler(on) => {
+                match ox_core::default_app::set_enabled(on) {
+                    Ok(()) => self.toast(if on {
+                        "Folders now open in Oxplorer.".to_owned()
+                    } else {
+                        "Folders open in Explorer again.".to_owned()
+                    }),
+                    Err(e) => self.toast(format!("Couldn't change the default: {e}")),
+                }
+                self.ui.default_folder_handler = None;
+            }
             Action::NetworkDriveDialog(map) => {
                 if map {
                     ox_core::network::map_drive_dialog();

@@ -5,6 +5,7 @@
 
 pub mod archive;
 pub mod clipboard;
+pub mod default_app;
 pub mod dirsize;
 pub mod disk;
 pub mod entry;

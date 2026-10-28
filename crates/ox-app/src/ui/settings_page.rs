@@ -58,7 +58,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                             theme_editor(ui, app);
                         }
                         1 => browsing(ui, &mut app.settings),
-                        2 => startup(ui, &mut app.settings),
+                        2 => {
+                            startup(ui, &mut app.settings);
+                            default_folder_handler(ui, app);
+                        }
                         3 => sidebar(ui, &mut app.settings),
                         4 => transfer(ui, &mut app.settings),
                         5 => {
@@ -517,6 +520,27 @@ fn startup(ui: &mut Ui, s: &mut Settings) {
                 st.start_folder = (!text.is_empty()).then(|| text.into());
             }
         });
+    }
+}
+
+/// "Open folders in Oxplorer" (Windows). Lives in the registry, not settings.toml.
+fn default_folder_handler(ui: &mut Ui, app: &mut OxApp) {
+    if !ox_core::default_app::supported() {
+        return;
+    }
+    let mut on = *app
+        .ui
+        .default_folder_handler
+        .get_or_insert_with(ox_core::default_app::is_enabled);
+    let was = on;
+    toggle(
+        ui,
+        &mut on,
+        "Open folders in Oxplorer",
+        "Folders and drives opened anywhere else (desktop, other programs, Win+E) open in Oxplorer instead of Explorer. Turn off to go back to Explorer.",
+    );
+    if on != was {
+        app.push(Action::SetDefaultFolderHandler(on));
     }
 }
 

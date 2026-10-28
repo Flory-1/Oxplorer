@@ -13,10 +13,12 @@ use std::path::PathBuf;
 
 fn main() -> eframe::Result {
     // `oxplorer C:\some\folder` opens that folder in a new tab.
-    let open = std::env::args_os()
+    // Opened as the default folder handler, `"C:\"` arrives as `C:"`.
+    let open = std::env::args()
         .nth(1)
-        .map(PathBuf::from)
-        .filter(|p| p.is_dir());
+        .map(|a| PathBuf::from(ox_core::default_app::folder_argument(&a)))
+        .filter(|p| ox_core::network::is_dir(p));
+    ox_core::default_app::refresh();
 
     // Mica/Acrylic need a see-through window, which can only be chosen now.
     let backdrop = ox_core::shell::supported()
