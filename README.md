@@ -34,6 +34,16 @@ Rust engine does the work and shows progress in a panel inside the window.
 - **Show more options** (or Shift+F10) opens the real Explorer context menu, so
   entries from 7-Zip, VS Code, Git and other tools are there
 - Native Properties dialog and "Open with…"
+- **Thumbnails** of pictures, videos and PDFs in the grid view (the same ones Explorer shows)
+- **Drag files out** of Oxplorer into other programs (Explorer, mail, editors…)
+- **Network locations**: type `\\server` to see its shares, browse `\\server\share` like any
+  folder, mapped network drives under *This PC*, the servers you use under *Network*, and
+  *Map network drive…* from a drive's right-click menu or the command palette
+- **Mica or Acrylic** window backdrop on Windows 11 (Settings → Appearance), rounded corners
+  and a title bar that follows dark/light mode
+- **Open folders in Oxplorer** instead of Explorer (Settings → Startup): folders and drives
+  opened on the desktop or from other programs, and Win+E, open in Oxplorer. Turn it off to
+  go back to Explorer.
 - App icon, per-monitor DPI awareness and long-path support through the app manifest
 
 **Tabs and tab groups**
@@ -121,7 +131,8 @@ find a topic.
 
 **Settings page**
 - Appearance: system/light/dark mode, a **colour theme** for each mode (Dark, Light, Nord, Dracula,
-  Solarized Light, High contrast or your own), accent colour, UI scale, compact rows.
+  Solarized Light, High contrast or your own), accent colour, UI scale, compact rows,
+  thumbnails, window backdrop.
   Change any theme's colours; **export** a theme as a small `.toml` file to share it, and
   right-click a theme file → *Use as theme* to install one.
 - Browsing, startup, sidebar, copy engine and search options, plus a list of keyboard shortcuts
@@ -155,9 +166,20 @@ The binary is `target/release/oxplorer.exe`. To open a folder directly, pass its
 oxplorer.exe "C:\Users\me\Documents"
 ```
 
-CI builds a Windows binary on every push to `main`. Download it from the
+CI builds a Windows binary and installer on every push to `main`. Download them from the
 **Actions** tab, under the artifact `oxplorer-windows-x64`. Pushing a version
-tag (e.g. `v0.2.0`) publishes a portable zip on the **Releases** page.
+tag (e.g. `v0.2.0`) publishes on the **Releases** page:
+
+- `oxplorer-<version>-setup-x64.exe`: installer (per user, no admin rights needed), with
+  Start menu entry and the option to open folders in Oxplorer. Uninstalling gives folders
+  back to Explorer.
+- `oxplorer-<version>-windows-x64.zip`: portable version, just unzip and run
+- `oxplorer-<version>-winget.zip`: winget manifests for the release, ready to submit to
+  [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) (then
+  `winget install Flory-1.Oxplorer`)
+
+The installer is built with [Inno Setup](https://jrsoftware.org/isinfo.php) from
+`installer/oxplorer.iss` (`installer/build.ps1` builds it and the manifests).
 
 Run the tests:
 
@@ -184,7 +206,10 @@ crates/
     disk.rs           volume ids, HDD/SSD detection
     entry.rs          directory listing, file kinds, sorting
     clipboard.rs      file clipboard, shared with Windows Explorer
-    shell.rs          Windows Shell: icons, native context menu, Properties, Open with
+    shell.rs          Windows Shell: icons, thumbnails, native context menu, Properties,
+                      Open with, drag out, window backdrop
+    network.rs        \\server shares, mapped network drives
+    default_app.rs    "open folders in Oxplorer" (registry, HKCU)
     recycle.rs        Recycle Bin: list, restore, purge
     places.rs         favorites, recent items, known folders, drives
     settings.rs       settings (TOML)
@@ -195,10 +220,13 @@ crates/
     tabs.rs           tabs, tab groups, history, session restore
     shortcuts.rs      keyboard shortcuts: commands, defaults, the user's keys
     terminal.rs       terminal panel (alacritty_terminal + egui)
+    thumbs.rs         thumbnail cache for the grid view
     ui/               header (tabs, address, search, commands), sidebar,
                       home page, file view, preview pane, command palette,
                       settings page, transfers, dialogs
 ```
+
+installer/            Inno Setup script, winget manifest templates, build script
 
 The UI is [egui](https://github.com/emilk/egui) (immediate mode, GPU
 rendered). That keeps the app a single small native `.exe` with no web runtime.
