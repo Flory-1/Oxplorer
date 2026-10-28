@@ -92,6 +92,23 @@ pub fn thumbnail(path: &Path, size: u32) -> Option<Thumbnail> {
     }
 }
 
+/// Start a Windows drag & drop of `paths` into other programs, as when files
+/// are dragged out of Explorer. Blocks until they are dropped (or the drag is
+/// cancelled) and returns whether they were dropped somewhere. Call it on the
+/// UI thread while the mouse button is held. Does nothing on other platforms.
+pub fn drag_out(paths: &[PathBuf]) -> bool {
+    #[cfg(windows)]
+    {
+        // SAFETY: called on the window's (OLE) thread, see above.
+        unsafe { imp::drag_out(paths) }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = paths;
+        false
+    }
+}
+
 /// Is the Windows Shell available?
 pub fn supported() -> bool {
     cfg!(windows)
@@ -185,13 +202,19 @@ mod imp {
         BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
     };
     use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL};
+    use windows::Win32::System::Com::IDataObject;
     use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_APARTMENTTHREADED};
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::System::Ole::{
+        IDropSource, OleInitialize, DROPEFFECT_COPY, DROPEFFECT_LINK, DROPEFFECT_MOVE,
+        DROPEFFECT_NONE,
+    };
     use windows::Win32::UI::Controls::{IImageList, ILD_TRANSPARENT};
     use windows::Win32::UI::Shell::Common::ITEMIDLIST;
     use windows::Win32::UI::Shell::{
-        IContextMenu, IContextMenu2, IContextMenu3, IShellFolder, IShellItemImageFactory,
-        SHBindToParent, SHCreateItemFromParsingName, SHGetFileInfoW, SHGetImageList,
+        BHID_DataObject, IContextMenu, IContextMenu2, IContextMenu3, IShellFolder, IShellItemArray,
+        IShellItemImageFactory, SHBindToParent, SHCreateItemFromParsingName,
+        SHCreateShellItemArrayFromIDLists, SHDoDragDrop, SHGetFileInfoW, SHGetImageList,
         SHOpenWithDialog, SHParseDisplayName, ShellExecuteExW, CMF_EXPLORE, CMF_NORMAL,
         CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX, OAIF_ALLOW_REGISTRATION, OAIF_EXEC, OPENASINFO,
         SEE_MASK_INVOKEIDLIST, SHELLEXECUTEINFOW, SHFILEINFOW, SHGFI_SYSICONINDEX,
@@ -199,10 +222,10 @@ mod imp {
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu,
-        DispatchMessageW, GetCursorPos, GetIconInfo, PeekMessageW, PostMessageW, RegisterClassW,
-        SetForegroundWindow, TrackPopupMenuEx, TranslateMessage, HICON, ICONINFO, MSG, PM_REMOVE,
-        SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_DRAWITEM, WM_INITMENUPOPUP,
-        WM_MEASUREITEM, WM_MENUCHAR, WM_NULL, WNDCLASSW, WS_POPUP,
+        DispatchMessageW, GetCursorPos, GetForegroundWindow, GetIconInfo, PeekMessageW,
+        PostMessageW, RegisterClassW, SetForegroundWindow, TrackPopupMenuEx, TranslateMessage,
+        HICON, ICONINFO, MSG, PM_REMOVE, SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+        WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR, WM_NULL, WNDCLASSW, WS_POPUP,
     };
 
     const CMIC_MASK_UNICODE: u32 = 0x0000_4000;
@@ -576,6 +599,47 @@ mod imp {
                 );
             }
             let _ = DestroyMenu(hmenu);
+        }
+    }
+
+    // ---- drag out ------------------------------------------------------------------
+
+    pub(super) unsafe fn drag_out(paths: &[PathBuf]) -> bool {
+        unsafe {
+            // winit has set up OLE on this thread already; this only adds a reference.
+            let _ = OleInitialize(None);
+            let mut pidls = Pidls(Vec::new());
+            for p in paths {
+                let Ok(abs) = std::path::absolute(p) else {
+                    continue;
+                };
+                let name = wide(abs);
+                let mut pidl = std::ptr::null_mut();
+                if SHParseDisplayName(PCWSTR(name.as_ptr()), None, &mut pidl, 0, None).is_ok() {
+                    pidls.0.push(pidl);
+                }
+            }
+            if pidls.0.is_empty() {
+                return false;
+            }
+            let ids: Vec<*const ITEMIDLIST> = pidls.0.iter().map(|&p| p as *const _).collect();
+            let Ok(items) = SHCreateShellItemArrayFromIDLists(&ids) else {
+                return false;
+            };
+            let items: IShellItemArray = items;
+            let Ok(data) = items.BindToHandler::<_, IDataObject>(None, &BHID_DataObject) else {
+                return false;
+            };
+            // No drop source of our own: the Shell's default one also draws
+            // the drag image. The target decides between copy and move.
+            let window = GetForegroundWindow();
+            let effect = SHDoDragDrop(
+                (!window.is_invalid()).then_some(window),
+                &data,
+                None::<&IDropSource>,
+                DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK,
+            );
+            matches!(effect, Ok(e) if e != DROPEFFECT_NONE)
         }
     }
 

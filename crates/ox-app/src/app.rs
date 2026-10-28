@@ -225,6 +225,9 @@ pub struct OxApp {
     pub themes: Vec<ox_core::themes::ColorTheme>,
     /// A scheme was edited; apply the look again.
     pub themes_changed: bool,
+    /// A native drag ended inside its own message loop, so egui never saw
+    /// the mouse button go up; tell it on the next frame.
+    release_pointer: bool,
     /// The terminal panel's shell, started the first time the panel opens.
     pub terminal: Option<crate::terminal::Terminal>,
     /// Folder the terminal was last sent to (for "follow the folder").
@@ -332,6 +335,7 @@ impl OxApp {
             keymap: Default::default(),
             themes: ox_core::themes::load_all(),
             themes_changed: false,
+            release_pointer: false,
             terminal: None,
             terminal_dir: None,
             sizes_key: None,
@@ -1742,11 +1746,53 @@ impl OxApp {
     }
 }
 
+impl OxApp {
+    /// Files dragged past the window's edge go on as a Windows drag & drop,
+    /// so they can be dropped into other programs (Explorer, mail, editors…).
+    fn drag_out_of_window(&mut self, ctx: &Context) {
+        if !ox_core::shell::supported() {
+            return;
+        }
+        let Some(items) = egui::DragAndDrop::payload::<crate::ui::DragItems>(ctx) else {
+            return;
+        };
+        let window = ctx.content_rect();
+        let outside = ctx.input(|i| {
+            i.pointer.primary_down()
+                && (i.pointer.hover_pos().is_none()
+                    || i.pointer.latest_pos().is_some_and(|p| !window.contains(p)))
+        });
+        // Recycle Bin and archive items aren't files other programs can open.
+        let paths: Vec<PathBuf> = items.0.iter().filter(|p| p.exists()).cloned().collect();
+        if !outside || paths.is_empty() {
+            return;
+        }
+        egui::DragAndDrop::clear_payload(ctx);
+        ox_core::shell::drag_out(&paths);
+        self.release_pointer = true;
+        ctx.request_repaint();
+    }
+}
+
 impl eframe::App for OxApp {
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if std::mem::take(&mut self.release_pointer) {
+            let pos = ctx.input(|i| i.pointer.latest_pos()).unwrap_or_default();
+            raw_input.events.push(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: ctx.input(|i| i.modifiers),
+            });
+            raw_input.events.push(egui::Event::PointerGone);
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.pre_frame(&ctx);
         ui::show(self, ui);
+        self.drag_out_of_window(&ctx);
         self.process_actions();
         if ctx.input(|i| i.viewport().close_requested()) {
             self.save_session();
