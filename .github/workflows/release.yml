@@ -25,7 +25,7 @@ jobs:
             throw "Tag ${{ github.ref_name }} doesn't match the version $version in Cargo.toml"
           }
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast
       - name: Build
         run: cargo build --release -p ox-app
       - name: Package portable zip
