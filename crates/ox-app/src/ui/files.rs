@@ -15,6 +15,7 @@ use ox_core::settings::ViewMode;
 use super::{DragItems, MenuTarget};
 use crate::app::{Action, OxApp};
 use crate::icons;
+use crate::shortcuts::{self, Command};
 use crate::tabs::{FolderView, Location};
 
 const DATE_W: f32 = 140.0;
@@ -249,7 +250,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 actions.push(Action::EmptyBin);
             }
             if ui
-                .add(egui::Button::new("🔄 Refresh").shortcut_text("F5"))
+                .add(
+                    egui::Button::new("🔄 Refresh")
+                        .shortcut_text(shortcuts::label(Command::Refresh)),
+                )
                 .clicked()
             {
                 actions.push(Action::Refresh);
@@ -829,7 +833,10 @@ fn item_context_menu(
                 actions.push(Action::RestoreFromBin(selection.clone()));
             }
             if ui
-                .add(egui::Button::new("⛔ Delete permanently").shortcut_text("Del"))
+                .add(
+                    egui::Button::new("⛔ Delete permanently")
+                        .shortcut_text(shortcuts::label(Command::Delete)),
+                )
                 .clicked()
             {
                 actions.push(Action::PurgeFromBin(selection.clone()));

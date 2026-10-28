@@ -177,6 +177,8 @@ pub struct UiState {
     pub show_transfers: bool,
     pub settings_section: usize,
     pub palette: Option<crate::ui::palette::PaletteState>,
+    /// The settings page is waiting for keys for this command.
+    pub recording: Option<crate::shortcuts::Command>,
     type_ahead: String,
     type_ahead_at: Instant,
 }
@@ -205,6 +207,8 @@ pub struct OxApp {
     pub index: IndexService,
     pub preview: crate::ui::preview::PreviewState,
     pub folder_sizes: FolderSizes,
+    /// Keyboard shortcuts in effect (defaults + the user's changes).
+    pub keymap: crate::shortcuts::Keymap,
     pub tags: TagStore,
     /// (tabs, listing versions, cache epoch) the folder sizes were requested for.
     sizes_key: Option<(Vec<(TabId, u64)>, u64)>,
@@ -276,6 +280,7 @@ impl OxApp {
                 show_transfers: true,
                 settings_section: 0,
                 palette: None,
+                recording: None,
                 type_ahead: String::new(),
                 type_ahead_at: Instant::now(),
             },
@@ -300,6 +305,7 @@ impl OxApp {
                 FolderSizes::new(move || repaint.request_repaint())
             },
             tags: TagStore::load(),
+            keymap: Default::default(),
             sizes_key: None,
             git_key: Vec::new(),
             git_pending: Vec::new(),
@@ -342,6 +348,8 @@ impl OxApp {
     fn pre_frame(&mut self, ctx: &Context) {
         if self.applied_settings.as_ref() != Some(&self.settings) {
             theme::apply(ctx, &self.settings);
+            self.keymap = crate::shortcuts::Keymap::new(&self.settings.shortcuts);
+            crate::shortcuts::set_current(&self.keymap);
             self.engine
                 .set_config(self.settings.transfer.engine_config());
             self.applied_settings = Some(self.settings.clone());
@@ -365,7 +373,8 @@ impl OxApp {
         self.poll_jobs();
         self.poll_background();
         self.poll_dropped_files(ctx);
-        if self.dialog.is_none() && !ctx.text_edit_focused() {
+        // Not while a new shortcut is being recorded in the settings.
+        if self.dialog.is_none() && !ctx.text_edit_focused() && self.ui.recording.is_none() {
             self.handle_shortcuts(ctx);
         }
         self.toasts.retain(|t| t.until > Instant::now());
@@ -826,147 +835,84 @@ impl OxApp {
     }
 
     fn handle_shortcuts(&mut self, ctx: &Context) {
+        use crate::shortcuts::Command as C;
         use egui::PointerButton;
-        let cmd = Modifiers::COMMAND;
-        let cmd_shift = Modifiers::COMMAND | Modifiers::SHIFT;
-        let mut actions = Vec::new();
         let folder = self.current_folder();
         let selection = self.tabs.active().view.selected_paths();
         let shows_files = self.tabs.active().location().shows_files();
         let in_bin = self.tabs.active().location().is_bin();
         let read_only = self.tabs.active().location().is_read_only();
+        let has_sel = !selection.is_empty();
 
-        ctx.input_mut(|i| {
-            // Tabs & navigation
-            if i.consume_key(cmd, Key::T) {
-                actions.push(Action::Tab(TabAction::New));
+        // Which commands make sense here; only their keys are taken.
+        let available = |c: C| match c {
+            C::SelectAll => shows_files,
+            // The Recycle Bin purges on Delete; archives are read-only.
+            C::Delete | C::DeletePermanently => shows_files && has_sel && !read_only,
+            C::Copy | C::CopyPath => shows_files && has_sel && !in_bin,
+            C::Cut | C::Rename | C::Properties => shows_files && has_sel && !in_bin && !read_only,
+            C::ShellMenu => {
+                shows_files && has_sel && !in_bin && !read_only && ox_core::shell::supported()
             }
-            if i.consume_key(cmd, Key::W) {
-                actions.push(Action::Tab(TabAction::Close(self.tabs.active)));
-            }
-            if i.consume_key(cmd_shift, Key::Tab) {
-                actions.push(Action::Tab(TabAction::Cycle(-1)));
-            }
-            if i.consume_key(cmd, Key::Tab) {
-                actions.push(Action::Tab(TabAction::Cycle(1)));
-            }
-            if i.consume_key(cmd, Key::Backslash) {
-                actions.push(Action::Tab(TabAction::ToggleSplit));
-            }
-            if i.consume_key(Modifiers::NONE, Key::F6) {
-                actions.push(Action::Tab(TabAction::SwitchPane));
-            }
-            if i.consume_key(Modifiers::ALT, Key::ArrowLeft)
-                || i.pointer.button_pressed(PointerButton::Extra1)
-            {
-                actions.push(Action::Back);
-            }
-            if i.consume_key(Modifiers::ALT, Key::ArrowRight)
-                || i.pointer.button_pressed(PointerButton::Extra2)
-            {
-                actions.push(Action::Forward);
-            }
-            if i.consume_key(Modifiers::ALT, Key::ArrowUp)
-                || i.consume_key(Modifiers::NONE, Key::Backspace)
-            {
-                actions.push(Action::Up);
-            }
-            if i.consume_key(Modifiers::NONE, Key::F5) || i.consume_key(cmd, Key::R) {
-                actions.push(Action::Refresh);
-            }
-            if i.consume_key(cmd, Key::L) || i.consume_key(Modifiers::ALT, Key::D) {
-                self.ui.address_editing = true;
-                self.ui.focus_address = true;
-            }
-            if i.consume_key(cmd, Key::F) || i.consume_key(cmd, Key::E) {
-                self.ui.focus_search = true;
-            }
-            if i.consume_key(cmd_shift, Key::P) || i.consume_key(Modifiers::NONE, Key::F1) {
-                self.ui.palette = Some(Default::default());
-            }
-            if i.consume_key(Modifiers::ALT, Key::P) {
-                self.settings.browsing.show_preview = !self.settings.browsing.show_preview;
-                actions.push(Action::SettingsChanged);
-            }
-            if i.consume_key(cmd, Key::Comma) {
-                actions.push(Action::OpenInNewTab(Location::Settings, true));
-            }
-
-            if !shows_files {
-                return;
-            }
-            if in_bin {
-                // The Recycle Bin only supports selecting, restoring and purging.
-                if i.consume_key(cmd, Key::A) {
-                    actions.push(Action::SelectAll);
+            C::Paste | C::NewFolder => shows_files && folder.is_some(),
+            _ => true,
+        };
+        let (pressed, back, forward) = ctx.input_mut(|i| {
+            (
+                self.keymap.pressed(i, available),
+                i.pointer.button_pressed(PointerButton::Extra1),
+                i.pointer.button_pressed(PointerButton::Extra2),
+            )
+        });
+        let mut actions = Vec::new();
+        if back {
+            actions.push(Action::Back);
+        }
+        if forward {
+            actions.push(Action::Forward);
+        }
+        for c in pressed {
+            match c {
+                C::NewTab => actions.push(Action::Tab(TabAction::New)),
+                C::CloseTab => actions.push(Action::Tab(TabAction::Close(self.tabs.active))),
+                C::NextTab => actions.push(Action::Tab(TabAction::Cycle(1))),
+                C::PrevTab => actions.push(Action::Tab(TabAction::Cycle(-1))),
+                C::ToggleSplit => actions.push(Action::Tab(TabAction::ToggleSplit)),
+                C::SwitchPane => actions.push(Action::Tab(TabAction::SwitchPane)),
+                C::Back => actions.push(Action::Back),
+                C::Forward => actions.push(Action::Forward),
+                C::Up => actions.push(Action::Up),
+                C::Refresh => actions.push(Action::Refresh),
+                C::EditAddress => {
+                    self.ui.address_editing = true;
+                    self.ui.focus_address = true;
                 }
-                if (i.consume_key(Modifiers::NONE, Key::Delete)
-                    || i.consume_key(Modifiers::SHIFT, Key::Delete))
-                    && !selection.is_empty()
-                {
+                C::Search => self.ui.focus_search = true,
+                C::Palette => self.ui.palette = Some(Default::default()),
+                C::TogglePreview => {
+                    self.settings.browsing.show_preview = !self.settings.browsing.show_preview;
+                    actions.push(Action::SettingsChanged);
+                }
+                C::Settings => actions.push(Action::OpenInNewTab(Location::Settings, true)),
+                C::SelectAll => actions.push(Action::SelectAll),
+                C::Copy => actions.push(Action::CopyItems(selection.clone())),
+                C::Cut => actions.push(Action::CutItems(selection.clone())),
+                C::CopyPath => actions.push(Action::CopyPathText(selection.clone())),
+                C::Paste => actions.extend(folder.clone().map(Action::Paste)),
+                C::NewFolder => actions.extend(folder.clone().map(Action::NewFolder)),
+                C::Delete | C::DeletePermanently if in_bin => {
                     actions.push(Action::PurgeFromBin(selection.clone()));
                 }
-                return;
-            }
-            if read_only {
-                // Inside an archive: select and copy (= extract) only.
-                if i.consume_key(cmd, Key::A) {
-                    actions.push(Action::SelectAll);
-                }
-                if i.consume_key(cmd, Key::C) && !selection.is_empty() {
-                    actions.push(Action::CopyItems(selection.clone()));
-                }
-                if i.consume_key(cmd_shift, Key::C) && !selection.is_empty() {
-                    actions.push(Action::CopyPathText(selection.clone()));
-                }
-                return;
-            }
-            // File commands
-            if i.consume_key(cmd_shift, Key::N) {
-                if let Some(f) = &folder {
-                    actions.push(Action::NewFolder(f.clone()));
-                }
-            }
-            if i.consume_key(cmd_shift, Key::C) && !selection.is_empty() {
-                actions.push(Action::CopyPathText(selection.clone()));
-            }
-            if i.consume_key(cmd, Key::A) {
-                actions.push(Action::SelectAll);
-            }
-            if i.consume_key(cmd, Key::C) && !selection.is_empty() {
-                actions.push(Action::CopyItems(selection.clone()));
-            }
-            if i.consume_key(cmd, Key::X) && !selection.is_empty() {
-                actions.push(Action::CutItems(selection.clone()));
-            }
-            if i.consume_key(cmd, Key::V) {
-                if let Some(f) = &folder {
-                    actions.push(Action::Paste(f.clone()));
-                }
-            }
-            if i.consume_key(Modifiers::SHIFT, Key::Delete) && !selection.is_empty() {
-                actions.push(Action::Delete(selection.clone(), true));
-            }
-            if i.consume_key(Modifiers::NONE, Key::Delete) && !selection.is_empty() {
-                actions.push(Action::Delete(selection.clone(), false));
-            }
-            if i.consume_key(Modifiers::NONE, Key::F2) {
-                match selection.len() {
-                    0 => {}
+                C::Delete => actions.push(Action::Delete(selection.clone(), false)),
+                C::DeletePermanently => actions.push(Action::Delete(selection.clone(), true)),
+                C::Rename => match selection.len() {
                     1 => actions.push(Action::Rename(selection[0].clone())),
                     _ => actions.push(Action::BulkRename(selection.clone())),
-                }
+                },
+                C::Properties => actions.push(Action::Properties(selection.clone())),
+                C::ShellMenu => actions.push(Action::ShellMenu(selection.clone())),
             }
-            if i.consume_key(Modifiers::ALT, Key::Enter) && !selection.is_empty() {
-                actions.push(Action::Properties(selection.clone()));
-            }
-            if i.consume_key(Modifiers::SHIFT, Key::F10)
-                && !selection.is_empty()
-                && ox_core::shell::supported()
-            {
-                actions.push(Action::ShellMenu(selection.clone()));
-            }
-        });
+        }
         self.actions.extend(actions);
         if shows_files {
             self.keyboard_navigation(ctx);

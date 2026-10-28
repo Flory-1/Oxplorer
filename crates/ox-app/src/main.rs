@@ -2,6 +2,7 @@
 
 mod app;
 mod icons;
+mod shortcuts;
 mod tabs;
 mod theme;
 mod ui;

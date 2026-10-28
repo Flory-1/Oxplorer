@@ -118,7 +118,7 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 - ✅ Folder size column: computed in the background (one walker, easy on HDDs), sub-folders cached on the way, refreshed when files change; sorting by size includes folders
 - ✅ Colour tags with custom names: tag from the context menu or palette, dots in the file view, a Tags section in the sidebar, tags follow renames and moves
 - ✅ Command palette (Ctrl+Shift+P / F1): fuzzy search over commands, favorites, drives, recent folders and saved searches
-- ⏳ Custom keyboard shortcuts
+- ✅ Custom keyboard shortcuts: Settings → Shortcuts, click and press the new keys; conflicts are flagged and menus, tooltips and the palette show your keys
 - ✅ Git status column for repositories (M/A/D/R/?/I, folders summarise their contents) and the branch with ahead/behind in the status bar
 - ⏳ Built-in terminal panel
 

@@ -62,7 +62,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                             search(ui, &mut app.settings);
                             index_section(ui, app);
                         }
-                        6 => shortcuts(ui),
+                        6 => shortcuts(ui, app),
                         _ => about(ui),
                     }
                     ui.add_space(24.0);
@@ -628,39 +628,121 @@ fn index_section(ui: &mut Ui, app: &mut OxApp) {
     });
 }
 
-fn shortcuts(ui: &mut Ui) {
+fn shortcuts(ui: &mut Ui, app: &mut OxApp) {
+    use crate::shortcuts::{self, COMMANDS};
+    use egui::{Key, KeyboardShortcut, Modifiers};
+
+    // While recording, the next key press (with its modifiers) is the new shortcut.
+    if let Some(cmd) = app.ui.recording {
+        let pressed = ui.input(|i| {
+            i.events.iter().find_map(|e| match e {
+                egui::Event::Key {
+                    key,
+                    pressed: true,
+                    modifiers,
+                    ..
+                } if !shortcuts::is_modifier(*key) => Some((*key, *modifiers)),
+                _ => None,
+            })
+        });
+        if let Some((key, m)) = pressed {
+            if key == Key::Escape && m.is_none() {
+                app.ui.recording = None;
+            } else {
+                let mut mods = Modifiers::NONE;
+                if m.ctrl || m.command {
+                    mods |= Modifiers::COMMAND;
+                }
+                if m.alt {
+                    mods |= Modifiers::ALT;
+                }
+                if m.shift {
+                    mods |= Modifiers::SHIFT;
+                }
+                let id = shortcuts::command_info(cmd).id.to_owned();
+                let text = shortcuts::to_text(&KeyboardShortcut::new(mods, key));
+                app.settings.shortcuts.insert(id, text);
+                app.ui.recording = None;
+            }
+        }
+    }
+
+    ui.label(RichText::new("Click a shortcut and press the new keys (Esc cancels).").weak());
+    ui.add_space(8.0);
     egui::Grid::new("shortcuts")
+        .striped(true)
+        .num_columns(3)
+        .spacing(vec2(16.0, 6.0))
+        .show(ui, |ui| {
+            for c in COMMANDS {
+                ui.label(c.label);
+                let keys = app.keymap.keys(c.cmd).to_vec();
+                let recording = app.ui.recording == Some(c.cmd);
+                let text = if recording {
+                    "Press keys…".to_owned()
+                } else if keys.is_empty() {
+                    "—".to_owned()
+                } else {
+                    keys.iter()
+                        .map(shortcuts::display)
+                        .collect::<Vec<_>>()
+                        .join(" / ")
+                };
+                ui.horizontal(|ui| {
+                    let button = egui::Button::new(RichText::new(text).monospace())
+                        .selected(recording)
+                        .min_size(vec2(170.0, 0.0));
+                    if ui.add(button).clicked() {
+                        app.ui.recording = if recording { None } else { Some(c.cmd) };
+                    }
+                    let changed = app.settings.shortcuts.contains_key(c.id);
+                    if !keys.is_empty()
+                        && ui.small_button("✖").on_hover_text("No shortcut").clicked()
+                    {
+                        app.settings
+                            .shortcuts
+                            .insert(c.id.to_owned(), String::new());
+                    }
+                    if changed
+                        && ui
+                            .small_button("↺")
+                            .on_hover_text(format!("Back to {}", c.defaults.join(" / ")))
+                            .clicked()
+                    {
+                        app.settings.shortcuts.remove(c.id);
+                    }
+                });
+                let clash = keys.iter().find_map(|k| app.keymap.conflict(c.cmd, k));
+                match clash {
+                    Some(other) => ui.colored_label(
+                        Color32::from_rgb(0xe5, 0x48, 0x4d),
+                        format!("⚠ also {}", shortcuts::command_info(other).label),
+                    ),
+                    None => ui.label(""),
+                };
+                ui.end_row();
+            }
+        });
+    ui.add_space(8.0);
+    if !app.settings.shortcuts.is_empty() && ui.button("Reset all shortcuts").clicked() {
+        app.settings.shortcuts.clear();
+        app.ui.recording = None;
+    }
+    ui.add_space(12.0);
+    ui.label(RichText::new("Always available").strong());
+    egui::Grid::new("fixed_shortcuts")
         .striped(true)
         .num_columns(2)
         .show(ui, |ui| {
             for (k, d) in [
-                ("Ctrl+T / Ctrl+W", "New tab / close tab"),
-                ("Ctrl+Tab / Ctrl+Shift+Tab", "Next / previous tab"),
-                (
-                    "Alt+Left / Alt+Right",
-                    "Back / forward (also mouse side buttons)",
-                ),
-                ("Alt+Up / Backspace", "Up one folder"),
-                ("Ctrl+L / Alt+D", "Edit address"),
-                ("Ctrl+F / Ctrl+E", "Search"),
-                ("F5 / Ctrl+R", "Refresh"),
-                ("Ctrl+C / Ctrl+X / Ctrl+V", "Copy / cut / paste"),
-                ("Ctrl+Shift+C", "Copy path"),
-                ("Ctrl+A", "Select all"),
-                ("F2", "Rename"),
-                ("Del / Shift+Del", "Delete / delete permanently"),
-                ("Ctrl+Shift+N", "New folder"),
-                ("Alt+Enter", "Properties"),
                 ("Enter", "Open selection"),
+                (
+                    "Arrow keys, Home, End",
+                    "Move the selection (Shift to extend)",
+                ),
                 ("Type letters", "Jump to item"),
+                ("Mouse side buttons", "Back / forward"),
                 ("Middle click", "Open folder in new tab / close tab"),
-                ("Shift+F10", "Windows context menu (Windows only)"),
-                ("Ctrl+Shift+P / F1", "Command palette"),
-                ("Alt+P", "Preview pane"),
-                ("Ctrl+\\", "Split view (two panes)"),
-                ("F6", "Switch between panes"),
-                ("F2 (several items)", "Bulk rename"),
-                ("Ctrl+,", "Settings"),
             ] {
                 ui.monospace(k);
                 ui.label(d);

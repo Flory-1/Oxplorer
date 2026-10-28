@@ -19,6 +19,7 @@ use ox_core::tags::{TagColor, TagStore};
 use ox_core::transfer::TransferKind;
 
 use crate::app::{Action, OxApp, TabAction};
+use crate::shortcuts::{self, Command};
 use crate::tabs::{Location, TabId};
 
 /// Drag payload: files/folders being dragged inside the app.
@@ -371,7 +372,7 @@ fn archive_item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>)
         }
     }
     if ui
-        .add(egui::Button::new("📋 Copy").shortcut_text("Ctrl+C"))
+        .add(egui::Button::new("📋 Copy").shortcut_text(shortcuts::label(Command::Copy)))
         .clicked()
     {
         actions.push(Action::CopyItems(sel.clone()));
@@ -401,7 +402,7 @@ fn archive_item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>)
     }
     ui.separator();
     if ui
-        .add(egui::Button::new("🔗 Copy path").shortcut_text("Ctrl+Shift+C"))
+        .add(egui::Button::new("🔗 Copy path").shortcut_text(shortcuts::label(Command::CopyPath)))
         .clicked()
     {
         actions.push(Action::CopyPathText(sel.clone()));
@@ -435,13 +436,13 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     }
     ui.separator();
     if ui
-        .add(egui::Button::new("✂ Cut").shortcut_text("Ctrl+X"))
+        .add(egui::Button::new("✂ Cut").shortcut_text(shortcuts::label(Command::Cut)))
         .clicked()
     {
         actions.push(Action::CutItems(sel.clone()));
     }
     if ui
-        .add(egui::Button::new("📋 Copy").shortcut_text("Ctrl+C"))
+        .add(egui::Button::new("📋 Copy").shortcut_text(shortcuts::label(Command::Copy)))
         .clicked()
     {
         actions.push(Action::CopyItems(sel.clone()));
@@ -481,26 +482,32 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     ui.separator();
     if sel.len() == 1
         && ui
-            .add(egui::Button::new("✏ Rename").shortcut_text("F2"))
+            .add(egui::Button::new("✏ Rename").shortcut_text(shortcuts::label(Command::Rename)))
             .clicked()
     {
         actions.push(Action::Rename(sel[0].clone()));
     }
     if sel.len() > 1
         && ui
-            .add(egui::Button::new(format!("✏ Rename {} items…", sel.len())).shortcut_text("F2"))
+            .add(
+                egui::Button::new(format!("✏ Rename {} items…", sel.len()))
+                    .shortcut_text(shortcuts::label(Command::Rename)),
+            )
             .clicked()
     {
         actions.push(Action::BulkRename(sel.clone()));
     }
     if ui
-        .add(egui::Button::new("🗑 Delete").shortcut_text("Del"))
+        .add(egui::Button::new("🗑 Delete").shortcut_text(shortcuts::label(Command::Delete)))
         .clicked()
     {
         actions.push(Action::Delete(sel.clone(), false));
     }
     if ui
-        .add(egui::Button::new("⛔ Delete permanently").shortcut_text("Shift+Del"))
+        .add(
+            egui::Button::new("⛔ Delete permanently")
+                .shortcut_text(shortcuts::label(Command::DeletePermanently)),
+        )
         .clicked()
     {
         actions.push(Action::Delete(sel.clone(), true));
@@ -538,7 +545,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         }
     }
     if ui
-        .add(egui::Button::new("🔗 Copy path").shortcut_text("Ctrl+Shift+C"))
+        .add(egui::Button::new("🔗 Copy path").shortcut_text(shortcuts::label(Command::CopyPath)))
         .clicked()
     {
         actions.push(Action::CopyPathText(sel.clone()));
@@ -548,7 +555,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     }
     ui.separator();
     if ui
-        .add(egui::Button::new("ℹ Properties").shortcut_text("Alt+Enter"))
+        .add(egui::Button::new("ℹ Properties").shortcut_text(shortcuts::label(Command::Properties)))
         .clicked()
     {
         actions.push(Action::Properties(sel.clone()));
@@ -556,7 +563,10 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     if t.shell {
         ui.separator();
         if ui
-            .add(egui::Button::new("⋯ Show more options").shortcut_text("Shift+F10"))
+            .add(
+                egui::Button::new("⋯ Show more options")
+                    .shortcut_text(shortcuts::label(Command::ShellMenu)),
+            )
             .on_hover_text("The Windows Explorer menu, with entries from other apps")
             .clicked()
         {
@@ -584,20 +594,20 @@ pub fn background_menu(
     if ui
         .add_enabled(
             can_paste,
-            egui::Button::new("📥 Paste").shortcut_text("Ctrl+V"),
+            egui::Button::new("📥 Paste").shortcut_text(shortcuts::label(Command::Paste)),
         )
         .clicked()
     {
         actions.push(Action::Paste(folder.to_path_buf()));
     }
     if ui
-        .add(egui::Button::new("🔄 Refresh").shortcut_text("F5"))
+        .add(egui::Button::new("🔄 Refresh").shortcut_text(shortcuts::label(Command::Refresh)))
         .clicked()
     {
         actions.push(Action::Refresh);
     }
     if ui
-        .add(egui::Button::new("☑ Select all").shortcut_text("Ctrl+A"))
+        .add(egui::Button::new("☑ Select all").shortcut_text(shortcuts::label(Command::SelectAll)))
         .clicked()
     {
         actions.push(Action::SelectAll);

@@ -7,6 +7,7 @@ use ox_core::settings::{Theme, ViewMode};
 use ox_core::tags::TagColor;
 
 use crate::app::{Action, OxApp, TabAction};
+use crate::shortcuts::{self, Command};
 use crate::tabs::Location;
 
 #[derive(Default)]
@@ -67,23 +68,43 @@ fn entries(app: &OxApp) -> Vec<Entry> {
     cmd(
         "⚙",
         "Open Settings",
-        "Ctrl+,",
+        &shortcuts::label(Command::Settings),
         act(|| Action::OpenInNewTab(Location::Settings, true)),
     );
-    cmd("⬅", "Back", "Alt+Left", act(|| Action::Back));
-    cmd("➡", "Forward", "Alt+Right", act(|| Action::Forward));
-    cmd("⬆", "Up one folder", "Alt+Up", act(|| Action::Up));
-    cmd("🔄", "Refresh", "F5", act(|| Action::Refresh));
+    cmd(
+        "⬅",
+        "Back",
+        &shortcuts::label(Command::Back),
+        act(|| Action::Back),
+    );
+    cmd(
+        "➡",
+        "Forward",
+        &shortcuts::label(Command::Forward),
+        act(|| Action::Forward),
+    );
+    cmd(
+        "⬆",
+        "Up one folder",
+        &shortcuts::label(Command::Up),
+        act(|| Action::Up),
+    );
+    cmd(
+        "🔄",
+        "Refresh",
+        &shortcuts::label(Command::Refresh),
+        act(|| Action::Refresh),
+    );
     cmd(
         "➕",
         "New tab",
-        "Ctrl+T",
+        &shortcuts::label(Command::NewTab),
         act(|| Action::Tab(TabAction::New)),
     );
     cmd(
         "✖",
         "Close tab",
-        "Ctrl+W",
+        &shortcuts::label(Command::CloseTab),
         act(move || Action::Tab(TabAction::Close(tab_id))),
     );
     cmd(
@@ -101,7 +122,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
     cmd(
         "🔍",
         "Search…",
-        "Ctrl+F",
+        &shortcuts::label(Command::Search),
         Box::new(|app: &mut OxApp| app.ui.focus_search = true),
     );
 
@@ -110,7 +131,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         cmd(
             "📁",
             "New folder",
-            "Ctrl+Shift+N",
+            &shortcuts::label(Command::NewFolder),
             act(move || Action::NewFolder(f1)),
         );
         cmd(
@@ -119,7 +140,12 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             "",
             act(move || Action::NewFile(f2)),
         );
-        cmd("📥", "Paste", "Ctrl+V", act(move || Action::Paste(f3)));
+        cmd(
+            "📥",
+            "Paste",
+            &shortcuts::label(Command::Paste),
+            act(move || Action::Paste(f3)),
+        );
         cmd(
             "🖳",
             "Open terminal here",
@@ -149,7 +175,12 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         }
     }
     if tab.location().shows_files() {
-        cmd("☑", "Select all", "Ctrl+A", act(|| Action::SelectAll));
+        cmd(
+            "☑",
+            "Select all",
+            &shortcuts::label(Command::SelectAll),
+            act(|| Action::SelectAll),
+        );
     }
     if !selection.is_empty() && !tab.location().is_bin() && !tab.location().is_read_only() {
         let (s1, s2, s3) = (selection.clone(), selection.clone(), selection.clone());
@@ -158,17 +189,22 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         } else {
             act(move || Action::BulkRename(s1))
         };
-        cmd("✏", "Rename selection", "F2", rename);
+        cmd(
+            "✏",
+            "Rename selection",
+            &shortcuts::label(Command::Rename),
+            rename,
+        );
         cmd(
             "🔗",
             "Copy path of selection",
-            "Ctrl+Shift+C",
+            &shortcuts::label(Command::CopyPath),
             act(move || Action::CopyPathText(s2)),
         );
         cmd(
             "ℹ",
             "Properties of selection",
-            "Alt+Enter",
+            &shortcuts::label(Command::Properties),
             act(move || Action::Properties(s3)),
         );
         let zip = selection.clone();
@@ -225,21 +261,21 @@ fn entries(app: &OxApp) -> Vec<Entry> {
     cmd(
         "◫",
         "Toggle split view",
-        "Ctrl+\\",
+        &shortcuts::label(Command::ToggleSplit),
         act(|| Action::Tab(TabAction::ToggleSplit)),
     );
     if app.tabs.panes.is_some() {
         cmd(
             "⇆",
             "Switch pane",
-            "F6",
+            &shortcuts::label(Command::SwitchPane),
             act(|| Action::Tab(TabAction::SwitchPane)),
         );
     }
     cmd(
         "👁",
         "Toggle preview pane",
-        "Alt+P",
+        &shortcuts::label(Command::TogglePreview),
         setting(|a| a.settings.browsing.show_preview ^= true),
     );
     cmd(
