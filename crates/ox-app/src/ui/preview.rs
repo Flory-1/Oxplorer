@@ -72,6 +72,11 @@ fn is_text(e: &FileEntry) -> bool {
 }
 
 fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
+    if let Some((arc, inner)) = ox_core::archive::split_virtual(&entry.path)
+        .filter(|(_, inner)| !inner.as_os_str().is_empty())
+    {
+        return load_from_archive(&entry, &arc, &inner);
+    }
     if entry.is_dir {
         return match ox_core::entry::list_dir(&entry.path, show_hidden) {
             Ok(items) => Loaded::Folder {
@@ -82,27 +87,31 @@ fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
             Err(e) => Loaded::Error(e.to_string()),
         };
     }
+    if ox_core::archive::kind(&entry.path).is_some() {
+        // Archives: what's inside (opening them browses them).
+        return match ox_core::archive::index(&entry.path) {
+            Ok(idx) => {
+                let files: Vec<_> = idx.entries.iter().filter(|e| !e.is_dir).collect();
+                let folders: std::collections::HashSet<&Path> = idx
+                    .entries
+                    .iter()
+                    .flat_map(|e| e.path.ancestors().skip(usize::from(!e.is_dir)))
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .collect();
+                Loaded::Folder {
+                    folders: folders.len(),
+                    files: files.len(),
+                    bytes: files.iter().map(|e| e.size).sum(),
+                }
+            }
+            Err(e) => Loaded::Error(format!("Can't read this archive: {e}")),
+        };
+    }
     if is_image(&entry) {
         if entry.size > MAX_IMAGE_BYTES {
             return Loaded::Error("The image is too large to preview.".into());
         }
-        return match image::open(&entry.path) {
-            Ok(img) => {
-                let (w, h) = (img.width(), img.height());
-                let img = if w.max(h) > MAX_IMAGE_SIDE {
-                    img.thumbnail(MAX_IMAGE_SIDE, MAX_IMAGE_SIDE)
-                } else {
-                    img
-                };
-                let rgba = img.to_rgba8();
-                let size = [rgba.width() as usize, rgba.height() as usize];
-                Loaded::Image(
-                    ColorImage::from_rgba_unmultiplied(size, rgba.as_raw()),
-                    [w, h],
-                )
-            }
-            Err(e) => Loaded::Error(format!("Can't read this image: {e}")),
-        };
+        return image_result(image::open(&entry.path));
     }
     if is_text(&entry) || entry.size == 0 {
         return read_text(&entry.path);
@@ -111,6 +120,58 @@ fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
     match read_text(&entry.path) {
         t @ Loaded::Text { .. } => t,
         _ => Loaded::Nothing,
+    }
+}
+
+fn image_result(img: image::ImageResult<image::DynamicImage>) -> Loaded {
+    match img {
+        Ok(img) => {
+            let (w, h) = (img.width(), img.height());
+            let img = if w.max(h) > MAX_IMAGE_SIDE {
+                img.thumbnail(MAX_IMAGE_SIDE, MAX_IMAGE_SIDE)
+            } else {
+                img
+            };
+            let rgba = img.to_rgba8();
+            let size = [rgba.width() as usize, rgba.height() as usize];
+            Loaded::Image(
+                ColorImage::from_rgba_unmultiplied(size, rgba.as_raw()),
+                [w, h],
+            )
+        }
+        Err(e) => Loaded::Error(format!("Can't read this image: {e}")),
+    }
+}
+
+/// Preview of an item inside an archive, read without extracting it.
+fn load_from_archive(entry: &FileEntry, arc: &Path, inner: &Path) -> Loaded {
+    use ox_core::archive;
+    if entry.is_dir {
+        return match archive::list(arc, inner) {
+            Ok(items) => Loaded::Folder {
+                folders: items.iter().filter(|i| i.is_dir).count(),
+                files: items.iter().filter(|i| !i.is_dir).count(),
+                bytes: items.iter().filter(|i| !i.is_dir).map(|i| i.size).sum(),
+            },
+            Err(e) => Loaded::Error(e.to_string()),
+        };
+    }
+    if is_image(entry) {
+        if entry.size > MAX_IMAGE_BYTES {
+            return Loaded::Error("The image is too large to preview.".into());
+        }
+        return match archive::read_entry(arc, inner, MAX_IMAGE_BYTES) {
+            Ok(bytes) => image_result(image::load_from_memory(&bytes)),
+            Err(e) => Loaded::Error(e.to_string()),
+        };
+    }
+    match archive::read_entry(arc, inner, MAX_TEXT_BYTES as u64 + 1) {
+        Ok(buf) => match text_from_bytes(buf) {
+            t @ Loaded::Text { .. } => t,
+            _ if is_text(entry) => Loaded::Error("This file isn't plain text.".into()),
+            other => other,
+        },
+        Err(e) => Loaded::Error(e.to_string()),
     }
 }
 
@@ -124,6 +185,10 @@ fn read_text(path: &Path) -> Loaded {
     if let Err(e) = file.take(MAX_TEXT_BYTES as u64 + 1).read_to_end(&mut buf) {
         return Loaded::Error(e.to_string());
     }
+    text_from_bytes(buf)
+}
+
+fn text_from_bytes(mut buf: Vec<u8>) -> Loaded {
     if buf.iter().take(8192).any(|&b| b == 0) {
         return Loaded::Nothing; // binary
     }

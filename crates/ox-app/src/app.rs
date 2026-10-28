@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::Receiver;
 use egui::{Context, Key, Modifiers};
+use ox_core::archive;
 use ox_core::clipboard::{ClipMode, FileClipboard};
 use ox_core::dirsize::FolderSizes;
 use ox_core::entry::{self, FileEntry};
@@ -51,6 +52,14 @@ pub enum Action {
     /// Add the tag to all items, or remove it if all have it.
     ToggleTag(Vec<PathBuf>, TagColor),
     ClearTags(Vec<PathBuf>),
+    /// Extract a whole archive next to it: into a new folder named after it,
+    /// or straight into the archive's folder.
+    ExtractArchive {
+        archive: PathBuf,
+        own_folder: bool,
+    },
+    /// Put these items into a new zip file next to them.
+    Compress(Vec<PathBuf>),
     /// Items were renamed or moved (old path, new path): tags go along.
     PathsMoved(Vec<(PathBuf, PathBuf)>),
     /// Give a tag colour a custom name (empty = default).
@@ -458,6 +467,14 @@ impl OxApp {
                 });
                 tab.view.loading = Some(rx);
             }
+            Location::Archive { archive, inner } => {
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                std::thread::spawn(move || {
+                    let _ = tx.send(Listing::archive(&archive, &inner).map_err(|e| e.to_string()));
+                    ctx.request_repaint();
+                });
+                tab.view.loading = Some(rx);
+            }
             Location::Tagged(color) => {
                 let paths = self.tags.with_tag(color);
                 let (tx, rx) = crossbeam_channel::bounded(1);
@@ -734,6 +751,7 @@ impl OxApp {
         let selection = self.tabs.active().view.selected_paths();
         let shows_files = self.tabs.active().location().shows_files();
         let in_bin = self.tabs.active().location().is_bin();
+        let read_only = self.tabs.active().location().is_read_only();
 
         ctx.input_mut(|i| {
             // Tabs & navigation
@@ -804,6 +822,19 @@ impl OxApp {
                     && !selection.is_empty()
                 {
                     actions.push(Action::PurgeFromBin(selection.clone()));
+                }
+                return;
+            }
+            if read_only {
+                // Inside an archive: select and copy (= extract) only.
+                if i.consume_key(cmd, Key::A) {
+                    actions.push(Action::SelectAll);
+                }
+                if i.consume_key(cmd, Key::C) && !selection.is_empty() {
+                    actions.push(Action::CopyItems(selection.clone()));
+                }
+                if i.consume_key(cmd_shift, Key::C) && !selection.is_empty() {
+                    actions.push(Action::CopyPathText(selection.clone()));
                 }
                 return;
             }
@@ -1000,8 +1031,26 @@ impl OxApp {
                 self.drives_at = Instant::now() - Duration::from_secs(60);
             }
             Action::Open(path) => {
+                let in_archive = archive::split_virtual(&path)
+                    .filter(|(_, inner)| !inner.as_os_str().is_empty());
                 if path.is_dir() {
                     self.navigate(Location::Folder(path));
+                } else if self.settings.browsing.open_archives && archive::is_archive(&path) {
+                    self.quick.open_file(&path);
+                    self.save_quick();
+                    self.navigate(Location::Archive {
+                        archive: path,
+                        inner: PathBuf::new(),
+                    });
+                } else if let Some((arc, inner)) = in_archive {
+                    if archive::index(&arc).is_ok_and(|idx| idx.is_dir(&inner)) {
+                        self.navigate(Location::Archive {
+                            archive: arc,
+                            inner,
+                        });
+                    } else {
+                        self.open_from_archive(arc, inner);
+                    }
                 } else {
                     match fsops::open_default(&path) {
                         Ok(()) => self.quick.open_file(&path),
@@ -1123,6 +1172,37 @@ impl OxApp {
             Action::ClearTags(paths) => {
                 self.tags.clear(&paths);
                 self.tags_changed();
+            }
+            Action::ExtractArchive {
+                archive: arc,
+                own_folder,
+            } => {
+                let Some(parent) = arc.parent().map(Path::to_path_buf) else {
+                    return;
+                };
+                let dest = if own_folder {
+                    fsops::unique_path(&parent, &archive::base_name(&arc))
+                } else {
+                    parent
+                };
+                self.extract(arc, vec![PathBuf::new()], dest);
+            }
+            Action::Compress(paths) => {
+                let Some(dir) = paths
+                    .first()
+                    .and_then(|p| p.parent())
+                    .map(Path::to_path_buf)
+                else {
+                    return;
+                };
+                let zip = archive::zip_target(&paths, &dir);
+                self.toast(format!("Compressing to {}…", entry::display_name(&zip)));
+                self.tabs.active_mut().view.select_after_load = Some(zip.clone());
+                self.run_background("Compressing", Some(dir), move || {
+                    archive::compress_zip(&paths, &zip, &AtomicBool::new(false))
+                        .map(|_| ())
+                        .map_err(|e| e.to_string())
+                });
             }
             Action::PathsMoved(pairs) => {
                 if !self.tags.is_empty() {
@@ -1335,6 +1415,25 @@ impl OxApp {
     }
 
     fn start_transfer(&mut self, kind: TransferKind, sources: Vec<PathBuf>, dest: PathBuf) {
+        // Items inside archives are extracted instead (archives are read-only,
+        // so a move is an extraction too).
+        let mut from_archives: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
+        let mut sources_on_disk = Vec::new();
+        for src in sources {
+            match archive::split_virtual(&src) {
+                Some((arc, inner)) if !inner.as_os_str().is_empty() => {
+                    match from_archives.iter_mut().find(|(a, _)| *a == arc) {
+                        Some((_, items)) => items.push(inner),
+                        None => from_archives.push((arc, vec![inner])),
+                    }
+                }
+                _ => sources_on_disk.push(src),
+            }
+        }
+        for (arc, items) in from_archives {
+            self.extract(arc, items, dest.clone());
+        }
+        let sources = sources_on_disk;
         if sources.is_empty() {
             return;
         }
@@ -1387,6 +1486,42 @@ impl OxApp {
 
     /// Run `op` on a helper thread; when it finishes, errors become a toast and
     /// tabs showing `dir` (all tabs if `None`) are refreshed.
+    /// Extract `items` (paths inside `arc`; empty = everything) into `dest`.
+    fn extract(&mut self, arc: PathBuf, items: Vec<PathBuf>, dest: PathBuf) {
+        self.toast(format!(
+            "Extracting {} from {}…",
+            if items.iter().any(|i| i.as_os_str().is_empty()) {
+                "everything".to_owned()
+            } else {
+                format::count(items.len() as u64, "item")
+            },
+            entry::display_name(&arc)
+        ));
+        let target = dest.clone();
+        self.run_background("Extracting", Some(dest), move || {
+            archive::extract(&arc, &items, &target, &AtomicBool::new(false))
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        });
+    }
+
+    /// Open a file from an archive: extract it to a temporary folder first.
+    fn open_from_archive(&mut self, arc: PathBuf, inner: PathBuf) {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let dir = std::env::temp_dir()
+            .join("oxplorer-open")
+            .join(stamp.to_string());
+        self.run_background("Opening", None, move || {
+            let made = archive::extract(&arc, &[inner], &dir, &AtomicBool::new(false))
+                .map_err(|e| e.to_string())?;
+            let file = made.first().ok_or("Nothing was extracted.")?;
+            fsops::open_default(file).map_err(|e| e.to_string())
+        });
+    }
+
     fn run_background(
         &mut self,
         label: &str,

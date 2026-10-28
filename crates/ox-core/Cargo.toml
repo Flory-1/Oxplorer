@@ -17,6 +17,9 @@ notify = "8"
 open = "5"
 regex = "1"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+zip = { version = "9", default-features = false, features = ["deflate-flate2", "deflate64", "chrono"] }
+tar = "0.4"
+flate2 = "1"
 
 [target.'cfg(windows)'.dependencies]
 clipboard-win = { version = "5", features = ["std"] }

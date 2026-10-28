@@ -482,6 +482,12 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) {
                 Location::RecycleBin => {
                     ui.label("🗑  Recycle Bin");
                 }
+                Location::Archive { archive, inner } => {
+                    if let Some(parent) = archive.parent() {
+                        breadcrumbs(ui, parent, actions);
+                    }
+                    archive_crumbs(ui, archive, inner, actions);
+                }
                 Location::Search { root, query } => {
                     let place = root
                         .as_deref()
@@ -574,6 +580,52 @@ fn crumb_menu(ui: &mut Ui, text: RichText, content: impl FnOnce(&mut Ui)) {
             .min_size(egui::vec2(18.0, 0.0)),
     )
     .ui(ui, content);
+}
+
+/// The archive and the folders inside it, after the folder crumbs.
+fn archive_crumbs(ui: &mut Ui, archive: &Path, inner: &Path, actions: &mut Vec<Action>) {
+    let mut parts = vec![PathBuf::new()];
+    for c in inner.components() {
+        let next = parts.last().cloned().unwrap_or_default().join(c);
+        parts.push(next);
+    }
+    for (i, part) in parts.iter().enumerate() {
+        let last = i + 1 == parts.len();
+        let name = if i == 0 {
+            format!("📦 {}", display_name(archive))
+        } else {
+            display_name(part)
+        };
+        let text = RichText::new(name).size(13.5);
+        let text = if last { text.strong() } else { text };
+        if ui.add(egui::Button::new(text).frame(false)).clicked() {
+            actions.push(Action::Navigate(Location::Archive {
+                archive: archive.to_path_buf(),
+                inner: part.clone(),
+            }));
+        }
+        // "›" lists the folders inside, like for ordinary folders.
+        crumb_menu(ui, RichText::new("›").size(14.0), |ui| {
+            let mut dirs: Vec<_> = ox_core::archive::list(archive, part)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|e| e.is_dir)
+                .collect();
+            dirs.sort_by(|a, b| ox_core::natural::natural_cmp(&a.name, &b.name));
+            egui::ScrollArea::vertical()
+                .max_height(400.0)
+                .show(ui, |ui| {
+                    for d in dirs {
+                        if ui.button(format!("📁 {}", d.name)).clicked() {
+                            actions.push(Action::Navigate(Location::Archive {
+                                archive: archive.to_path_buf(),
+                                inner: part.join(&d.name),
+                            }));
+                        }
+                    }
+                });
+        });
+    }
 }
 
 fn crumb_name(p: &Path) -> String {

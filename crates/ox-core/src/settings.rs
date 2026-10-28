@@ -83,6 +83,8 @@ pub struct Browsing {
     pub auto_refresh: bool,
     /// Calculate folder sizes in the background for the Size column.
     pub folder_sizes: bool,
+    /// Open zip and tar files like folders (instead of the default app).
+    pub open_archives: bool,
 }
 
 impl Default for Browsing {
@@ -102,6 +104,7 @@ impl Default for Browsing {
             show_preview: false,
             auto_refresh: true,
             folder_sizes: true,
+            open_archives: true,
         }
     }
 }

@@ -71,6 +71,9 @@ struct Ctx<'a> {
     selection_fill: Color32,
     is_search: bool,
     is_bin: bool,
+    /// Inside an archive: items can be opened and copied (extracted) only.
+    read_only: bool,
+
     /// Shell icons (Windows), or `None` to paint the built-in icons.
     icons: Option<&'a crate::icons::IconCache>,
     /// Trash items behind the entries when showing the Recycle Bin.
@@ -114,6 +117,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         ),
         tags: &app.tags,
         is_bin: app.tabs.active().location().is_bin(),
+        read_only: app.tabs.active().location().is_read_only(),
         icons: app.settings.appearance.system_icons.then_some(&app.icons),
         bin: &bin,
         sizes: (app.settings.browsing.folder_sizes
@@ -230,6 +234,22 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 .clicked()
             {
                 actions.push(Action::Refresh);
+            }
+        });
+    }
+    if let Location::Archive { archive, .. } = tab.location() {
+        let archive = archive.clone();
+        bg.context_menu(|ui| {
+            if ui.button("📦 Extract all to a new folder").clicked() {
+                actions.push(Action::ExtractArchive {
+                    archive: archive.clone(),
+                    own_folder: true,
+                });
+            }
+            if ui.button("📂 Open the archive's folder").clicked() {
+                if let Some(parent) = archive.parent() {
+                    actions.push(Action::Navigate(Location::Folder(parent.to_path_buf())));
+                }
             }
         });
     }
@@ -488,7 +508,9 @@ fn paint_row(
         egui::pos2(x + name_w - 8.0, rect.max.y),
     ));
     let icon_size = (cx.row_h - 8.0).min(20.0);
-    let texture = cx.icons.and_then(|c| c.texture(e, cx.is_bin));
+    let texture = cx
+        .icons
+        .and_then(|c| c.texture(e, cx.is_bin || cx.read_only));
     icons::paint_entry(&p, icons::icon_rect(x + 2.0, y, icon_size), e, dim, texture);
     let name = if e.is_symlink {
         format!("{} ↗", e.display_name(cx.show_ext))
@@ -665,7 +687,9 @@ fn paint_tile(
         egui::pos2(rect.center().x, rect.top() + 32.0),
         vec2(48.0, 48.0),
     );
-    let texture = cx.icons.and_then(|c| c.texture(e, cx.is_bin));
+    let texture = cx
+        .icons
+        .and_then(|c| c.texture(e, cx.is_bin || cx.read_only));
     icons::paint_entry(ui.painter(), icon_rect, e, dim, texture);
     // Tag dots in the top-right corner of the icon.
     for (i, &tag) in cx.tags.tags(&e.path).iter().enumerate() {
@@ -804,6 +828,7 @@ fn item_context_menu(
         }
         let target = MenuTarget {
             selection: &selection,
+            read_only: cx.read_only,
             tags: cx.tags,
             single_dir,
             pinned: cx.favorites.contains(&e.path),

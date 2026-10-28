@@ -3,6 +3,7 @@
 //! Everything in here is plain Rust with no GUI dependency so it can be unit
 //! tested (and reused by a future CLI or alternative front-end).
 
+pub mod archive;
 pub mod clipboard;
 pub mod dirsize;
 pub mod disk;
