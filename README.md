@@ -9,11 +9,21 @@ Rust engine does the work and shows progress in a panel inside the window.
 
 ![Details view with tab groups and a paused transfer](docs/screenshots/details-dark.png)
 
-> **Status: early development (Phases 1–4 done, Phase 5 in progress, see [ROADMAP.md](ROADMAP.md)).**
-> The app is developed and tested by hand on Linux. The automated tests,
-> including the `CopyFileExW` copy path, pass on Windows in CI. The
-> Windows-only UI features (Shell icons, context menu, Properties, Explorer
-> clipboard sharing) build for Windows but have not been tried by hand yet.
+## Download
+
+**[Oxplorer 1.0](https://github.com/Flory-1/oxplorer/releases/latest)** for Windows 10 (1809)
+and 11, 64-bit:
+
+- **Installer** (`oxplorer-v1.0.0-setup-x64.exe`): installs for your user, no admin rights needed
+- **Portable** (`oxplorer-v1.0.0-windows-x64.zip`): unzip and run `oxplorer.exe`
+
+What's new: [CHANGELOG.md](CHANGELOG.md). What's next: [ROADMAP.md](ROADMAP.md).
+
+> The app is developed and tested by hand on Linux; the automated tests, including the
+> `CopyFileExW` copy path, pass on Windows in CI. Some Windows-only features (Shell icons,
+> thumbnails and context menu, drag out, network locations, the window backdrop, opening
+> folders by default) build and are tested for Windows but haven't been tried by hand yet.
+> Please [report anything that doesn't work](https://github.com/Flory-1/oxplorer/issues).
 
 ## Features
 
@@ -172,7 +182,7 @@ oxplorer.exe "C:\Users\me\Documents"
 
 CI builds a Windows binary and installer on every push to `main`. Download them from the
 **Actions** tab, under the artifact `oxplorer-windows-x64`. Pushing a version
-tag (e.g. `v0.2.0`) publishes on the **Releases** page:
+tag (e.g. `v1.0.0`) publishes on the **Releases** page:
 
 - `oxplorer-<version>-setup-x64.exe`: installer (per user, no admin rights needed), with
   Start menu entry and the option to open folders in Oxplorer. Uninstalling gives folders
@@ -184,6 +194,14 @@ tag (e.g. `v0.2.0`) publishes on the **Releases** page:
 
 The installer is built with [Inno Setup](https://jrsoftware.org/isinfo.php) from
 `installer/oxplorer.iss` (`installer/build.ps1` builds it and the manifests).
+
+To make a release:
+
+1. Set the new version in `Cargo.toml`, `crates/ox-app/assets/oxplorer.rc` and
+   `crates/ox-app/assets/oxplorer.manifest` (a test fails if they differ).
+2. Add a `## [x.y.z] - date` section to `CHANGELOG.md`; it becomes the release notes.
+3. Merge to `main`, then tag that commit `vx.y.z` and push the tag. The release workflow
+   refuses a tag that doesn't match the version.
 
 Run the tests:
 

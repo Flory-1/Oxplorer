@@ -67,3 +67,36 @@ fn main() -> eframe::Result {
         Box::new(move |cc| Ok(Box::new(app::OxApp::new(cc, open, backdrop)))),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    /// The version in the exe's resources (Properties → Details) and its
+    /// manifest must match Cargo.toml; the release workflow checks the tag.
+    #[test]
+    fn windows_resources_carry_the_crate_version() {
+        let version = env!("CARGO_PKG_VERSION");
+        let commas = format!("{},0", version.replace('.', ","));
+        let rc = include_str!("../assets/oxplorer.rc");
+        assert!(
+            rc.contains(&format!("FILEVERSION {commas}")),
+            "oxplorer.rc FILEVERSION"
+        );
+        assert!(
+            rc.contains(&format!("PRODUCTVERSION {commas}")),
+            "oxplorer.rc PRODUCTVERSION"
+        );
+        assert!(
+            rc.contains(&format!("\"FileVersion\", \"{version}\"")),
+            "oxplorer.rc FileVersion"
+        );
+        assert!(
+            rc.contains(&format!("\"ProductVersion\", \"{version}\"")),
+            "oxplorer.rc ProductVersion"
+        );
+        let manifest = include_str!("../assets/oxplorer.manifest");
+        assert!(
+            manifest.contains(&format!("name=\"Oxplorer\" version=\"{version}.0\"")),
+            "oxplorer.manifest"
+        );
+    }
+}
