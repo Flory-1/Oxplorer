@@ -1,9 +1,68 @@
-//! Vector icons for folders, files and drives, painted with egui shapes so
-//! they look crisp at every size. Real shell icons and thumbnails are planned
-//! (see ROADMAP Phase 2).
+//! File icons. On Windows the real Shell icons are used (loaded in the
+//! background and cached per file type); everywhere else, and until a Shell
+//! icon has loaded, vector icons painted with egui shapes are shown.
 
-use egui::{pos2, vec2, Align2, Color32, CornerRadius, FontId, Painter, Pos2, Rect, Shape, Stroke};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::Path;
+
+use egui::{
+    pos2, vec2, Align2, Color32, ColorImage, Context, CornerRadius, FontId, Painter, Pos2, Rect,
+    Shape, Stroke, TextureHandle, TextureId, TextureOptions,
+};
 use ox_core::entry::{FileEntry, FileKind};
+use ox_core::shell::{IconKey, Shell};
+
+/// Shell icons uploaded as textures, keyed like the Shell caches them.
+pub struct IconCache {
+    pub shell: Shell,
+    textures: RefCell<HashMap<IconKey, Option<TextureHandle>>>,
+}
+
+impl IconCache {
+    pub fn new(ctx: &Context) -> Self {
+        let repaint = ctx.clone();
+        Self {
+            shell: Shell::start(move || repaint.request_repaint()),
+            textures: RefCell::default(),
+        }
+    }
+
+    /// Upload icons that finished loading. Call once per frame.
+    pub fn poll(&self, ctx: &Context) {
+        for (key, image) in self.shell.poll_icons() {
+            let texture = image.map(|img| {
+                let size = img.size as usize;
+                let color = ColorImage::from_rgba_unmultiplied([size, size], &img.rgba);
+                let options = TextureOptions {
+                    mipmap_mode: Some(egui::TextureFilter::Linear),
+                    ..TextureOptions::LINEAR
+                };
+                ctx.load_texture(format!("icon:{key:?}"), color, options)
+            });
+            self.textures.borrow_mut().insert(key, texture);
+        }
+    }
+
+    /// Texture for an entry, if its Shell icon is loaded. Requests it otherwise.
+    /// `by_name` looks the icon up by file name only (Recycle Bin entries).
+    pub fn texture(&self, e: &FileEntry, by_name: bool) -> Option<TextureId> {
+        let key = if by_name {
+            IconKey::for_path(Path::new(&e.name), e.is_dir)
+        } else {
+            IconKey::for_path(&e.path, e.is_dir)
+        };
+        let key = match key {
+            IconKey::Path(_) if by_name => IconKey::Extension(e.extension()),
+            k => k,
+        };
+        if let Some(t) = self.textures.borrow().get(&key) {
+            return t.as_ref().map(TextureHandle::id);
+        }
+        self.shell.request_icon(&key);
+        None
+    }
+}
 
 pub const HOME: &str = "🏠";
 
@@ -30,8 +89,23 @@ pub fn kind_color(kind: FileKind) -> Color32 {
 }
 
 /// Paint the icon for an entry into a square `rect`.
-pub fn paint_entry(p: &Painter, rect: Rect, e: &FileEntry, faded: bool) {
-    if e.is_dir {
+/// Paint an entry's icon: the Shell icon `texture` if given, else a vector icon.
+pub fn paint_entry(
+    p: &Painter,
+    rect: Rect,
+    e: &FileEntry,
+    faded: bool,
+    texture: Option<TextureId>,
+) {
+    if let Some(tex) = texture {
+        let tint = if faded {
+            Color32::from_white_alpha(110)
+        } else {
+            Color32::WHITE
+        };
+        let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+        p.image(tex, rect, uv, tint);
+    } else if e.is_dir {
         paint_folder(p, rect, faded);
     } else {
         let ext = e.extension();

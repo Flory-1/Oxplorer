@@ -9,10 +9,11 @@ Rust engine does the work and shows progress in a panel inside the window.
 
 ![Details view with tab groups and a paused transfer](docs/screenshots/details-dark.png)
 
-> **Status: early development (Phase 1, see [ROADMAP.md](ROADMAP.md)).**
-> So far it has been developed and tested on Linux. The Windows-specific
-> code (`CopyFileExW`, Explorer clipboard sharing, hidden attributes) compiles
-> for Windows but has not yet been tested on a real Windows machine.
+> **Status: early development (Phases 1–2, see [ROADMAP.md](ROADMAP.md)).**
+> The app is developed and tested by hand on Linux. The automated tests,
+> including the `CopyFileExW` copy path, pass on Windows in CI. The
+> Windows-only UI features (Shell icons, context menu, Properties, Explorer
+> clipboard sharing) build for Windows but have not been tried by hand yet.
 
 ## Features
 
@@ -25,6 +26,15 @@ Rust engine does the work and shows progress in a panel inside the window.
 - New folder or file, rename (F2), delete to the Recycle Bin, permanent delete (Shift+Del), properties with folder size
 - The view refreshes by itself when files change on disk
 - Open in Terminal, Show in Windows Explorer, Copy path
+- **Recycle Bin view**: browse deleted items with their original location, restore them,
+  delete them permanently or empty the bin. Drop files onto it in the sidebar to delete them.
+
+**Windows integration**
+- The same file icons as Explorer (loaded in the background, cached per file type)
+- **Show more options** (or Shift+F10) opens the real Explorer context menu, so
+  entries from 7-Zip, VS Code, Git and other tools are there
+- Native Properties dialog and "Open with…"
+- App icon, per-monitor DPI awareness and long-path support through the app manifest
 
 **Tabs and tab groups**
 - Tabs in the header bar. Drag them to reorder, middle-click to close.
@@ -69,12 +79,15 @@ Rust engine does the work and shows progress in a panel inside the window.
 - Browsing, startup, sidebar, copy engine and search options, plus a list of keyboard shortcuts
 - Saved as TOML in `%APPDATA%\Oxplorer\`
 
-| Home / Quick access | Grid view (light) | Settings |
-|---|---|---|
-| ![Home](docs/screenshots/home-dark.png) | ![Grid](docs/screenshots/grid-light.png) | ![Settings](docs/screenshots/settings-light.png) |
+| Home / Quick access | Grid view (light) |
+|---|---|
+| ![Home](docs/screenshots/home-dark.png) | ![Grid](docs/screenshots/grid-light.png) |
+| **Recycle Bin** | **Settings** |
+| ![Recycle Bin](docs/screenshots/recycle-bin-dark.png) | ![Settings](docs/screenshots/settings-light.png) |
 
 *The screenshots were taken on Linux during development, which is why the drives
-show as mount points. On Windows they show as `Local Disk (C:)` and so on.*
+show as mount points and the built-in icons are used. On Windows the drives show
+as `Local Disk (C:)` and so on, with the real Windows file icons.*
 
 ## Building
 
@@ -91,7 +104,8 @@ oxplorer.exe "C:\Users\me\Documents"
 ```
 
 CI builds a Windows binary on every push to `main`. Download it from the
-**Actions** tab, under the artifact `oxplorer-windows-x64`.
+**Actions** tab, under the artifact `oxplorer-windows-x64`. Pushing a version
+tag (e.g. `v0.2.0`) publishes a portable zip on the **Releases** page.
 
 Run the tests:
 
@@ -108,6 +122,8 @@ crates/
     search.rs         parallel recursive search + query language
     entry.rs          directory listing, file kinds, sorting
     clipboard.rs      file clipboard, shared with Windows Explorer
+    shell.rs          Windows Shell: icons, native context menu, Properties, Open with
+    recycle.rs        Recycle Bin: list, restore, purge
     places.rs         favorites, recent items, known folders, drives
     settings.rs       settings (TOML)
     fsops.rs          create / rename / delete / shell helpers
@@ -136,6 +152,7 @@ rendered). That keeps the app a single small native `.exe` with no web runtime.
 | F2 / Del / Shift+Del | Rename / delete / delete permanently |
 | Ctrl+Shift+N | New folder |
 | Alt+Enter | Properties |
+| Shift+F10 | Windows context menu ("Show more options") |
 | F5 | Refresh |
 | Ctrl+, | Settings |
 

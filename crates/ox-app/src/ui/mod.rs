@@ -65,7 +65,9 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         match app.tabs.active().location().clone() {
             Location::Home => home::show(app, ui),
             Location::Settings => settings_page::show(app, ui),
-            Location::Folder(_) | Location::Search { .. } => files::show(app, ui),
+            Location::Folder(_) | Location::Search { .. } | Location::RecycleBin => {
+                files::show(app, ui)
+            }
         }
     });
 
@@ -179,6 +181,8 @@ pub struct MenuTarget<'a> {
     pub pinned: bool,
     pub can_paste: bool,
     pub destinations: &'a [(String, PathBuf)],
+    /// The Windows Shell is available ("Open with", "Show more options").
+    pub shell: bool,
 }
 
 /// Folders offered in "Copy to" / "Move to": favorites and other open tabs.
@@ -215,6 +219,10 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         for p in &sel {
             actions.push(Action::Open(p.clone()));
         }
+    }
+    if t.shell && t.single_dir.is_none() && sel.len() == 1 && ui.button("🗗 Open with…").clicked()
+    {
+        actions.push(Action::OpenWith(sel[0].clone()));
     }
     ui.separator();
     if ui
@@ -308,7 +316,17 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         .add(egui::Button::new("ℹ Properties").shortcut_text("Alt+Enter"))
         .clicked()
     {
-        actions.push(Action::Properties(sel));
+        actions.push(Action::Properties(sel.clone()));
+    }
+    if t.shell {
+        ui.separator();
+        if ui
+            .add(egui::Button::new("⋯ Show more options").shortcut_text("Shift+F10"))
+            .on_hover_text("The Windows Explorer menu, with entries from other apps")
+            .clicked()
+        {
+            actions.push(Action::ShellMenu(sel));
+        }
     }
 }
 

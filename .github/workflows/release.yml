@@ -1,0 +1,36 @@
+name: Release
+
+# Push a tag like `v0.2.0` to publish a GitHub release with a portable zip.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Build & publish (Windows x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --workspace
+      - name: Build
+        run: cargo build --release -p ox-app
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          $name = "oxplorer-${{ github.ref_name }}-windows-x64"
+          New-Item -ItemType Directory -Path $name | Out-Null
+          Copy-Item target/release/oxplorer.exe, README.md, LICENSE, ROADMAP.md -Destination $name
+          Compress-Archive -Path $name -DestinationPath "$name.zip"
+          (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" | Out-File -Encoding ascii "$name.zip.sha256"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            oxplorer-*.zip
+            oxplorer-*.zip.sha256
+          generate_release_notes: true

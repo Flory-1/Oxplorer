@@ -107,6 +107,34 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
                     }
                 });
             }
+            Dialog::ConfirmPurge { items, everything } => {
+                ui.heading("Delete permanently?");
+                ui.add_space(6.0);
+                let what = match (items.as_slice(), *everything) {
+                    (_, true) => "everything in the Recycle Bin".to_owned(),
+                    ([one], _) => format!("\"{}\"", one.name.to_string_lossy()),
+                    (many, _) => format!("these {} items", many.len()),
+                };
+                ui.label(format!(
+                    "Do you want to permanently delete {what}? This can't be undone."
+                ));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    let enter = ui.input(|i| i.key_pressed(Key::Enter));
+                    let label = if *everything {
+                        "Empty Recycle Bin"
+                    } else {
+                        "Delete"
+                    };
+                    if ui.button(RichText::new(label).strong()).clicked() || enter {
+                        actions.push(Action::PurgeConfirmed(std::mem::take(items), *everything));
+                        keep = false;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        keep = false;
+                    }
+                });
+            }
             Dialog::Properties(p) => {
                 if let Some(rx) = &p.rx {
                     if let Ok(t) = rx.try_recv() {

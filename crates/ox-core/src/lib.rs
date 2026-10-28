@@ -9,8 +9,10 @@ pub mod format;
 pub mod fsops;
 pub mod natural;
 pub mod places;
+pub mod recycle;
 pub mod search;
 pub mod settings;
+pub mod shell;
 pub mod transfer;
 pub mod watcher;
 

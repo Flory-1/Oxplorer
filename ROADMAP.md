@@ -20,12 +20,12 @@ Status legend: ✅ done · 🚧 in progress · ⏳ planned
 
 Goal: a daily-driver replacement for the basic Explorer tasks.
 
-Everything marked ✅ below is implemented and was tested on Linux. The phase is
-finished once it has been tested on Windows:
+Everything marked ✅ below is implemented and was tested by hand on Linux. The
+automated tests (copy engine, conflicts, search, settings, tabs) also pass on
+Windows in CI. The phase is finished once the app has been tried by hand on Windows:
 
-- ⏳ **Test on Windows 10/11** and fix what comes up: `CopyFileExW` path,
-  Explorer clipboard interop, hidden/system attributes, drive labels, junctions,
-  long paths, high-DPI scaling
+- ⏳ **Manual test on Windows 10/11** and fix what comes up: Explorer clipboard
+  interop, hidden/system attributes, drive labels, junctions, long paths, high-DPI scaling
 - ⏳ Benchmark the copy engine against Explorer on Windows (many small files, one huge file, SSD → USB)
 
 **Browsing**
@@ -64,17 +64,23 @@ finished once it has been tested on Windows:
 - ✅ Browsing, startup, sidebar, copy engine and search options
 - ✅ Saved as TOML in `%APPDATA%\Oxplorer`
 
-## Phase 2 — Deep Windows integration ⏳
+## Phase 2 — Deep Windows integration 🚧
 
-- ⏳ Real file icons and thumbnails (`SHGetFileInfo` / `IShellItemImageFactory`), cached
-- ⏳ Native shell context menu (`IContextMenu`) under "Show more options", so 7-Zip, VS Code and other entries work
+Items marked ✅ build and pass CI on Windows. The ones marked *(untested)* use
+Windows-only APIs and still need a manual check on a real Windows machine.
+
+- ✅ Real Windows file icons (`SHGetFileInfo` + system image list, loaded in the background and cached per file type) *(untested)*
+- ✅ Native shell context menu under "Show more options" / Shift+F10 (`IContextMenu`, incl. owner-drawn submenus like "Send to"), so 7-Zip, VS Code and other entries work *(untested)*
+- ✅ Native Properties dialog (`ShellExecuteEx` "properties") and "Open with…" (`SHOpenWithDialog`) *(untested)*
+- ✅ Recycle Bin view: browse, restore, delete permanently, empty, drop files onto it
+- ✅ App icon, version info and manifest (per-monitor DPI v2, long paths, modern common controls)
+- ✅ Portable zip on GitHub Releases (push a `v*` tag)
+- ⏳ Thumbnails for images and videos (`IShellItemImageFactory`)
 - ⏳ OLE drag & drop **out** of the app into other programs (`IDropSource`)
-- ⏳ Recycle Bin view (browse and restore)
-- ⏳ Network locations, UNC paths, mapped drives, `\\?\` long-path support
-- ⏳ Native Properties dialog (`ShellExecuteEx` "properties")
-- ⏳ Mica/Acrylic window backdrop, Windows 11 rounded corners, app icon, DPI-aware manifest
+- ⏳ Network locations: browse `\\server` shares, show mapped drives in the sidebar
+- ⏳ Mica/Acrylic window backdrop, Windows 11 rounded corners
 - ⏳ Option to "Open folders in Oxplorer" by default (Win+E / folder association)
-- ⏳ Installer: MSIX / winget / portable zip
+- ⏳ Installer: MSIX / winget
 
 ## Phase 3 — Copy Engine 2.0 ⏳
 

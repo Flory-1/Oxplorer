@@ -9,6 +9,7 @@ use egui::{
 };
 use ox_core::entry::{FileEntry, SortKey};
 use ox_core::format;
+use ox_core::recycle::BinListing;
 use ox_core::settings::ViewMode;
 
 use super::{DragItems, MenuTarget};
@@ -31,6 +32,11 @@ struct Ctx<'a> {
     accent: Color32,
     selection_fill: Color32,
     is_search: bool,
+    is_bin: bool,
+    /// Shell icons (Windows), or `None` to paint the built-in icons.
+    icons: Option<&'a crate::icons::IconCache>,
+    /// Trash items behind the entries when showing the Recycle Bin.
+    bin: &'a BinListing,
     /// Root of the current search; result folders are shown relative to it.
     search_root: Option<PathBuf>,
     folder: Option<PathBuf>,
@@ -44,6 +50,8 @@ struct Ctx<'a> {
 pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let dark = ui.visuals().dark_mode;
     let folder = app.current_folder();
+    // Borrowed by the rows while the tab is mutably borrowed; put back at the end.
+    let bin = std::mem::take(&mut app.tabs.active_mut().view.bin);
     let tab_view_paths: Vec<PathBuf> = app
         .tabs
         .active()
@@ -60,6 +68,9 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         accent: crate::theme::accent(&app.settings),
         selection_fill: crate::theme::selection_fill(&app.settings, dark),
         is_search: matches!(app.tabs.active().location(), Location::Search { .. }),
+        is_bin: app.tabs.active().location().is_bin(),
+        icons: app.settings.appearance.system_icons.then_some(&app.icons),
+        bin: &bin,
         search_root: match app.tabs.active().location() {
             Location::Search { root, .. } => root.clone(),
             _ => None,
@@ -81,6 +92,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
 
     if let Some(err) = &tab.view.error {
         centered_message(ui, "⚠", &format!("Can't open this folder.\n{err}"));
+        tab.view.bin = bin;
         app.actions.extend(actions);
         return;
     }
@@ -121,6 +133,8 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             );
         } else if cx.is_search {
             centered_message(ui, "🔍", "No results.");
+        } else if cx.is_bin && tab.filter.is_empty() {
+            centered_message(ui, "🗑", "The Recycle Bin is empty.");
         } else if !tab.filter.is_empty() {
             centered_message(
                 ui,
@@ -134,6 +148,29 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
 
     if bg.clicked() && !cx.modifiers.command && !cx.modifiers.shift {
         tab.view.clear_selection();
+    }
+    if cx.is_bin {
+        let all: Vec<PathBuf> = tab.view.entries.iter().map(|e| e.path.clone()).collect();
+        bg.context_menu(|ui| {
+            if ui
+                .add_enabled(!all.is_empty(), egui::Button::new("♻ Restore all items"))
+                .clicked()
+            {
+                actions.push(Action::RestoreFromBin(all.clone()));
+            }
+            if ui
+                .add_enabled(!all.is_empty(), egui::Button::new("🗑 Empty Recycle Bin"))
+                .clicked()
+            {
+                actions.push(Action::EmptyBin);
+            }
+            if ui
+                .add(egui::Button::new("🔄 Refresh").shortcut_text("F5"))
+                .clicked()
+            {
+                actions.push(Action::Refresh);
+            }
+        });
     }
     if let Some(folder) = &cx.folder {
         let pinned = cx.favorites.contains(folder);
@@ -149,6 +186,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             );
         }
     }
+    tab.view.bin = bin;
     app.actions.extend(actions);
 }
 
@@ -189,7 +227,8 @@ fn details(
     sort_order: ox_core::entry::SortOrder,
 ) {
     let width = ui.available_width();
-    let fixed = DATE_W + TYPE_W + SIZE_W + if cx.is_search { FOLDER_W } else { 0.0 };
+    let with_folder = cx.is_search || cx.is_bin;
+    let fixed = DATE_W + TYPE_W + SIZE_W + if with_folder { FOLDER_W } else { 0.0 };
     let name_w = (width - fixed - 16.0).max(160.0);
 
     // Column header
@@ -201,11 +240,21 @@ fn details(
     );
     let mut x = header.left() + 8.0;
     let mut cols: Vec<(&str, f32, Option<SortKey>)> = vec![("Name", name_w, Some(SortKey::Name))];
-    if cx.is_search {
-        cols.push(("Folder", FOLDER_W, None));
+    if with_folder {
+        let label = if cx.is_bin {
+            "Original location"
+        } else {
+            "Folder"
+        };
+        cols.push((label, FOLDER_W, None));
     }
+    let date_label = if cx.is_bin {
+        "Date deleted"
+    } else {
+        "Date modified"
+    };
     cols.extend([
-        ("Date modified", DATE_W, Some(SortKey::Modified)),
+        (date_label, DATE_W, Some(SortKey::Modified)),
         ("Type", TYPE_W, Some(SortKey::Type)),
         ("Size", SIZE_W, Some(SortKey::Size)),
     ]);
@@ -326,7 +375,8 @@ fn paint_row(
         egui::pos2(x + name_w - 8.0, rect.max.y),
     ));
     let icon_size = (cx.row_h - 8.0).min(20.0);
-    icons::paint_entry(&p, icons::icon_rect(x + 2.0, y, icon_size), e, dim);
+    let texture = cx.icons.and_then(|c| c.texture(e, cx.is_bin));
+    icons::paint_entry(&p, icons::icon_rect(x + 2.0, y, icon_size), e, dim, texture);
     let name = if e.is_symlink {
         format!("{} ↗", e.display_name(cx.show_ext))
     } else {
@@ -364,7 +414,15 @@ fn paint_row(
             );
         }
     };
-    if cx.is_search {
+    if cx.is_bin {
+        let original = cx
+            .bin
+            .get(&e.path)
+            .map(|i| i.original_parent.display().to_string())
+            .unwrap_or_default();
+        col(x, FOLDER_W, original, false);
+        x += FOLDER_W;
+    } else if cx.is_search {
         let parent = e.path.parent().unwrap_or(&e.path);
         let parent = match &cx.search_root {
             Some(root) => {
@@ -487,7 +545,8 @@ fn paint_tile(
         egui::pos2(rect.center().x, rect.top() + 32.0),
         vec2(48.0, 48.0),
     );
-    icons::paint_entry(ui.painter(), icon_rect, e, dim);
+    let texture = cx.icons.and_then(|c| c.texture(e, cx.is_bin));
+    icons::paint_entry(ui.painter(), icon_rect, e, dim, texture);
     let mut job = LayoutJob::single_section(
         e.display_name(cx.show_ext).to_owned(),
         TextFormat::simple(FontId::proportional(12.5), fade(v.text_color())),
@@ -514,6 +573,22 @@ fn item_interact(
     actions: &mut Vec<Action>,
 ) -> bool {
     let m = cx.modifiers;
+    if cx.is_bin {
+        // Deleted items can only be selected, restored or purged.
+        if resp.clicked() {
+            if m.command {
+                view.toggle(i);
+            } else if m.shift {
+                view.select_range(i, false);
+            } else {
+                view.select_only(i);
+            }
+        }
+        if resp.secondary_clicked() && !view.selection.contains(&e.path) {
+            view.select_only(i);
+        }
+        return false;
+    }
     if resp.clicked() {
         if m.command {
             view.toggle(i);
@@ -560,6 +635,32 @@ fn item_context_menu(
 ) {
     resp.context_menu(|ui| {
         let selection = view.selected_paths();
+        if cx.is_bin {
+            if ui.button("♻ Restore").clicked() {
+                actions.push(Action::RestoreFromBin(selection.clone()));
+            }
+            if ui
+                .add(egui::Button::new("⛔ Delete permanently").shortcut_text("Del"))
+                .clicked()
+            {
+                actions.push(Action::PurgeFromBin(selection.clone()));
+            }
+            ui.separator();
+            if ui.button("🔗 Copy original location").clicked() {
+                let originals = selection
+                    .iter()
+                    .filter_map(|p| cx.bin.get(p))
+                    .map(|i| i.original_path())
+                    .collect();
+                actions.push(Action::CopyPathText(originals));
+            }
+            if let Some(parent) = cx.bin.get(&e.path).map(|i| i.original_parent.clone()) {
+                if ui.button("📁 Open original folder").clicked() {
+                    actions.push(Action::Navigate(Location::Folder(parent)));
+                }
+            }
+            return;
+        }
         let single_dir = (selection.len() == 1 && e.is_dir).then_some(e.path.as_path());
         if cx.is_search {
             if let Some(parent) = e.path.parent() {
@@ -574,6 +675,7 @@ fn item_context_menu(
             pinned: cx.favorites.contains(&e.path),
             can_paste: cx.can_paste || e.is_dir,
             destinations: &cx.destinations,
+            shell: ox_core::shell::supported(),
         };
         super::item_menu(ui, &target, actions);
     });
