@@ -357,14 +357,15 @@ mod imp {
                 }
                 let size = bm.bmWidth;
                 let mut pixels = read_bitmap(info.hbmColor, size)?;
-                if pixels.chunks_exact(4).all(|p| p[3] == 0) {
+                if pixels.as_chunks::<4>().0.iter().all(|p| p[3] == 0) {
                     // Old-style icon without alpha: use the AND mask instead.
                     let mask = read_bitmap(info.hbmMask, size)?;
-                    for (p, m) in pixels.chunks_exact_mut(4).zip(mask.chunks_exact(4)) {
+                    let mask = mask.as_chunks::<4>().0;
+                    for (p, m) in pixels.as_chunks_mut::<4>().0.iter_mut().zip(mask) {
                         p[3] = if m[0] == 0 { 255 } else { 0 };
                     }
                 }
-                for p in pixels.chunks_exact_mut(4) {
+                for p in pixels.as_chunks_mut::<4>().0 {
                     p.swap(0, 2); // BGRA -> RGBA
                 }
                 Some(IconImage {
