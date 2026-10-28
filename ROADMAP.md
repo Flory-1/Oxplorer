@@ -95,14 +95,17 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 - ⏳ Keep ACLs (security descriptors), optional
 - ⏳ Benchmarks against Explorer, robocopy and TeraCopy in CI
 
-## Phase 4 — Search 2.0 ⏳
+## Phase 4 — Search 2.0 🚧
 
-- ⏳ NTFS MFT reader and USN journal watcher for an "Everything"-style instant index of the whole PC (optional background service with admin rights)
-- ⏳ Persistent on-disk index for non-NTFS drives
-- ⏳ Search-as-you-type across all drives in milliseconds
-- ⏳ Faster content search (memory-mapped, SIMD, skip binary files)
-- ⏳ Filter UI (chips for type, size, date), saved searches in the sidebar
-- ⏳ Regex mode
+- ✅ Persistent file-name index (`ox-core::index`) for all drives: ~24 bytes per item plus names, saved to the cache folder and loaded in milliseconds at startup, rebuilt in the background on start and every N minutes. Benchmark (Linux, warm disk cache): 280k items indexed in 0.24 s, queries in 2–12 ms
+- ✅ Search-as-you-type across all indexed drives (Home page and search tabs)
+- ✅ Searches inside a folder use the index too when it covers the folder; otherwise the parallel walker is used
+- ✅ Faster content search: one compiled pattern per query, reused buffers, binary files skipped (memory-mapping was rejected: a file truncated during the search would crash the app)
+- ✅ Filter chips (kind, date, size) and saved searches in the sidebar
+- ✅ Regex mode (`/pattern/` or `regex:`), `kind:` filter (image, video, audio, document, archive, code, app)
+- ✅ Index settings: folders, excluded names, refresh interval, rebuild now, live status
+- ⏳ Live index updates from file system events (today the index is refreshed on a schedule)
+- ⏳ NTFS MFT reader (`FSCTL_ENUM_USN_DATA`) as a much faster index builder on Windows, plus USN journal for live updates (needs admin rights → optional helper service)
 
 ## Phase 5 — Power-user features ⏳
 

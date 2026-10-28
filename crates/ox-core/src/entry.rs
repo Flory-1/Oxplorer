@@ -175,14 +175,14 @@ pub fn display_name(path: &Path) -> String {
 }
 
 #[cfg(windows)]
-fn is_hidden(_name: &str, meta: &fs::Metadata) -> bool {
+pub(crate) fn is_hidden(_name: &str, meta: &fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
     const HIDDEN: u32 = 0x2;
     meta.file_attributes() & HIDDEN != 0
 }
 
 #[cfg(not(windows))]
-fn is_hidden(name: &str, _meta: &fs::Metadata) -> bool {
+pub(crate) fn is_hidden(name: &str, _meta: &fs::Metadata) -> bool {
     name.starts_with('.')
 }
 

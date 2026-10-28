@@ -14,6 +14,7 @@ use crossbeam_channel::Receiver;
 use egui::{Context, Key, Modifiers};
 use ox_core::clipboard::{ClipMode, FileClipboard};
 use ox_core::entry::{self, FileEntry};
+use ox_core::index::{IndexService, IndexState};
 use ox_core::places::{self, Drive, QuickAccess};
 use ox_core::recycle::{self, TrashItem};
 use ox_core::search::{self, Query, SearchEvent, SearchOptions};
@@ -53,6 +54,11 @@ pub enum Action {
     Reveal(PathBuf),
     Properties(Vec<PathBuf>),
     Search(Option<PathBuf>, String),
+    /// Search while typing: updates the current search tab instead of adding history.
+    SearchLive(Option<PathBuf>, String),
+    SaveSearch(Option<PathBuf>, String),
+    RemoveSavedSearch(usize),
+    RebuildIndex,
     SelectAll,
     ForgetRecent(PathBuf),
     ClearRecent,
@@ -165,6 +171,12 @@ pub struct OxApp {
     text_clipboard: Option<arboard::Clipboard>,
     applied_settings: Option<Settings>,
     pub icons: crate::icons::IconCache,
+    pub index: IndexService,
+    /// The index was (re)built at least once this session.
+    index_started: bool,
+    index_next: Option<Instant>,
+    /// Index-related settings the current index was built with.
+    index_settings: Option<(Vec<PathBuf>, Vec<String>)>,
 }
 
 impl OxApp {
@@ -226,6 +238,15 @@ impl OxApp {
             text_clipboard: None,
             applied_settings: None,
             icons: crate::icons::IconCache::new(&cc.egui_ctx),
+            index: {
+                let repaint = cc.egui_ctx.clone();
+                IndexService::start(ox_core::index::default_cache_path(), move || {
+                    repaint.request_repaint()
+                })
+            },
+            index_started: false,
+            index_next: None,
+            index_settings: None,
         }
     }
 
@@ -267,6 +288,7 @@ impl OxApp {
         }
         self.remap_text_clipboard_keys(ctx);
         self.icons.poll(ctx);
+        self.manage_index();
         self.load_active_tab();
         self.poll_tabs();
         self.poll_watcher();
@@ -339,6 +361,12 @@ impl OxApp {
             threads: self.settings.search.threads,
         };
         let drives: Vec<PathBuf> = self.drives.iter().map(|d| d.mount.clone()).collect();
+        let index = self
+            .settings
+            .search
+            .index_enabled
+            .then(|| self.index.index())
+            .flatten();
         let tab = self.tabs.active_mut();
         if !tab.stale {
             return;
@@ -354,10 +382,19 @@ impl OxApp {
                 tab.view.loading = Some(rx);
             }
             Location::Search { root, query } => {
-                let roots = root.map(|r| vec![r]).unwrap_or(drives);
                 let q = Query::parse(&query, search_opts.case_sensitive);
                 tab.view = Default::default();
-                let handle = search::start(roots, q, search_opts, move || ctx.request_repaint());
+                let repaint = move || ctx.request_repaint();
+                // Answer from the index when it covers the place we search in.
+                let handle = match index {
+                    Some(idx) if root.as_deref().is_none_or(|r| idx.covers(r)) => {
+                        search::start_indexed(idx, root, q, search_opts, repaint)
+                    }
+                    _ => {
+                        let roots = root.map(|r| vec![r]).unwrap_or(drives);
+                        search::start(roots, q, search_opts, repaint)
+                    }
+                };
                 tab.search = Some(SearchState {
                     handle: Some(handle),
                     done: None,
@@ -412,14 +449,23 @@ impl OxApp {
                                 elapsed,
                                 scanned,
                                 truncated,
+                                from_index,
                             } => {
-                                search.done = Some(format!(
-                                    "{} results · {} items scanned in {:.2}s{}",
-                                    tab.view.entries.len(),
-                                    scanned,
-                                    elapsed.as_secs_f32(),
-                                    if truncated { " · limit reached" } else { "" }
-                                ));
+                                let limit = if truncated { " · limit reached" } else { "" };
+                                let results =
+                                    format::count(tab.view.entries.len() as u64, "result");
+                                search.done = Some(if from_index {
+                                    format!(
+                                        "{results} in {} ms · ⚡ from the index ({} items){limit}",
+                                        elapsed.as_millis(),
+                                        scanned
+                                    )
+                                } else {
+                                    format!(
+                                        "{results} · {scanned} items scanned in {:.2}s{limit}",
+                                        elapsed.as_secs_f32()
+                                    )
+                                });
                                 changed = true;
                             }
                         }
@@ -912,6 +958,33 @@ impl OxApp {
                 }
                 self.navigate(Location::Search { root, query });
             }
+            Action::SearchLive(root, query) => {
+                let tab = self.tabs.active_mut();
+                let in_search = matches!(tab.location(), Location::Search { .. });
+                if query.trim().is_empty() {
+                    if in_search {
+                        tab.back();
+                    }
+                } else if in_search {
+                    tab.replace(Location::Search { root, query });
+                } else {
+                    self.navigate(Location::Search { root, query });
+                }
+            }
+            Action::SaveSearch(root, query) => {
+                self.quick.save_search(&query, root);
+                self.save_quick();
+                self.toast("Search saved to the sidebar");
+            }
+            Action::RemoveSavedSearch(i) => {
+                if i < self.quick.saved_searches.len() {
+                    self.quick.saved_searches.remove(i);
+                    self.save_quick();
+                }
+            }
+            Action::RebuildIndex => {
+                self.index_started = false;
+            }
             Action::SelectAll => self.tabs.active_mut().view.select_all(),
             Action::ForgetRecent(p) => {
                 self.quick.forget(&p);
@@ -1052,6 +1125,44 @@ impl OxApp {
             self.settings.transfer.default_conflict,
         ));
         self.ui.show_transfers = true;
+    }
+
+    /// Keep the search index fresh: rebuild on start, on schedule and when
+    /// the index settings change; drop it when indexing is turned off.
+    fn manage_index(&mut self) {
+        let s = &self.settings.search;
+        if !s.index_enabled {
+            if self.index.index().is_some() || self.index.is_building() {
+                self.index.clear();
+            }
+            self.index_started = false;
+            return;
+        }
+        let wanted = (s.index_roots.clone(), s.index_exclude.clone());
+        if self.index_settings.as_ref() != Some(&wanted) {
+            if self.index_settings.is_some() {
+                self.index_started = false; // settings changed: rebuild
+            }
+            self.index_settings = Some(wanted);
+        }
+        if self.index.state() == IndexState::Loading || self.index.is_building() {
+            return;
+        }
+        let due = !self.index_started || self.index_next.is_some_and(|t| Instant::now() >= t);
+        if due {
+            let drives: Vec<PathBuf> = self.drives.iter().map(|d| d.mount.clone()).collect();
+            self.index
+                .rebuild(self.settings.search.index_config(&drives));
+            self.index_started = true;
+            let minutes = self.settings.search.index_refresh_minutes;
+            self.index_next = (minutes > 0)
+                .then(|| Instant::now() + Duration::from_secs(u64::from(minutes) * 60));
+        }
+    }
+
+    /// Is a ready-to-use index available for instant search?
+    pub fn index_ready(&self) -> bool {
+        self.settings.search.index_enabled && self.index.index().is_some()
     }
 
     /// Run `op` on a helper thread; when it finishes, errors become a toast and

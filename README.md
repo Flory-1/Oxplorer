@@ -61,19 +61,26 @@ Rust engine does the work and shows progress in a panel inside the window.
 - Shares the clipboard with Windows Explorer in both directions (CF_HDROP + Preferred DropEffect).
   Copy in Explorer and paste in Oxplorer, and the paste still runs through the fast engine.
 
-**Search** (`ox-core::search`)
+**Search** (`ox-core::search`, `ox-core::index`)
 - Typing in the search box filters the current folder instantly
-- **Enter** runs a deep, multi-threaded search through all sub-folders. It uses
-  the same parallel directory walker as ripgrep, and results appear while it runs.
+- A **file-name index** of your drives makes searching everything instant: start
+  typing on the Home page and results appear as you type (280k files are
+  searched in milliseconds). The index is saved between runs and refreshed in the
+  background.
+- **Enter** searches all sub-folders: from the index when it covers the folder,
+  otherwise with a multi-threaded walker (the same parallel walker as ripgrep)
+- **Filter chips** for kind, date and size, and **saved searches** in the sidebar
 - Query syntax:
 
   | Query | Meaning |
   |---|---|
   | `report` / `"annual report"` | name contains the word / phrase |
   | `*.rs`, `img_??` | wildcards |
+  | `/^IMG_\d+\.jpe?g$/` | regular expression (also `regex:…`) |
   | `-tmp` | exclude |
   | `ext:pdf,docx` | by extension |
   | `type:folder`, `type:file` | only folders / files |
+  | `kind:image,video` | by kind (image, video, audio, document, archive, code, app) |
   | `size:>10mb`, `size:<1kb` | by size |
   | `modified:7d`, `modified:today` | recently changed |
   | `content:"TODO"` | text inside files |
@@ -88,6 +95,8 @@ Rust engine does the work and shows progress in a panel inside the window.
 | ![Home](docs/screenshots/home-dark.png) | ![Grid](docs/screenshots/grid-light.png) |
 | **Recycle Bin** | **Settings** |
 | ![Recycle Bin](docs/screenshots/recycle-bin-dark.png) | ![Settings](docs/screenshots/settings-light.png) |
+| **Search as you type, filter chips, saved searches** | |
+| ![Search](docs/screenshots/search-dark.png) | |
 
 *The screenshots were taken on Linux during development, which is why the drives
 show as mount points and the built-in icons are used. On Windows the drives show
@@ -123,7 +132,9 @@ cargo test --workspace
 crates/
   ox-core/            UI-independent logic (unit tested)
     transfer/         copy/move engine: scan → conflict decision → parallel copy
-    search.rs         parallel recursive search + query language
+    search.rs         query language, parallel walker, indexed search
+    index.rs          persistent file-name index (build, query, cache)
+    disk.rs           volume ids, HDD/SSD detection
     entry.rs          directory listing, file kinds, sorting
     clipboard.rs      file clipboard, shared with Windows Explorer
     shell.rs          Windows Shell: icons, native context menu, Properties, Open with

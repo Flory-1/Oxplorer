@@ -10,7 +10,7 @@ mod transfers;
 
 use std::path::{Path, PathBuf};
 
-use egui::{Align2, Color32, FontId, Id, LayerId, Order, Response, Ui};
+use egui::{Align2, Color32, FontId, Id, LayerId, Order, Response, RichText, Ui};
 use ox_core::entry::display_name;
 use ox_core::format;
 use ox_core::transfer::TransferKind;
@@ -116,6 +116,10 @@ fn status_bar(app: &mut OxApp, ui: &mut Ui) {
                 if ui.link(summary).clicked() {
                     app.ui.show_transfers = true;
                 }
+            }
+            if app.settings.search.index_enabled && app.index.is_building() {
+                ui.label(RichText::new(format!("Indexing… {} items", app.index.progress())).weak());
+                ui.spinner();
             }
         });
     });

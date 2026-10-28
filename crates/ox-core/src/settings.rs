@@ -174,6 +174,34 @@ pub struct Search {
     pub threads: usize,
     /// Filter the current folder while typing in the search box.
     pub instant_filter: bool,
+    /// Keep an index of all file names for instant search across drives.
+    pub index_enabled: bool,
+    /// Folders to index; empty = automatic (all drives on Windows, the home folder elsewhere).
+    pub index_roots: Vec<PathBuf>,
+    /// Folder/file names that are never indexed.
+    pub index_exclude: Vec<String>,
+    /// Rebuild the index every N minutes (0 = only on start and on demand).
+    pub index_refresh_minutes: u32,
+    /// Show results while typing (needs the index).
+    pub search_as_you_type: bool,
+}
+
+impl Search {
+    /// What to index, given the currently mounted drives.
+    pub fn index_config(&self, drives: &[PathBuf]) -> crate::index::IndexConfig {
+        let roots = if !self.index_roots.is_empty() {
+            self.index_roots.clone()
+        } else if cfg!(windows) {
+            drives.to_vec()
+        } else {
+            vec![crate::places::home_dir()]
+        };
+        crate::index::IndexConfig {
+            roots,
+            exclude: self.index_exclude.clone(),
+            threads: self.threads,
+        }
+    }
 }
 
 impl Default for Search {
@@ -184,6 +212,18 @@ impl Default for Search {
             max_results: 50_000,
             threads: 0,
             instant_filter: true,
+            index_enabled: true,
+            index_roots: Vec::new(),
+            index_exclude: [
+                "node_modules",
+                ".git",
+                "$Recycle.Bin",
+                "System Volume Information",
+            ]
+            .map(String::from)
+            .to_vec(),
+            index_refresh_minutes: 30,
+            search_as_you_type: true,
         }
     }
 }
