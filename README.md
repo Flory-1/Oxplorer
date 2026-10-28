@@ -9,7 +9,7 @@ Rust engine does the work and shows progress in a panel inside the window.
 
 ![Details view with tab groups and a paused transfer](docs/screenshots/details-dark.png)
 
-> **Status: early development (Phases 1–2, see [ROADMAP.md](ROADMAP.md)).**
+> **Status: early development (Phases 1–4 done, Phase 5 in progress, see [ROADMAP.md](ROADMAP.md)).**
 > The app is developed and tested by hand on Linux. The automated tests,
 > including the `CopyFileExW` copy path, pass on Windows in CI. The
 > Windows-only UI features (Shell icons, context menu, Properties, Explorer
@@ -44,7 +44,8 @@ Rust engine does the work and shows progress in a panel inside the window.
 
 **Quick access**
 - **Home start page** with pinned favorites, drives with usage bars, recent folders and recent files
-- **Sidebar** with Home, Favorites, This PC (drives) and Recent sections
+- **Sidebar** with Home, Favorites, This PC (drives), Recent and Saved searches.
+  Recycle Bin and Settings are pinned at the bottom.
 - Pin or unpin any folder from its context menu; drop files onto a favorite to copy or move them there
 
 **Custom copy engine** (`ox-core::transfer`)
@@ -85,6 +86,16 @@ Rust engine does the work and shows progress in a panel inside the window.
   | `modified:7d`, `modified:today` | recently changed |
   | `content:"TODO"` | text inside files |
 
+**Power tools**
+- **Preview pane** (Alt+P): images, text and code with line numbers, folder contents and
+  multi-selection totals. Loads in the background, so large files never block the window.
+- **Bulk rename** (F2 with several items selected): build names from a pattern
+  (`{name}`, `{ext}`, `{n:3}`, `{date}`, `{parent}`), find & replace with text or regex,
+  change case, and see every new name before anything changes. Name clashes are
+  caught in the preview, and if one rename fails the others are rolled back.
+- **Command palette** (Ctrl+Shift+P or F1): type a few letters to run any command or
+  jump to a favorite, drive, recent folder or saved search
+
 **Settings page**
 - Appearance (system/light/dark theme, accent colour, UI scale, compact rows)
 - Browsing, startup, sidebar, copy engine and search options, plus a list of keyboard shortcuts
@@ -95,8 +106,8 @@ Rust engine does the work and shows progress in a panel inside the window.
 | ![Home](docs/screenshots/home-dark.png) | ![Grid](docs/screenshots/grid-light.png) |
 | **Recycle Bin** | **Settings** |
 | ![Recycle Bin](docs/screenshots/recycle-bin-dark.png) | ![Settings](docs/screenshots/settings-light.png) |
-| **Search as you type, filter chips, saved searches** | |
-| ![Search](docs/screenshots/search-dark.png) | |
+| **Search as you type, filter chips, saved searches** | **Preview pane** |
+| ![Search](docs/screenshots/search-dark.png) | ![Preview](docs/screenshots/preview-dark.png) |
 
 *The screenshots were taken on Linux during development, which is why the drives
 show as mount points and the built-in icons are used. On Windows the drives show
@@ -134,6 +145,8 @@ crates/
     transfer/         copy/move engine: scan → conflict decision → parallel copy
     search.rs         query language, parallel walker, indexed search
     index.rs          persistent file-name index (build, query, cache)
+    rename.rs         bulk rename: patterns, preview, safe apply with rollback
+    fuzzy.rs          fuzzy matching for the command palette
     disk.rs           volume ids, HDD/SSD detection
     entry.rs          directory listing, file kinds, sorting
     clipboard.rs      file clipboard, shared with Windows Explorer
@@ -147,7 +160,8 @@ crates/
     app.rs            state + action dispatcher + keyboard shortcuts
     tabs.rs           tabs, tab groups, history, session restore
     ui/               header (tabs, address, search, commands), sidebar,
-                      home page, file view, settings page, transfers, dialogs
+                      home page, file view, preview pane, command palette,
+                      settings page, transfers, dialogs
 ```
 
 The UI is [egui](https://github.com/emilk/egui) (immediate mode, GPU
@@ -164,18 +178,20 @@ rendered). That keeps the app a single small native `.exe` with no web runtime.
 | Ctrl+F | Search |
 | Ctrl+C / Ctrl+X / Ctrl+V | Copy / cut / paste (works with Explorer too) |
 | Ctrl+Shift+C | Copy path |
-| F2 / Del / Shift+Del | Rename / delete / delete permanently |
+| F2 / Del / Shift+Del | Rename (bulk rename for several items) / delete / delete permanently |
 | Ctrl+Shift+N | New folder |
 | Alt+Enter | Properties |
 | Shift+F10 | Windows context menu ("Show more options") |
 | F5 | Refresh |
 | Ctrl+, | Settings |
+| Ctrl+Shift+P / F1 | Command palette |
+| Alt+P | Preview pane |
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md). Next up: real Windows shell icons and
-thumbnails, the native context menu, drag & drop *out* to other apps, and an
-"Everything"-style NTFS index for instant search across the whole PC.
+See [ROADMAP.md](ROADMAP.md). Next up: the rest of Phase 5 (folder size
+column, colour tags, archives, dual-pane view), then Phase 6 polish with an
+in-app Help page.
 
 ## License
 

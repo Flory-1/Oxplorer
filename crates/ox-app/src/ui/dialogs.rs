@@ -1,7 +1,8 @@
 //! Modal dialogs: rename, delete confirmation, properties, rename tab group.
 
-use egui::{Context, Id, Key, RichText};
+use egui::{Color32, Context, Id, Key, RichText};
 use ox_core::entry::display_name;
+use ox_core::rename::{self, Case};
 use ox_core::{format, fsops};
 
 use crate::app::{Action, Dialog, OxApp};
@@ -14,9 +15,167 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
     let mut actions = Vec::new();
     let date_fmt = app.settings.browsing.date_format.clone();
 
+    let width = if matches!(dialog, Dialog::BulkRename { .. }) {
+        680.0
+    } else {
+        420.0
+    };
     let modal = egui::Modal::new(Id::unique("dialog")).show(ctx, |ui| {
-        ui.set_width(420.0);
+        ui.set_width(width);
         match &mut dialog {
+            Dialog::BulkRename { items, rule, focus } => {
+                ui.heading(format!("Rename {} items", items.len()));
+                ui.add_space(6.0);
+                egui::Grid::new("bulk_rename")
+                    .num_columns(2)
+                    .spacing([12.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label("New name");
+                        ui.vertical(|ui| {
+                            let resp = ui.add(
+                                egui::TextEdit::singleline(&mut rule.pattern)
+                                    .desired_width(460.0)
+                                    .font(egui::TextStyle::Monospace),
+                            );
+                            if *focus {
+                                *focus = false;
+                                resp.request_focus();
+                            }
+                            ui.horizontal(|ui| {
+                                for (token, tip) in [
+                                    ("{name}", "Original name"),
+                                    ("{n:3}", "Counter: 001, 002, …"),
+                                    ("{date}", "Date modified (YYYY-MM-DD)"),
+                                    ("{ext}", "Extension"),
+                                    ("{parent}", "Folder name"),
+                                ] {
+                                    if ui.small_button(token).on_hover_text(tip).clicked() {
+                                        rule.pattern.push_str(token);
+                                    }
+                                }
+                            });
+                        });
+                        ui.end_row();
+                        ui.label("Find");
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut rule.find).desired_width(170.0));
+                            ui.label("Replace with");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut rule.replace).desired_width(170.0),
+                            );
+                            ui.checkbox(&mut rule.regex, "Regex");
+                        });
+                        ui.end_row();
+                        ui.label("Case");
+                        ui.horizontal(|ui| {
+                            for (case, label) in [
+                                (Case::Keep, "As is"),
+                                (Case::Lower, "lower case"),
+                                (Case::Upper, "UPPER CASE"),
+                                (Case::Title, "Title Case"),
+                            ] {
+                                ui.selectable_value(&mut rule.case, case, label);
+                            }
+                        });
+                        ui.end_row();
+                        ui.label("Counter");
+                        ui.horizontal(|ui| {
+                            ui.label("starts at");
+                            ui.add(egui::DragValue::new(&mut rule.start));
+                            ui.label("step");
+                            ui.add(egui::DragValue::new(&mut rule.step).range(1..=1000));
+                            ui.separator();
+                            ui.checkbox(&mut rule.keep_extension, "Keep extensions");
+                        });
+                        ui.end_row();
+                    });
+
+                let plan = rename::plan(items, rule);
+                let changes = plan.iter().filter(|p| p.changes()).count();
+                let errors = plan.iter().filter(|p| p.error.is_some()).count();
+                ui.add_space(8.0);
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .max_height(260.0)
+                        .show(ui, |ui| {
+                            egui::Grid::new("bulk_preview")
+                                .num_columns(3)
+                                .striped(true)
+                                .min_col_width(40.0)
+                                .show(ui, |ui| {
+                                    ui.label(RichText::new("Current name").strong());
+                                    ui.label("");
+                                    ui.label(RichText::new("New name").strong());
+                                    ui.end_row();
+                                    for p in plan.iter().take(500) {
+                                        ui.label(display_name(&p.from));
+                                        ui.label("→");
+                                        let new = display_name(&p.to);
+                                        match &p.error {
+                                            Some(e) => {
+                                                ui.colored_label(
+                                                    Color32::from_rgb(0xe5, 0x48, 0x4d),
+                                                    format!("{new}  ⚠"),
+                                                )
+                                                .on_hover_text(e);
+                                            }
+                                            None if p.changes() => {
+                                                ui.label(RichText::new(new).strong());
+                                            }
+                                            None => {
+                                                ui.label(RichText::new(new).weak());
+                                            }
+                                        }
+                                        ui.end_row();
+                                    }
+                                });
+                            if plan.len() > 500 {
+                                ui.label(format!("… and {} more", plan.len() - 500));
+                            }
+                        });
+                });
+                ui.add_space(6.0);
+                if errors > 0 {
+                    ui.colored_label(
+                        Color32::from_rgb(0xe5, 0x48, 0x4d),
+                        format!(
+                            "{} can't be renamed — hover the ⚠ for details.",
+                            format::count(errors as u64, "item")
+                        ),
+                    );
+                } else {
+                    ui.label(
+                        RichText::new(format!(
+                            "{} will be renamed.",
+                            format::count(changes as u64, "item")
+                        ))
+                        .weak(),
+                    );
+                }
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    let ok = errors == 0 && changes > 0;
+                    if ui
+                        .add_enabled(ok, egui::Button::new(RichText::new("Rename").strong()))
+                        .clicked()
+                    {
+                        match rename::apply(&plan) {
+                            Ok(n) => {
+                                actions.push(Action::Toast(format!(
+                                    "Renamed {}",
+                                    format::count(n as u64, "item")
+                                )));
+                                app.tabs.mark_stale(None);
+                                keep = false;
+                            }
+                            Err(e) => actions.push(Action::Toast(format!("Rename failed: {e}"))),
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        keep = false;
+                    }
+                });
+            }
             Dialog::Rename {
                 path,
                 text,

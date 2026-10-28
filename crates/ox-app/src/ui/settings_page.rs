@@ -637,6 +637,9 @@ fn shortcuts(ui: &mut Ui) {
                 ("Type letters", "Jump to item"),
                 ("Middle click", "Open folder in new tab / close tab"),
                 ("Shift+F10", "Windows context menu (Windows only)"),
+                ("Ctrl+Shift+P / F1", "Command palette"),
+                ("Alt+P", "Preview pane"),
+                ("F2 (several items)", "Bulk rename"),
                 ("Ctrl+,", "Settings"),
             ] {
                 ui.monospace(k);

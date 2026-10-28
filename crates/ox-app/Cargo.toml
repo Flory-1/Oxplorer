@@ -20,3 +20,4 @@ toml.workspace = true
 eframe = "0.37"
 egui = "0.37"
 arboard = "3"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp", "ico", "tiff"] }

@@ -4,6 +4,8 @@ mod dialogs;
 mod files;
 mod header;
 mod home;
+pub(crate) mod palette;
+pub(crate) mod preview;
 mod settings_page;
 mod sidebar;
 mod transfers;
@@ -58,6 +60,14 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             .show(ui, |ui| sidebar::show(app, ui));
     }
 
+    if app.settings.browsing.show_preview && app.tabs.active().location().shows_files() {
+        egui::Panel::right("preview")
+            .resizable(true)
+            .default_size(320.0)
+            .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::same(10)))
+            .show(ui, |ui| preview::show(app, ui));
+    }
+
     let central = egui::Frame::central_panel(ui.style())
         .inner_margin(egui::Margin::same(0))
         .fill(ui.visuals().extreme_bg_color);
@@ -72,6 +82,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     });
 
     dialogs::show(app, ui.ctx());
+    palette::show(app, ui.ctx());
     toasts(app, ui.ctx());
     drag_preview(ui.ctx());
 }
@@ -280,6 +291,13 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
             .clicked()
     {
         actions.push(Action::Rename(sel[0].clone()));
+    }
+    if sel.len() > 1
+        && ui
+            .add(egui::Button::new(format!("✏ Rename {} items…", sel.len())).shortcut_text("F2"))
+            .clicked()
+    {
+        actions.push(Action::BulkRename(sel.clone()));
     }
     if ui
         .add(egui::Button::new("🗑 Delete").shortcut_text("Del"))

@@ -110,12 +110,14 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 ## Phase 5 — Power-user features ⏳
 
 - ⏳ Dual-pane / split view
-- ⏳ Preview pane (images, text/code with syntax highlighting, PDF, audio/video metadata)
-- ⏳ Bulk rename (patterns, regex, counters, preview)
+- ✅ Preview pane (Alt+P): images, text and code with line numbers, folder and multi-selection summaries
+- ⏳ Preview pane extras: syntax highlighting, PDF, audio/video metadata
+- ✅ Bulk rename (F2 on several items): name patterns with `{name}`/`{n}`/`{date}` tokens, find & replace (text or regex), counters, case changes, live preview with conflict checks, all-or-nothing apply
 - ⏳ Browse archives (zip, 7z, tar) like folders, compress/extract
 - ⏳ Folder size column (computed in the background and cached)
 - ⏳ Colour tags and labels
-- ⏳ Command palette (Ctrl+Shift+P) and custom keyboard shortcuts
+- ✅ Command palette (Ctrl+Shift+P / F1): fuzzy search over commands, favorites, drives, recent folders and saved searches
+- ⏳ Custom keyboard shortcuts
 - ⏳ Git status column for repositories
 - ⏳ Built-in terminal panel
 
@@ -125,5 +127,5 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 - ⏳ Localisation (English, German, …)
 - ⏳ Accessibility pass (screen reader, keyboard-only use)
 - ⏳ Auto-update
-- ⏳ User documentation website
+- ⏳ In-app **Help** page (a tab like Settings) opened from the bottom of the sidebar: getting started, features, search syntax, keyboard shortcuts, FAQ (no separate documentation website)
 - ⏳ 1.0 release

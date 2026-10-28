@@ -714,8 +714,12 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                     actions.push(Action::Paste(f.clone()));
                 }
             }
-            if btn(ui, selection.len() == 1, "✏", "Rename (F2)") {
-                actions.push(Action::Rename(selection[0].clone()));
+            if btn(ui, has_sel, "✏", "Rename (F2) — several items: bulk rename") {
+                if selection.len() == 1 {
+                    actions.push(Action::Rename(selection[0].clone()));
+                } else {
+                    actions.push(Action::BulkRename(selection.clone()));
+                }
             }
             if btn(ui, has_sel, "🗑", "Delete (Del)") {
                 actions.push(Action::Delete(selection.clone(), false));
@@ -772,6 +776,12 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 changed |= ui
                     .checkbox(&mut app.settings.browsing.show_status_bar, "Status bar")
                     .changed();
+                changed |= ui
+                    .checkbox(
+                        &mut app.settings.browsing.show_preview,
+                        "Preview pane (Alt+P)",
+                    )
+                    .changed();
                 if changed {
                     actions.push(Action::SettingsChanged);
                 }
@@ -799,6 +809,9 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if btn(ui, true, "⚙", "Settings (Ctrl+,)") {
                 actions.push(Action::OpenInNewTab(Location::Settings, true));
+            }
+            if btn(ui, true, "⌨", "Command palette (Ctrl+Shift+P)") {
+                app.ui.palette = Some(Default::default());
             }
             if btn(ui, true, "◧", "Toggle sidebar") {
                 app.settings.sidebar.visible = !app.settings.sidebar.visible;

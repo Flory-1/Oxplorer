@@ -44,6 +44,8 @@ pub enum Action {
     Delete(Vec<PathBuf>, bool),
     DeleteConfirmed(Vec<PathBuf>, bool),
     Rename(PathBuf),
+    /// Rename several items at once with a pattern.
+    BulkRename(Vec<PathBuf>),
     NewFolder(PathBuf),
     NewFile(PathBuf),
     Pin(PathBuf),
@@ -99,6 +101,11 @@ pub enum TabAction {
 }
 
 pub enum Dialog {
+    BulkRename {
+        items: Vec<ox_core::rename::RenameItem>,
+        rule: ox_core::rename::RenameRule,
+        focus: bool,
+    },
     Rename {
         path: PathBuf,
         text: String,
@@ -147,6 +154,7 @@ pub struct UiState {
     pub focus_search: bool,
     pub show_transfers: bool,
     pub settings_section: usize,
+    pub palette: Option<crate::ui::palette::PaletteState>,
     type_ahead: String,
     type_ahead_at: Instant,
 }
@@ -172,6 +180,7 @@ pub struct OxApp {
     applied_settings: Option<Settings>,
     pub icons: crate::icons::IconCache,
     pub index: IndexService,
+    pub preview: crate::ui::preview::PreviewState,
     /// The index was (re)built at least once this session.
     index_started: bool,
     index_next: Option<Instant>,
@@ -226,6 +235,7 @@ impl OxApp {
                 focus_search: false,
                 show_transfers: true,
                 settings_section: 0,
+                palette: None,
                 type_ahead: String::new(),
                 type_ahead_at: Instant::now(),
             },
@@ -244,6 +254,7 @@ impl OxApp {
                     repaint.request_repaint()
                 })
             },
+            preview: Default::default(),
             index_started: false,
             index_next: None,
             index_settings: None,
@@ -614,6 +625,13 @@ impl OxApp {
             if i.consume_key(cmd, Key::F) || i.consume_key(cmd, Key::E) {
                 self.ui.focus_search = true;
             }
+            if i.consume_key(cmd_shift, Key::P) || i.consume_key(Modifiers::NONE, Key::F1) {
+                self.ui.palette = Some(Default::default());
+            }
+            if i.consume_key(Modifiers::ALT, Key::P) {
+                self.settings.browsing.show_preview = !self.settings.browsing.show_preview;
+                actions.push(Action::SettingsChanged);
+            }
             if i.consume_key(cmd, Key::Comma) {
                 actions.push(Action::OpenInNewTab(Location::Settings, true));
             }
@@ -663,8 +681,12 @@ impl OxApp {
             if i.consume_key(Modifiers::NONE, Key::Delete) && !selection.is_empty() {
                 actions.push(Action::Delete(selection.clone(), false));
             }
-            if i.consume_key(Modifiers::NONE, Key::F2) && selection.len() == 1 {
-                actions.push(Action::Rename(selection[0].clone()));
+            if i.consume_key(Modifiers::NONE, Key::F2) {
+                match selection.len() {
+                    0 => {}
+                    1 => actions.push(Action::Rename(selection[0].clone())),
+                    _ => actions.push(Action::BulkRename(selection.clone())),
+                }
             }
             if i.consume_key(Modifiers::ALT, Key::Enter) && !selection.is_empty() {
                 actions.push(Action::Properties(selection.clone()));
@@ -901,6 +923,24 @@ impl OxApp {
                     path,
                     text,
                     error: None,
+                    focus: true,
+                });
+            }
+            Action::BulkRename(paths) => {
+                let items = paths
+                    .into_iter()
+                    .filter_map(|path| {
+                        let meta = std::fs::symlink_metadata(&path).ok()?;
+                        Some(ox_core::rename::RenameItem {
+                            is_dir: meta.is_dir(),
+                            modified: meta.modified().ok(),
+                            path,
+                        })
+                    })
+                    .collect();
+                self.dialog = Some(Dialog::BulkRename {
+                    items,
+                    rule: Default::default(),
                     focus: true,
                 });
             }
