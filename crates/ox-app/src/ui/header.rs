@@ -498,6 +498,9 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) {
                 Location::Settings => {
                     ui.label("⚙  Settings");
                 }
+                Location::Help => {
+                    ui.label("❓  Help");
+                }
                 Location::RecycleBin => {
                     ui.label("🗑  Recycle Bin");
                 }

@@ -21,6 +21,7 @@ pub enum Command {
     EditAddress,
     Search,
     Palette,
+    Help,
     TogglePreview,
     Settings,
     SelectAll,
@@ -92,8 +93,9 @@ pub const COMMANDS: &[CommandInfo] = &[
         Command::Palette,
         "command_palette",
         "Command palette",
-        &["Ctrl+Shift+P", "F1"],
+        &["Ctrl+Shift+P"],
     ),
+    info(Command::Help, "help", "Help", &["F1"]),
     info(
         Command::TogglePreview,
         "preview_pane",

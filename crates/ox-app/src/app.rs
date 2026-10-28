@@ -185,6 +185,7 @@ pub struct UiState {
     /// The settings page is waiting for keys for this command.
     pub recording: Option<crate::shortcuts::Command>,
     pub show_terminal: bool,
+    pub help: crate::ui::help_page::HelpState,
     /// The terminal has the keyboard (app shortcuts are off then).
     pub terminal_focused: bool,
     type_ahead: String,
@@ -294,6 +295,7 @@ impl OxApp {
                 palette: None,
                 recording: None,
                 show_terminal: false,
+                help: Default::default(),
                 terminal_focused: false,
                 type_ahead: String::new(),
                 type_ahead_at: Instant::now(),
@@ -535,7 +537,7 @@ impl OxApp {
                 });
                 tab.view.loading = Some(rx);
             }
-            Location::Home | Location::Settings => {}
+            Location::Home | Location::Settings | Location::Help => {}
         }
     }
 
@@ -925,6 +927,7 @@ impl OxApp {
                     actions.push(Action::SettingsChanged);
                 }
                 C::Settings => actions.push(Action::OpenInNewTab(Location::Settings, true)),
+                C::Help => actions.push(Action::OpenInNewTab(Location::Help, true)),
                 C::SelectAll => actions.push(Action::SelectAll),
                 C::Copy => actions.push(Action::CopyItems(selection.clone())),
                 C::Cut => actions.push(Action::CutItems(selection.clone())),
@@ -1059,21 +1062,15 @@ impl OxApp {
         let system_clip = self.settings.transfer.use_system_clipboard;
         match action {
             Action::Navigate(loc) => self.navigate(loc),
-            Action::OpenInNewTab(Location::Settings, _) => {
-                // Reuse an open settings tab; never put it into a tab group.
-                match self
-                    .tabs
-                    .tabs
-                    .iter()
-                    .find(|t| *t.location() == Location::Settings)
-                {
+            Action::OpenInNewTab(page @ (Location::Settings | Location::Help), _) => {
+                // Reuse an open Settings/Help tab; never put it into a tab group.
+                match self.tabs.tabs.iter().find(|t| *t.location() == page) {
                     Some(t) => {
                         let id = t.id;
                         self.tabs.activate(id);
                     }
                     None => {
-                        self.tabs
-                            .open(Location::Settings, None, true, &self.settings);
+                        self.tabs.open(page, None, true, &self.settings);
                     }
                 }
             }

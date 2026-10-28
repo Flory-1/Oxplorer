@@ -45,7 +45,7 @@ Rust engine does the work and shows progress in a panel inside the window.
 **Quick access**
 - **Home start page** with pinned favorites, drives with usage bars, recent folders and recent files
 - **Sidebar** with Home, Favorites, This PC (drives), Recent, Tags and Saved searches.
-  Recycle Bin and Settings are pinned at the bottom.
+  Recycle Bin, Settings and Help are pinned at the bottom.
 - Pin or unpin any folder from its context menu; drop files onto a favorite to copy or move them there
 
 **Custom copy engine** (`ox-core::transfer`)
@@ -96,7 +96,7 @@ Rust engine does the work and shows progress in a panel inside the window.
   (`{name}`, `{ext}`, `{n:3}`, `{date}`, `{parent}`), find & replace with text or regex,
   change case, and see every new name before anything changes. Name clashes are
   caught in the preview, and if one rename fails the others are rolled back.
-- **Command palette** (Ctrl+Shift+P or F1): type a few letters to run any command or
+- **Command palette** (Ctrl+Shift+P): type a few letters to run any command or
   jump to a favorite, drive, recent folder or saved search
 - **Split view** (Ctrl+\\ or the ◫ button): two folders side by side. Click a pane or press
   F6 to work in it, and drag files from one pane to the other.
@@ -114,6 +114,10 @@ Rust engine does the work and shows progress in a panel inside the window.
 - **Colour tags**: right-click → Tags to mark files and folders. Tagged items get coloured
   dots and show up under *Tags* in the sidebar. Rename a tag (e.g. Red → Urgent) from its
   right-click menu. Tags follow items you rename or move in Oxplorer.
+
+**Help page** (F1 or *Help* at the bottom of the sidebar): getting started, every feature,
+the search syntax, your current keyboard shortcuts and common questions, with a filter to
+find a topic.
 
 **Settings page**
 - Appearance (system/light/dark theme, accent colour, UI scale, compact rows)
@@ -215,7 +219,8 @@ Menus, tooltips and the command palette always show the keys in use.
 | Shift+F10 | Windows context menu ("Show more options") |
 | F5 | Refresh |
 | Ctrl+, | Settings |
-| Ctrl+Shift+P / F1 | Command palette |
+| Ctrl+Shift+P | Command palette |
+| F1 | Help |
 | Alt+P | Preview pane |
 | Ctrl+\\ / F6 | Split view / switch pane |
 | Ctrl+` | Terminal panel |
@@ -223,7 +228,7 @@ Menus, tooltips and the command palette always show the keys in use.
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md). Phase 5 is done. Next up: Phase 6 (themes,
-localisation, accessibility and the in-app Help page) and the 1.0 release.
+localisation and accessibility) and the 1.0 release.
 
 ## License
 

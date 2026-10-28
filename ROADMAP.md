@@ -128,5 +128,5 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 - ⏳ Themes and theme import/export
 - ⏳ Localisation (English, German, …)
 - ⏳ Accessibility pass (keyboard-only use)
-- ⏳ In-app **Help** page (a tab like Settings) opened from the bottom of the sidebar: getting started, features, search syntax, keyboard shortcuts, FAQ (no separate documentation website)
+- ✅ In-app **Help** page (F1, or Help at the bottom of the sidebar): getting started, features, search syntax, the keyboard shortcuts in use, questions, and a topic filter
 - ⏳ 1.0 release
