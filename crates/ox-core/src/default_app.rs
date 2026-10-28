@@ -4,7 +4,7 @@
 //! admin rights are needed and turning it off restores Explorer.
 //!
 //! What gets written (under `HKCU\Software\Classes`):
-//! - `Directory\shell` and `Drive\shell`: an "Open in Oxplorer" verb that is
+//! - `Directory\shell` and `Drive\shell`: an crate::i18n::t("Open in Oxplorer") verb that is
 //!   the default one.
 //! - `CLSID\{52205fd8-…}\shell\opennewwindow\command`: Win+E (the "This PC"
 //!   / Home window) starts Oxplorer.
@@ -224,7 +224,7 @@ mod imp {
         let command = open_command(&exe);
         for class in ["Directory", "Drive"] {
             let verb = format!(r"{class}\shell\{VERB}");
-            set(&verb, None, "Open in Oxplorer")?;
+            set(&verb, None, crate::i18n::t("Open in Oxplorer"))?;
             set(&verb, Some("Icon"), &format!("\"{exe}\",0"))?;
             set(&format!(r"{verb}\command"), None, &command)?;
             set(&format!(r"{class}\shell"), None, VERB)?;

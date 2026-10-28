@@ -1,5 +1,6 @@
 //! Left sidebar: Home, Favorites, Drives and Recent folders.
 
+use ox_core::i18n::t as tr;
 use std::path::Path;
 
 use egui::{vec2, Align2, Color32, CornerRadius, FontId, RichText, Sense, Stroke, Ui};
@@ -26,12 +27,12 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 let bin = item(
                     ui,
                     Icon::Glyph("🗑"),
-                    "Recycle Bin",
+                    tr("Recycle Bin"),
                     None,
                     current == Location::RecycleBin,
                     accent,
                 )
-                .on_hover_text("Drop files here to move them to the Recycle Bin");
+                .on_hover_text(tr("Drop files here to move them to the Recycle Bin"));
                 if bin.clicked() {
                     actions.push(Action::Navigate(Location::RecycleBin));
                 }
@@ -47,7 +48,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             let settings = item(
                 ui,
                 Icon::Glyph("⚙"),
-                "Settings",
+                tr("Settings"),
                 None,
                 current == Location::Settings,
                 accent,
@@ -58,7 +59,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             let help = item(
                 ui,
                 Icon::Glyph("❓"),
-                "Help",
+                tr("Help"),
                 None,
                 current == Location::Help,
                 accent,
@@ -75,7 +76,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             let home = item(
                 ui,
                 Icon::Glyph(icons::HOME),
-                "Home",
+                tr("Home"),
                 None,
                 current == Location::Home,
                 accent,
@@ -88,10 +89,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             }
 
             if app.settings.sidebar.show_favorites {
-                section(ui, "Favorites");
+                section(ui, tr("Favorites"));
                 if app.quick.favorites.is_empty() {
                     ui.label(
-                        RichText::new("  Right-click a folder → Pin to Favorites")
+                        RichText::new(tr("  Right-click a folder → Pin to Favorites"))
                             .weak()
                             .small(),
                     );
@@ -129,7 +130,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             }
 
             if app.settings.sidebar.show_drives {
-                section(ui, "This PC");
+                section(ui, tr("This PC"));
                 for drive in app.drives().to_vec() {
                     let selected = current.folder() == Some(drive.mount.as_path());
                     let resp = item(
@@ -141,15 +142,16 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                         accent,
                     );
                     let resp = match &drive.remote {
-                        Some(remote) => resp.on_hover_text(format!(
-                            "{}\nNetwork drive: {remote}",
-                            drive.mount.display()
+                        Some(remote) => resp.on_hover_text(ox_core::trf!(
+                            "{v1}\nNetwork drive: {remote}",
+                            v1 = drive.mount.display(),
+                            remote = remote
                         )),
-                        None => resp.on_hover_text(format!(
-                            "{}\n{} free of {}",
-                            drive.mount.display(),
-                            format::size(drive.available),
-                            format::size(drive.total)
+                        None => resp.on_hover_text(ox_core::trf!(
+                            "{v1}\n{v2} free of {v3}",
+                            v1 = drive.mount.display(),
+                            v2 = format::size(drive.available),
+                            v3 = format::size(drive.total)
                         )),
                     };
                     super::open_link(&mut actions, &resp, &drive.mount);
@@ -169,7 +171,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
 
             let servers = network_servers(app);
             if app.settings.sidebar.show_drives && !servers.is_empty() {
-                section(ui, "Network");
+                section(ui, tr("Network"));
                 for server in servers {
                     let selected = current.folder() == Some(server.as_path());
                     let name = ox_core::network::server_name(&server).unwrap_or_default();
@@ -185,7 +187,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             }
 
             if app.settings.sidebar.show_recent && !app.quick.recent_folders.is_empty() {
-                section(ui, "Recent");
+                section(ui, tr("Recent"));
                 let recent: Vec<_> = app
                     .quick
                     .recent_folders(app.settings.sidebar.recent_count)
@@ -200,7 +202,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                     resp.context_menu(|ui| {
                         super::folder_link_menu(ui, &path, pinned, &mut actions);
                         ui.separator();
-                        if ui.button("🗑 Remove from Recent").clicked() {
+                        if ui.button(tr("🗑 Remove from Recent")).clicked() {
                             actions.push(Action::ForgetRecent(path.clone()));
                         }
                     });
@@ -209,7 +211,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
 
             let counts = app.tags.counts();
             if counts.iter().any(|&n| n > 0) {
-                section(ui, "Tags");
+                section(ui, tr("Tags"));
                 for color in TagColor::ALL.into_iter().filter(|c| counts[c.index()] > 0) {
                     let loc = Location::Tagged(color);
                     let resp = item(
@@ -239,12 +241,12 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                     egui::Popup::context_menu(&resp)
                         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                         .show(|ui| {
-                            if ui.button("📑 Open in new tab").clicked() {
+                            if ui.button(tr("📑 Open in new tab")).clicked() {
                                 actions.push(Action::OpenInNewTab(loc.clone(), true));
                                 ui.close();
                             }
                             ui.separator();
-                            ui.label(RichText::new("Name").weak().small());
+                            ui.label(RichText::new(tr("Name")).weak().small());
                             let mut name = custom.clone();
                             let edit = egui::TextEdit::singleline(&mut name)
                                 .hint_text(color.name())
@@ -254,9 +256,9 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                             }
                             ui.separator();
                             if ui
-                                .button(format!(
-                                    "✖ Remove from {}",
-                                    format::count(tagged.len() as u64, "item")
+                                .button(ox_core::trf!(
+                                    "✖ Remove from {v1}",
+                                    v1 = ox_core::i18n::count(tagged.len() as u64, "item")
                                 ))
                                 .clicked()
                             {
@@ -268,7 +270,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             }
 
             if !app.quick.saved_searches.is_empty() {
-                section(ui, "Saved searches");
+                section(ui, tr("Saved searches"));
                 for (i, saved) in app.quick.saved_searches.clone().into_iter().enumerate() {
                     let loc = Location::Search {
                         root: saved.root.clone(),
@@ -282,14 +284,14 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                         current == loc,
                         accent,
                     )
-                    .on_hover_text(format!(
-                        "{}\nin {}",
-                        saved.query,
-                        saved
+                    .on_hover_text(ox_core::trf!(
+                        "{v1}\nin {v2}",
+                        v1 = saved.query,
+                        v2 = saved
                             .root
                             .as_deref()
                             .map(|r| r.display().to_string())
-                            .unwrap_or_else(|| "This PC".into())
+                            .unwrap_or_else(|| tr("This PC").into())
                     ));
                     if resp.clicked() {
                         actions.push(Action::Navigate(loc.clone()));
@@ -298,10 +300,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                         actions.push(Action::OpenInNewTab(loc.clone(), false));
                     }
                     resp.context_menu(|ui| {
-                        if ui.button("📑 Open in new tab").clicked() {
+                        if ui.button(tr("📑 Open in new tab")).clicked() {
                             actions.push(Action::OpenInNewTab(loc.clone(), true));
                         }
-                        if ui.button("🗑 Remove").clicked() {
+                        if ui.button(tr("🗑 Remove")).clicked() {
                             actions.push(Action::RemoveSavedSearch(i));
                         }
                     });
@@ -332,10 +334,10 @@ fn network_drive_menu(ui: &mut Ui, actions: &mut Vec<Action>) {
         return;
     }
     ui.separator();
-    if ui.button("🖧 Map network drive…").clicked() {
+    if ui.button(tr("🖧 Map network drive…")).clicked() {
         actions.push(Action::NetworkDriveDialog(true));
     }
-    if ui.button("🖧 Disconnect network drive…").clicked() {
+    if ui.button(tr("🖧 Disconnect network drive…")).clicked() {
         actions.push(Action::NetworkDriveDialog(false));
     }
 }

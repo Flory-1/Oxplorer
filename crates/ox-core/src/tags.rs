@@ -150,7 +150,7 @@ impl TagStore {
     pub fn label(&self, color: TagColor) -> &str {
         let custom = &self.labels[color.index()];
         if custom.trim().is_empty() {
-            color.name()
+            crate::i18n::t(color.name())
         } else {
             custom
         }

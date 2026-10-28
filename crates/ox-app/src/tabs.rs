@@ -1,5 +1,6 @@
 //! Tabs, tab groups and per-tab browsing state.
 
+use ox_core::i18n::t as tr;
 use std::collections::HashSet;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -43,12 +44,12 @@ pub enum Location {
 impl Location {
     pub fn title(&self) -> String {
         match self {
-            Location::Home => "Home".into(),
+            Location::Home => tr("Home").into(),
             Location::Folder(p) => entry::display_name(p),
-            Location::Search { query, .. } => format!("Search: {query}"),
-            Location::Settings => "Settings".into(),
-            Location::Help => "Help".into(),
-            Location::RecycleBin => "Recycle Bin".into(),
+            Location::Search { query, .. } => ox_core::trf!("Search: {query}", query = query),
+            Location::Settings => tr("Settings").into(),
+            Location::Help => tr("Help").into(),
+            Location::RecycleBin => tr("Recycle Bin").into(),
             Location::Tagged(c) => c.name().into(),
             Location::Archive { archive, inner } => match inner.file_name() {
                 Some(name) => name.to_string_lossy().into_owned(),

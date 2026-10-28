@@ -2933,6 +2933,7 @@ dependencies = [
  "regex",
  "serde",
  "sevenz-rust2",
+ "sys-locale",
  "sysinfo",
  "tar",
  "tempfile",

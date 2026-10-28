@@ -1,5 +1,6 @@
 //! Header bar: tab strip with tab groups, navigation/address/search row and command bar.
 
+use ox_core::i18n::t as tr;
 use std::path::{Path, PathBuf};
 
 use egui::{
@@ -80,7 +81,7 @@ fn tab_strip(app: &mut OxApp, ui: &mut Ui) {
                 .min_size(vec2(28.0, TAB_HEIGHT)),
         );
         if plus
-            .on_hover_text(shortcuts::hint("New tab", Command::NewTab))
+            .on_hover_text(shortcuts::hint(tr("New tab"), Command::NewTab))
             .clicked()
         {
             actions.push(Action::Tab(TabAction::New));
@@ -111,16 +112,16 @@ fn group_chip(ui: &mut Ui, g: &TabGroup, all: &[TabGroup], actions: &mut Vec<Act
     ui.painter()
         .galley(chip.center() - galley.size() / 2.0, galley, Color32::WHITE);
     let resp = resp.on_hover_text(if g.collapsed {
-        "Expand group"
+        tr("Expand group")
     } else {
-        "Collapse group"
+        tr("Collapse group")
     });
     if resp.clicked() {
         actions.push(Action::Tab(TabAction::ToggleGroup(g.id)));
     }
     let _ = all;
     resp.context_menu(|ui| {
-        if ui.button("✏ Rename group…").clicked() {
+        if ui.button(tr("✏ Rename group…")).clicked() {
             actions.push(Action::Tab(TabAction::RenameGroup(g.id)));
         }
         ui.horizontal(|ui| {
@@ -135,30 +136,30 @@ fn group_chip(ui: &mut Ui, g: &TabGroup, all: &[TabGroup], actions: &mut Vec<Act
                         Stroke::new(2.0, ui.visuals().strong_text_color()),
                     );
                 }
-                if resp.on_hover_text(*name).clicked() {
+                if resp.on_hover_text(tr(name)).clicked() {
                     actions.push(Action::Tab(TabAction::SetGroupColor(g.id, i)));
                     ui.close();
                 }
             }
         });
         ui.separator();
-        if ui.button("➕ New tab in group").clicked() {
+        if ui.button(tr("➕ New tab in group")).clicked() {
             actions.push(Action::Tab(TabAction::NewTabInGroup(g.id)));
         }
         if ui
             .button(if g.collapsed {
-                "⏵ Expand"
+                tr("⏵ Expand")
             } else {
-                "⏷ Collapse"
+                tr("⏷ Collapse")
             })
             .clicked()
         {
             actions.push(Action::Tab(TabAction::ToggleGroup(g.id)));
         }
-        if ui.button("⛓ Ungroup").clicked() {
+        if ui.button(tr("⛓ Ungroup")).clicked() {
             actions.push(Action::Tab(TabAction::Ungroup(g.id)));
         }
-        if ui.button("✖ Close group").clicked() {
+        if ui.button(tr("✖ Close group")).clicked() {
             actions.push(Action::Tab(TabAction::CloseGroup(g.id)));
         }
     });
@@ -321,11 +322,11 @@ fn tab_widget(
         actions.push(Action::Tab(TabAction::Close(id)));
     }
     resp.context_menu(|ui| {
-        if ui.button("📑 Duplicate").clicked() {
+        if ui.button(tr("📑 Duplicate")).clicked() {
             actions.push(Action::Tab(TabAction::Duplicate(id)));
         }
         ui.separator();
-        if ui.button("🗂 Add tab to new group").clicked() {
+        if ui.button(tr("🗂 Add tab to new group")).clicked() {
             actions.push(Action::Tab(TabAction::NewGroup(id)));
         }
         let others: Vec<&TabGroup> = app
@@ -335,10 +336,13 @@ fn tab_widget(
             .filter(|g| Some(g.id) != tab.group)
             .collect();
         if !others.is_empty() {
-            ui.menu_button("🗂 Add tab to group", |ui| {
+            ui.menu_button(tr("🗂 Add tab to group"), |ui| {
                 for g in others {
                     let name = if g.name.is_empty() {
-                        format!("{} group", GROUP_COLORS[g.color % GROUP_COLORS.len()].0)
+                        ox_core::trf!(
+                            "{v1} group",
+                            v1 = tr(GROUP_COLORS[g.color % GROUP_COLORS.len()].0)
+                        )
                     } else {
                         g.name.clone()
                     };
@@ -351,17 +355,19 @@ fn tab_widget(
                 }
             });
         }
-        if tab.group.is_some() && ui.button("⛓ Remove from group").clicked() {
+        if tab.group.is_some() && ui.button(tr("⛓ Remove from group")).clicked() {
             actions.push(Action::Tab(TabAction::RemoveFromGroup(id)));
         }
         ui.separator();
         if ui
-            .add(egui::Button::new("✖ Close").shortcut_text(shortcuts::label(Command::CloseTab)))
+            .add(
+                egui::Button::new(tr("✖ Close")).shortcut_text(shortcuts::label(Command::CloseTab)),
+            )
             .clicked()
         {
             actions.push(Action::Tab(TabAction::Close(id)));
         }
-        if ui.button("Close other tabs").clicked() {
+        if ui.button(tr("Close other tabs")).clicked() {
             actions.push(Action::Tab(TabAction::CloseOthers(id)));
         }
     });
@@ -387,7 +393,7 @@ fn nav_row(app: &mut OxApp, ui: &mut Ui) {
             ui,
             "⬅",
             tab.can_go_back(),
-            &shortcuts::hint("Back", Command::Back),
+            &shortcuts::hint(tr("Back"), Command::Back),
         ) {
             actions.push(Action::Back);
         }
@@ -395,19 +401,19 @@ fn nav_row(app: &mut OxApp, ui: &mut Ui) {
             ui,
             "➡",
             tab.can_go_forward(),
-            &shortcuts::hint("Forward", Command::Forward),
+            &shortcuts::hint(tr("Forward"), Command::Forward),
         ) {
             actions.push(Action::Forward);
         }
         let can_up = !matches!(tab.location(), Location::Home);
-        if nav(ui, "⬆", can_up, &shortcuts::hint("Up", Command::Up)) {
+        if nav(ui, "⬆", can_up, &shortcuts::hint(tr("Up"), Command::Up)) {
             actions.push(Action::Up);
         }
         if nav(
             ui,
             "🔄",
             true,
-            &shortcuts::hint("Refresh", Command::Refresh),
+            &shortcuts::hint(tr("Refresh"), Command::Refresh),
         ) {
             actions.push(Action::Refresh);
         }
@@ -469,7 +475,10 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) {
                     } else if path.is_file() {
                         actions.push(Action::Open(path));
                     } else {
-                        actions.push(Action::Toast(format!("Can't find \"{text}\".")));
+                        actions.push(Action::Toast(ox_core::trf!(
+                            "Can't find \"{text}\".",
+                            text = text
+                        )));
                     }
                 }
                 app.ui.address_editing = false;
@@ -489,20 +498,23 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) {
             ui.spacing_mut().item_spacing.x = 0.0;
             match &location {
                 Location::Tagged(_) => {
-                    ui.label(format!("🏷  Items tagged \"{tag_label}\""));
+                    ui.label(ox_core::trf!(
+                        "🏷  Items tagged \"{tag_label}\"",
+                        tag_label = tag_label
+                    ));
                 }
                 Location::Folder(p) => breadcrumbs(ui, p, actions),
                 Location::Home => {
-                    ui.label(format!("{}  Home", crate::icons::HOME));
+                    ui.label(ox_core::trf!("{v1}  Home", v1 = crate::icons::HOME));
                 }
                 Location::Settings => {
-                    ui.label("⚙  Settings");
+                    ui.label(tr("⚙  Settings"));
                 }
                 Location::Help => {
-                    ui.label("❓  Help");
+                    ui.label(tr("❓  Help"));
                 }
                 Location::RecycleBin => {
-                    ui.label("🗑  Recycle Bin");
+                    ui.label(tr("🗑  Recycle Bin"));
                 }
                 Location::Archive { archive, inner } => {
                     if let Some(parent) = archive.parent() {
@@ -514,8 +526,12 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) {
                     let place = root
                         .as_deref()
                         .map(display_name)
-                        .unwrap_or_else(|| "This PC".into());
-                    ui.label(format!("🔍  Search results for \"{query}\" in {place}"));
+                        .unwrap_or_else(|| tr("This PC").into());
+                    ui.label(ox_core::trf!(
+                        "🔍  Search results for \"{query}\" in {place}",
+                        query = query,
+                        place = place
+                    ));
                 }
             }
             // Clicking the empty part of the bar switches to text editing.
@@ -715,10 +731,10 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
             root.clone(),
             root.as_deref()
                 .map(display_name)
-                .unwrap_or("This PC".into()),
+                .unwrap_or(tr("This PC").into()),
         ),
-        Location::RecycleBin => (None, "Recycle Bin".into()),
-        _ => (None, "This PC".into()),
+        Location::RecycleBin => (None, tr("Recycle Bin").into()),
+        _ => (None, tr("This PC").into()),
     };
     let in_bin = tab.location().is_bin();
     let id = ui.make_persistent_id("search_box");
@@ -730,7 +746,7 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
                 let edit = egui::TextEdit::singleline(&mut tab.filter)
                     .id(id)
                     .frame(egui::Frame::NONE)
-                    .hint_text(format!("Search {place}"))
+                    .hint_text(ox_core::trf!("Search {place}", place = place))
                     .desired_width(ui.available_width() - 4.0)
                     .align(Align2::LEFT_CENTER);
                 let resp = ui.add(edit);
@@ -751,11 +767,11 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
                     tab.filter.clear();
                     tab.refresh_visible(folders_first, case);
                 }
-                resp.on_hover_text(
-                                        "Type to filter this folder, press Enter to search all sub-folders.\n\
+                resp.on_hover_text(tr(
+                    "Type to filter this folder, press Enter to search all sub-folders.\n\
                      On Home, results appear while you type (with the search index).\n\
                      Filters: *.ext  /regex/  ext:pdf,docx  kind:image  type:folder  size:>10mb  modified:7d  content:\"text\"  -exclude",
-                );
+                ));
             });
         });
     });
@@ -789,18 +805,18 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
             .clicked()
         };
         ui.add_enabled_ui(folder.is_some(), |ui| {
-            ui.menu_button(RichText::new("➕ New").size(13.5), |ui| {
+            ui.menu_button(RichText::new(tr("➕ New")).size(13.5), |ui| {
                 if let Some(f) = &folder {
                     if ui
                         .add(
-                            egui::Button::new("📁 Folder")
+                            egui::Button::new(tr("📁 Folder"))
                                 .shortcut_text(shortcuts::label(Command::NewFolder)),
                         )
                         .clicked()
                     {
                         actions.push(Action::NewFolder(f.clone()));
                     }
-                    if ui.button("📄 Text document").clicked() {
+                    if ui.button(tr("📄 Text document")).clicked() {
                         actions.push(Action::NewFile(f.clone()));
                     }
                 }
@@ -811,39 +827,44 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
             if btn(
                 ui,
                 has_sel,
-                "♻ Restore",
-                "Put the selected items back where they were",
+                tr("♻ Restore"),
+                tr("Put the selected items back where they were"),
             ) {
                 actions.push(Action::RestoreFromBin(selection.clone()));
             }
             if btn(
                 ui,
                 has_sel,
-                "⛔ Delete",
-                "Delete the selected items permanently (Del)",
+                tr("⛔ Delete"),
+                tr("Delete the selected items permanently (Del)"),
             ) {
                 actions.push(Action::PurgeFromBin(selection.clone()));
             }
             if btn(
                 ui,
                 !bin_empty,
-                "🗑 Empty Recycle Bin",
-                "Delete everything permanently",
+                tr("🗑 Empty Recycle Bin"),
+                tr("Delete everything permanently"),
             ) {
                 actions.push(Action::EmptyBin);
             }
         } else {
-            if btn(ui, has_sel, "✂", &shortcuts::hint("Cut", Command::Cut)) {
+            if btn(ui, has_sel, "✂", &shortcuts::hint(tr("Cut"), Command::Cut)) {
                 actions.push(Action::CutItems(selection.clone()));
             }
-            if btn(ui, has_sel, "📋", &shortcuts::hint("Copy", Command::Copy)) {
+            if btn(
+                ui,
+                has_sel,
+                "📋",
+                &shortcuts::hint(tr("Copy"), Command::Copy),
+            ) {
                 actions.push(Action::CopyItems(selection.clone()));
             }
             if btn(
                 ui,
                 can_paste,
                 "📥",
-                &shortcuts::hint("Paste", Command::Paste),
+                &shortcuts::hint(tr("Paste"), Command::Paste),
             ) {
                 if let Some(f) = &folder {
                     actions.push(Action::Paste(f.clone()));
@@ -853,9 +874,9 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 ui,
                 has_sel,
                 "✏",
-                &format!(
-                    "{} — several items: bulk rename",
-                    shortcuts::hint("Rename", Command::Rename)
+                &ox_core::trf!(
+                    "{v1} — several items: bulk rename",
+                    v1 = shortcuts::hint(tr("Rename"), Command::Rename)
                 ),
             ) {
                 if selection.len() == 1 {
@@ -864,30 +885,30 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                     actions.push(Action::BulkRename(selection.clone()));
                 }
             }
-            if btn(ui, has_sel, "🗑", "Delete (Del)") {
+            if btn(ui, has_sel, "🗑", tr("Delete (Del)")) {
                 actions.push(Action::Delete(selection.clone(), false));
             }
         }
         ui.separator();
 
         ui.add_enabled_ui(shows_files, |ui| {
-            ui.menu_button(RichText::new("⇅ Sort").size(13.5), |ui| {
+            ui.menu_button(RichText::new(tr("⇅ Sort")).size(13.5), |ui| {
                 let mut new_key = key;
                 let mut new_order = order;
                 for (k, label) in [
-                    (SortKey::Name, "Name"),
-                    (SortKey::Modified, "Date modified"),
-                    (SortKey::Type, "Type"),
-                    (SortKey::Size, "Size"),
+                    (SortKey::Name, tr("Name")),
+                    (SortKey::Modified, tr("Date modified")),
+                    (SortKey::Type, tr("Type")),
+                    (SortKey::Size, tr("Size")),
                 ] {
                     ui.radio_value(&mut new_key, k, label);
                 }
                 ui.separator();
-                ui.radio_value(&mut new_order, SortOrder::Ascending, "Ascending");
-                ui.radio_value(&mut new_order, SortOrder::Descending, "Descending");
+                ui.radio_value(&mut new_order, SortOrder::Ascending, tr("Ascending"));
+                ui.radio_value(&mut new_order, SortOrder::Descending, tr("Descending"));
                 ui.separator();
                 let mut ff = app.settings.browsing.folders_first;
-                if ui.checkbox(&mut ff, "Folders first").changed() {
+                if ui.checkbox(&mut ff, tr("Folders first")).changed() {
                     app.settings.browsing.folders_first = ff;
                     actions.push(Action::SettingsChanged);
                 }
@@ -900,29 +921,34 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                     t.refresh_visible(folders_first, case);
                 }
             });
-            ui.menu_button(RichText::new("👁 View").size(13.5), |ui| {
+            ui.menu_button(RichText::new(tr("👁 View")).size(13.5), |ui| {
                 let mut m = mode;
-                ui.radio_value(&mut m, ViewMode::Details, "☰ Details");
-                ui.radio_value(&mut m, ViewMode::Grid, "▦ Grid");
+                ui.radio_value(&mut m, ViewMode::Details, tr("☰ Details"));
+                ui.radio_value(&mut m, ViewMode::Grid, tr("▦ Grid"));
                 if m != mode {
                     app.tabs.active_mut().view_mode = m;
                 }
                 ui.separator();
                 let b = &mut app.settings.browsing;
-                let mut changed = ui.checkbox(&mut b.show_hidden, "Hidden items").changed();
-                changed |= ui
-                    .checkbox(&mut b.show_extensions, "File name extensions")
+                let mut changed = ui
+                    .checkbox(&mut b.show_hidden, tr("Hidden items"))
                     .changed();
                 changed |= ui
-                    .checkbox(&mut app.settings.appearance.compact_rows, "Compact rows")
+                    .checkbox(&mut b.show_extensions, tr("File name extensions"))
                     .changed();
                 changed |= ui
-                    .checkbox(&mut app.settings.browsing.show_status_bar, "Status bar")
+                    .checkbox(
+                        &mut app.settings.appearance.compact_rows,
+                        tr("Compact rows"),
+                    )
+                    .changed();
+                changed |= ui
+                    .checkbox(&mut app.settings.browsing.show_status_bar, tr("Status bar"))
                     .changed();
                 changed |= ui
                     .checkbox(
                         &mut app.settings.browsing.show_preview,
-                        shortcuts::hint("Preview pane", Command::TogglePreview),
+                        shortcuts::hint(tr("Preview pane"), Command::TogglePreview),
                     )
                     .changed();
                 if changed {
@@ -932,7 +958,7 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 if ui
                     .checkbox(
                         &mut terminal,
-                        shortcuts::hint("Terminal panel", Command::ToggleTerminal),
+                        shortcuts::hint(tr("Terminal panel"), Command::ToggleTerminal),
                     )
                     .changed()
                 {
@@ -942,7 +968,7 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 if ui
                     .checkbox(
                         &mut split,
-                        shortcuts::hint("Split view", Command::ToggleSplit),
+                        shortcuts::hint(tr("Split view"), Command::ToggleSplit),
                     )
                     .changed()
                 {
@@ -953,9 +979,9 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
         ui.separator();
         if let Some(f) = &folder {
             let (text, tip) = if pinned {
-                ("★", "Unpin from Favorites")
+                ("★", tr("Unpin from Favorites"))
             } else {
-                ("☆", "Pin to Favorites")
+                ("☆", tr("Pin to Favorites"))
             };
             if btn(ui, true, text, tip) {
                 actions.push(if pinned {
@@ -964,7 +990,7 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                     Action::Pin(f.clone())
                 });
             }
-            if btn(ui, true, "🖳", "Open in Terminal") {
+            if btn(ui, true, "🖳", tr("Open in Terminal")) {
                 actions.push(Action::OpenTerminal(f.clone()));
             }
         }
@@ -974,7 +1000,7 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 ui,
                 true,
                 "⚙",
-                &shortcuts::hint("Settings", Command::Settings),
+                &shortcuts::hint(tr("Settings"), Command::Settings),
             ) {
                 actions.push(Action::OpenInNewTab(Location::Settings, true));
             }
@@ -982,11 +1008,11 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 ui,
                 true,
                 "⌨",
-                &shortcuts::hint("Command palette", Command::Palette),
+                &shortcuts::hint(tr("Command palette"), Command::Palette),
             ) {
                 app.ui.palette = Some(Default::default());
             }
-            if btn(ui, true, "◧", "Toggle sidebar") {
+            if btn(ui, true, "◧", tr("Toggle sidebar")) {
                 app.settings.sidebar.visible = !app.settings.sidebar.visible;
                 actions.push(Action::SettingsChanged);
             }
@@ -994,7 +1020,7 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 ui,
                 true,
                 "◫",
-                &shortcuts::hint("Split view", Command::ToggleSplit),
+                &shortcuts::hint(tr("Split view"), Command::ToggleSplit),
             ) {
                 actions.push(Action::Tab(TabAction::ToggleSplit));
             }
@@ -1002,9 +1028,9 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
             if jobs > 0 {
                 let active = app.engine.has_active();
                 let label = if active {
-                    format!("⇄ Transfers ({jobs})")
+                    ox_core::trf!("⇄ Transfers ({jobs})", jobs = jobs)
                 } else {
-                    format!("✔ Transfers ({jobs})")
+                    ox_core::trf!("✔ Transfers ({jobs})", jobs = jobs)
                 };
                 if ui
                     .add(egui::Button::new(label).selected(app.ui.show_transfers))

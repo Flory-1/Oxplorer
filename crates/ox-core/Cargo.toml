@@ -20,6 +20,7 @@ xxhash-rust = { version = "0.8", features = ["xxh3"] }
 zip = { version = "9", default-features = false, features = ["deflate-flate2", "deflate64", "chrono"] }
 tar = "0.4"
 flate2 = "1"
+sys-locale = "0.3"
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["bzip2", "deflate"] }
 
 [target.'cfg(windows)'.dependencies]

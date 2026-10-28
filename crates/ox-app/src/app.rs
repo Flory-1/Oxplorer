@@ -4,6 +4,7 @@
 //! [`Action`]s which are processed at the end of each frame. This keeps the
 //! borrow checker happy and makes every user command go through one place.
 
+use ox_core::i18n::t as tr;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -267,6 +268,8 @@ impl OxApp {
     pub fn new(cc: &eframe::CreationContext<'_>, open: Option<PathBuf>, see_through: bool) -> Self {
         let ctx = cc.egui_ctx.clone();
         let settings = Settings::load();
+        // Before anything is named (e.g. the default favorites on first start).
+        ox_core::i18n::set_language(settings.appearance.language);
         let quick = QuickAccess::load();
 
         let engine = TransferEngine::new(settings.transfer.engine_config());
@@ -394,6 +397,7 @@ impl OxApp {
     fn pre_frame(&mut self, ctx: &Context) {
         if self.applied_settings.as_ref() != Some(&self.settings) || self.themes_changed {
             self.themes_changed = false;
+            ox_core::i18n::set_language(self.settings.appearance.language);
             theme::apply(
                 ctx,
                 &self.settings,
@@ -616,19 +620,22 @@ impl OxApp {
                                 truncated,
                                 from_index,
                             } => {
-                                let limit = if truncated { " · limit reached" } else { "" };
-                                let results =
-                                    format::count(tab.view.entries.len() as u64, "result");
-                                search.done = Some(if from_index {
-                                    format!(
-                                        "{results} in {} ms · ⚡ from the index ({} items){limit}",
-                                        elapsed.as_millis(),
-                                        scanned
-                                    )
+                                let limit = if truncated {
+                                    tr(" · limit reached")
                                 } else {
-                                    format!(
-                                        "{results} · {scanned} items scanned in {:.2}s{limit}",
-                                        elapsed.as_secs_f32()
+                                    ""
+                                };
+                                let results =
+                                    ox_core::i18n::count(tab.view.entries.len() as u64, "result");
+                                search.done = Some(if from_index {
+                                    ox_core::trf!("{results} in {v1} ms · ⚡ from the index ({scanned} items){limit}", results = results, v1 = elapsed.as_millis(), scanned = scanned, limit = limit)
+                                } else {
+                                    ox_core::trf!(
+                                        "{results} · {scanned} items scanned in {secs} s{limit}",
+                                        results = results,
+                                        scanned = scanned,
+                                        secs = ox_core::format::decimal(elapsed.as_secs_f64(), 2),
+                                        limit = limit
                                     )
                                 });
                                 changed = true;
@@ -700,9 +707,9 @@ impl OxApp {
             }
             let errors = job.error_count();
             if errors > 0 {
-                self.toast(format!(
-                    "Transfer finished with {}. See the transfer panel.",
-                    format::count(errors as u64, "error")
+                self.toast(ox_core::trf!(
+                    "Transfer finished with {v1}. See the transfer panel.",
+                    v1 = ox_core::i18n::count(errors as u64, "error")
                 ));
                 self.ui.show_transfers = true;
             }
@@ -722,7 +729,7 @@ impl OxApp {
             });
         for (label, result, dir) in finished {
             if let Err(e) = result {
-                self.toast(format!("{label} failed: {e}"));
+                self.toast(ox_core::trf!("{label} failed: {e}", label = label, e = e));
             }
             self.mark_changed(dir.as_deref());
         }
@@ -731,7 +738,7 @@ impl OxApp {
     /// Save the tag store and reload tag views.
     pub fn tags_changed(&mut self) {
         if let Err(e) = self.tags.save() {
-            self.toast(format!("Could not save tags: {e}"));
+            self.toast(ox_core::trf!("Could not save tags: {e}", e = e));
         }
         for t in &mut self.tabs.tabs {
             if matches!(t.location(), Location::Tagged(_)) {
@@ -898,7 +905,7 @@ impl OxApp {
         }
         match self.current_folder() {
             Some(dest) => self.push(Action::Drop(dropped, dest)),
-            None => self.toast("Open a folder to drop files into it."),
+            None => self.toast(tr("Open a folder to drop files into it.")),
         }
     }
 
@@ -1147,7 +1154,11 @@ impl OxApp {
                 } else {
                     match fsops::open_default(&path) {
                         Ok(()) => self.quick.open_file(&path),
-                        Err(e) => self.toast(format!("Couldn't open {}: {e}", path.display())),
+                        Err(e) => self.toast(ox_core::trf!(
+                            "Couldn't open {v1}: {e}",
+                            v1 = path.display(),
+                            e = e
+                        )),
                     }
                     self.save_quick();
                 }
@@ -1155,12 +1166,18 @@ impl OxApp {
             Action::CopyItems(paths) => {
                 let n = paths.len();
                 self.clipboard.set(paths, ClipMode::Copy, system_clip);
-                self.toast(format!("{} copied", format::count(n as u64, "item")));
+                self.toast(ox_core::trf!(
+                    "{v1} copied",
+                    v1 = ox_core::i18n::count(n as u64, "item")
+                ));
             }
             Action::CutItems(paths) => {
                 let n = paths.len();
                 self.clipboard.set(paths, ClipMode::Cut, system_clip);
-                self.toast(format!("{} cut", format::count(n as u64, "item")));
+                self.toast(ox_core::trf!(
+                    "{v1} cut",
+                    v1 = ox_core::i18n::count(n as u64, "item")
+                ));
             }
             Action::Paste(dest) => match self.clipboard.get(system_clip) {
                 Some((items, mode)) => {
@@ -1173,7 +1190,7 @@ impl OxApp {
                         self.clipboard.clear(system_clip);
                     }
                 }
-                None => self.toast("The clipboard doesn't contain any files."),
+                None => self.toast(tr("The clipboard doesn't contain any files.")),
             },
             Action::Transfer(kind, sources, dest) => self.start_transfer(kind, sources, dest),
             Action::Drop(sources, dest) => {
@@ -1214,7 +1231,7 @@ impl OxApp {
                     .first()
                     .and_then(|p| p.parent())
                     .map(Path::to_path_buf);
-                self.run_background("Delete", dir, move || fsops::delete(&paths, to_trash));
+                self.run_background(tr("Delete"), dir, move || fsops::delete(&paths, to_trash));
                 self.tabs.active_mut().view.clear_selection();
             }
             Action::Rename(path) => {
@@ -1244,15 +1261,15 @@ impl OxApp {
                     focus: true,
                 });
             }
-            Action::NewFolder(dir) => match fsops::create_folder(&dir, "New folder") {
+            Action::NewFolder(dir) => match fsops::create_folder(&dir, tr("New folder")) {
                 Ok(p) => {
                     self.after_create(&dir, p);
                 }
-                Err(e) => self.toast(format!("Couldn't create folder: {e}")),
+                Err(e) => self.toast(ox_core::trf!("Couldn't create folder: {e}", e = e)),
             },
-            Action::NewFile(dir) => match fsops::create_file(&dir, "New Text Document.txt") {
+            Action::NewFile(dir) => match fsops::create_file(&dir, tr("New Text Document.txt")) {
                 Ok(p) => self.after_create(&dir, p),
-                Err(e) => self.toast(format!("Couldn't create file: {e}")),
+                Err(e) => self.toast(ox_core::trf!("Couldn't create file: {e}", e = e)),
             },
             Action::Pin(p) => {
                 self.quick.pin(&p);
@@ -1289,9 +1306,12 @@ impl OxApp {
                     return;
                 };
                 let zip = archive::zip_target(&paths, &dir);
-                self.toast(format!("Compressing to {}…", entry::display_name(&zip)));
+                self.toast(ox_core::trf!(
+                    "Compressing to {v1}…",
+                    v1 = entry::display_name(&zip)
+                ));
                 self.tabs.active_mut().view.select_after_load = Some(zip.clone());
-                self.run_background("Compressing", Some(dir), move || {
+                self.run_background(tr("Compressing"), Some(dir), move || {
                     archive::compress_zip(&paths, &zip, &AtomicBool::new(false))
                         .map(|_| ())
                         .map_err(|e| e.to_string())
@@ -1313,18 +1333,21 @@ impl OxApp {
                     self.themes = ox_core::themes::load_all();
                     self.themes_changed = true;
                     self.push(Action::SettingsChanged);
-                    self.toast(format!("Theme \"{}\" installed and in use.", t.name));
+                    self.toast(ox_core::trf!(
+                        "Theme \"{v1}\" installed and in use.",
+                        v1 = t.name
+                    ));
                 }
-                Err(e) => self.toast(format!("This isn't a theme file: {e}")),
+                Err(e) => self.toast(ox_core::trf!("This isn't a theme file: {e}", e = e)),
             },
             Action::SetDefaultFolderHandler(on) => {
                 match ox_core::default_app::set_enabled(on) {
                     Ok(()) => self.toast(if on {
-                        "Folders now open in Oxplorer.".to_owned()
+                        tr("Folders now open in Oxplorer.").to_owned()
                     } else {
-                        "Folders open in Explorer again.".to_owned()
+                        tr("Folders open in Explorer again.").to_owned()
                     }),
-                    Err(e) => self.toast(format!("Couldn't change the default: {e}")),
+                    Err(e) => self.toast(ox_core::trf!("Couldn't change the default: {e}", e = e)),
                 }
                 self.ui.default_folder_handler = None;
             }
@@ -1376,16 +1399,19 @@ impl OxApp {
                     .collect::<Vec<_>>()
                     .join("\n");
                 self.ctx.copy_text(text);
-                self.toast("Path copied");
+                self.toast(tr("Path copied"));
             }
             Action::OpenTerminal(dir) => {
                 if let Err(e) = fsops::open_terminal(&dir) {
-                    self.toast(format!("Couldn't open a terminal: {e}"));
+                    self.toast(ox_core::trf!("Couldn't open a terminal: {e}", e = e));
                 }
             }
             Action::Reveal(p) => {
                 if let Err(e) = fsops::reveal_in_system(&p) {
-                    self.toast(format!("Couldn't open the system file manager: {e}"));
+                    self.toast(ox_core::trf!(
+                        "Couldn't open the system file manager: {e}",
+                        e = e
+                    ));
                 }
             }
             Action::Properties(paths) => match paths.as_slice() {
@@ -1417,7 +1443,7 @@ impl OxApp {
             Action::SaveSearch(root, query) => {
                 self.quick.save_search(&query, root);
                 self.save_quick();
-                self.toast("Search saved to the sidebar");
+                self.toast(tr("Search saved to the sidebar"));
             }
             Action::RemoveSavedSearch(i) => {
                 if i < self.quick.saved_searches.len() {
@@ -1439,7 +1465,7 @@ impl OxApp {
             }
             Action::SettingsChanged => {
                 if let Err(e) = self.settings.save() {
-                    self.toast(format!("Couldn't save settings: {e}"));
+                    self.toast(ox_core::trf!("Couldn't save settings: {e}", e = e));
                 }
                 // Hidden-file setting etc. affect listings.
                 self.tabs.mark_stale(None);
@@ -1448,7 +1474,7 @@ impl OxApp {
             Action::Toast(t) => self.toast(t),
             Action::RestoreFromBin(paths) => {
                 let items = self.tabs.active().view.bin.select(&paths);
-                self.run_background("Restore", None, move || recycle::restore(items));
+                self.run_background(tr("Restore"), None, move || recycle::restore(items));
                 self.tabs.active_mut().view.clear_selection();
             }
             Action::PurgeFromBin(paths) => {
@@ -1468,9 +1494,9 @@ impl OxApp {
             }
             Action::PurgeConfirmed(items, everything) => {
                 if everything {
-                    self.run_background("Empty Recycle Bin", None, recycle::empty);
+                    self.run_background(tr("Empty Recycle Bin"), None, recycle::empty);
                 } else {
-                    self.run_background("Delete", None, move || recycle::purge(items));
+                    self.run_background(tr("Delete"), None, move || recycle::purge(items));
                 }
                 self.tabs.active_mut().view.clear_selection();
             }
@@ -1479,7 +1505,7 @@ impl OxApp {
                     .first()
                     .and_then(|p| p.parent())
                     .map(Path::to_path_buf);
-                self.run_background("Move to Recycle Bin", dir, move || {
+                self.run_background(tr("Move to Recycle Bin"), dir, move || {
                     fsops::delete(&paths, true)
                 });
             }
@@ -1546,9 +1572,9 @@ impl OxApp {
     pub fn navigate(&mut self, loc: Location) {
         if let Location::Folder(p) = &loc {
             if !ox_core::network::is_dir(p) {
-                self.toast(format!(
-                    "\"{}\" doesn't exist or isn't a folder.",
-                    p.display()
+                self.toast(ox_core::trf!(
+                    "\"{v1}\" doesn't exist or isn't a folder.",
+                    v1 = p.display()
                 ));
                 return;
             }
@@ -1640,7 +1666,7 @@ impl OxApp {
             }
             Err(e) => {
                 self.terminal = None;
-                self.toast(format!("Couldn't start the shell: {e}"));
+                self.toast(ox_core::trf!("Couldn't start the shell: {e}", e = e));
             }
         }
     }
@@ -1663,17 +1689,17 @@ impl OxApp {
 
     /// Extract `items` (paths inside `arc`; empty = everything) into `dest`.
     fn extract(&mut self, arc: PathBuf, items: Vec<PathBuf>, dest: PathBuf) {
-        self.toast(format!(
-            "Extracting {} from {}…",
-            if items.iter().any(|i| i.as_os_str().is_empty()) {
-                "everything".to_owned()
+        self.toast(ox_core::trf!(
+            "Extracting {v1} from {v2}…",
+            v1 = if items.iter().any(|i| i.as_os_str().is_empty()) {
+                tr("everything").to_owned()
             } else {
-                format::count(items.len() as u64, "item")
+                ox_core::i18n::count(items.len() as u64, "item")
             },
-            entry::display_name(&arc)
+            v2 = entry::display_name(&arc)
         ));
         let target = dest.clone();
-        self.run_background("Extracting", Some(dest), move || {
+        self.run_background(tr("Extracting"), Some(dest), move || {
             archive::extract(&arc, &items, &target, &AtomicBool::new(false))
                 .map(|_| ())
                 .map_err(|e| e.to_string())
@@ -1689,10 +1715,10 @@ impl OxApp {
         let dir = std::env::temp_dir()
             .join("oxplorer-open")
             .join(stamp.to_string());
-        self.run_background("Opening", None, move || {
+        self.run_background(tr("Opening"), None, move || {
             let made = archive::extract(&arc, &[inner], &dir, &AtomicBool::new(false))
                 .map_err(|e| e.to_string())?;
-            let file = made.first().ok_or("Nothing was extracted.")?;
+            let file = made.first().ok_or(tr("Nothing was extracted."))?;
             fsops::open_default(file).map_err(|e| e.to_string())
         });
     }
@@ -1776,7 +1802,7 @@ impl OxApp {
         let progress = active.iter().map(|j| j.progress()).sum::<f32>() / active.len() as f32;
         Some(format!(
             "{} · {:.0}% · {}",
-            format::count(active.len() as u64, "transfer"),
+            ox_core::i18n::count(active.len() as u64, "transfer"),
             progress * 100.0,
             format::rate(speed)
         ))

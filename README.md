@@ -129,8 +129,12 @@ Rust engine does the work and shows progress in a panel inside the window.
 the search syntax, your current keyboard shortcuts and common questions, with a filter to
 find a topic.
 
+**Languages**: English and German (Deutsch). By default Oxplorer follows the Windows display
+language; Settings → Appearance → Language picks one. Everything is translated, including the
+Help page, messages and key names (*Strg+C*, *Entf*), and numbers use a decimal comma in German.
+
 **Settings page**
-- Appearance: system/light/dark mode, a **colour theme** for each mode (Dark, Light, Nord, Dracula,
+- Appearance: language, system/light/dark mode, a **colour theme** for each mode (Dark, Light, Nord, Dracula,
   Solarized Light, High contrast or your own), accent colour, UI scale, compact rows,
   thumbnails, window backdrop.
   Change any theme's colours; **export** a theme as a small `.toml` file to share it, and
@@ -187,6 +191,13 @@ Run the tests:
 cargo test --workspace
 ```
 
+### Translations
+
+The English text is the key: wrap texts people see in `tr("…")` (`ox_core::i18n::t`), or
+`ox_core::trf!("{n} selected", n = count)` for texts with values, and add the German version to
+`crates/ox-core/src/i18n_de.rs`. A test lists every wrapped text that has no German version yet,
+so a missing translation fails CI.
+
 ## Project layout
 
 ```
@@ -213,6 +224,7 @@ crates/
     recycle.rs        Recycle Bin: list, restore, purge
     places.rs         favorites, recent items, known folders, drives
     settings.rs       settings (TOML)
+    i18n.rs           translations (English text as key), i18n_de.rs: German
     fsops.rs          create / rename / delete / shell helpers
     watcher.rs        auto-refresh when a folder changes
   ox-app/             the egui/eframe desktop app ("oxplorer" binary)

@@ -203,19 +203,44 @@ pub fn to_text(sc: &KeyboardShortcut) -> String {
     s
 }
 
-/// The form shown to people ("Ctrl+,", "Alt+Left").
+/// The form shown to people ("Ctrl+,", "Alt+Left"; in German "Strg+,",
+/// "Alt+Links", like the key caps on German keyboards).
 pub fn display(sc: &KeyboardShortcut) -> String {
-    let key = match sc.logical_key {
-        Key::ArrowLeft => "Left",
-        Key::ArrowRight => "Right",
-        Key::ArrowUp => "Up",
-        Key::ArrowDown => "Down",
-        Key::Delete => "Del",
-        k => k.symbol_or_name(),
+    let german = ox_core::i18n::is_german();
+    let m = sc.modifiers;
+    let mut s = String::new();
+    if m.command || m.ctrl {
+        s.push_str(if german { "Strg+" } else { "Ctrl+" });
+    }
+    if m.alt {
+        s.push_str("Alt+");
+    }
+    if m.shift {
+        s.push_str(if german { "Umschalt+" } else { "Shift+" });
+    }
+    let key = match (sc.logical_key, german) {
+        (Key::ArrowLeft, false) => "Left",
+        (Key::ArrowRight, false) => "Right",
+        (Key::ArrowUp, false) => "Up",
+        (Key::ArrowDown, false) => "Down",
+        (Key::Delete, false) => "Del",
+        (Key::ArrowLeft, true) => "Links",
+        (Key::ArrowRight, true) => "Rechts",
+        (Key::ArrowUp, true) => "Oben",
+        (Key::ArrowDown, true) => "Unten",
+        (Key::Delete, true) => "Entf",
+        (Key::Enter, true) => "Eingabe",
+        (Key::Home, true) => "Pos1",
+        (Key::End, true) => "Ende",
+        (Key::Insert, true) => "Einfg",
+        (Key::Backspace, true) => "Rücktaste",
+        (Key::Space, true) => "Leertaste",
+        (Key::PageUp, true) => "Bild↑",
+        (Key::PageDown, true) => "Bild↓",
+        (k, _) => k.symbol_or_name(),
     };
-    let text = to_text(sc);
-    let prefix = &text[..text.len() - sc.logical_key.name().len()];
-    format!("{prefix}{key}")
+    s.push_str(key);
+    s
 }
 
 /// Shortcuts in effect: the defaults with the user's changes applied.

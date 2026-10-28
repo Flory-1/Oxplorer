@@ -1,6 +1,8 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod app;
+#[cfg(test)]
+mod i18n_check;
 mod icons;
 mod shortcuts;
 mod tabs;

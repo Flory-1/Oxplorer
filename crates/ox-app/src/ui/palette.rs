@@ -2,7 +2,7 @@
 
 use egui::{Context, Id, Key, RichText};
 use ox_core::entry::display_name;
-use ox_core::format;
+use ox_core::i18n::t as tr;
 use ox_core::settings::{Theme, ViewMode};
 use ox_core::tags::TagColor;
 
@@ -55,79 +55,79 @@ fn entries(app: &OxApp) -> Vec<Entry> {
 
     cmd(
         "🏠",
-        "Go to Home",
+        tr("Go to Home"),
         "",
         act(|| Action::Navigate(Location::Home)),
     );
     cmd(
         "🗑",
-        "Open Recycle Bin",
+        tr("Open Recycle Bin"),
         "",
         act(|| Action::Navigate(Location::RecycleBin)),
     );
     cmd(
         "⚙",
-        "Open Settings",
+        tr("Open Settings"),
         &shortcuts::label(Command::Settings),
         act(|| Action::OpenInNewTab(Location::Settings, true)),
     );
     cmd(
         "❓",
-        "Open Help",
+        tr("Open Help"),
         &shortcuts::label(Command::Help),
         act(|| Action::OpenInNewTab(Location::Help, true)),
     );
     cmd(
         "⬅",
-        "Back",
+        tr("Back"),
         &shortcuts::label(Command::Back),
         act(|| Action::Back),
     );
     cmd(
         "➡",
-        "Forward",
+        tr("Forward"),
         &shortcuts::label(Command::Forward),
         act(|| Action::Forward),
     );
     cmd(
         "⬆",
-        "Up one folder",
+        tr("Up one folder"),
         &shortcuts::label(Command::Up),
         act(|| Action::Up),
     );
     cmd(
         "🔄",
-        "Refresh",
+        tr("Refresh"),
         &shortcuts::label(Command::Refresh),
         act(|| Action::Refresh),
     );
     cmd(
         "➕",
-        "New tab",
+        tr("New tab"),
         &shortcuts::label(Command::NewTab),
         act(|| Action::Tab(TabAction::New)),
     );
     cmd(
         "✖",
-        "Close tab",
+        tr("Close tab"),
         &shortcuts::label(Command::CloseTab),
         act(move || Action::Tab(TabAction::Close(tab_id))),
     );
     cmd(
         "📑",
-        "Duplicate tab",
+        tr("Duplicate tab"),
         "",
         act(move || Action::Tab(TabAction::Duplicate(tab_id))),
     );
     cmd(
         "🗂",
-        "Add tab to new group",
+        tr("Add tab to new group"),
         "",
         act(move || Action::Tab(TabAction::NewGroup(tab_id))),
     );
     cmd(
         "🔍",
-        "Search…",
+        tr("Search…"),
         &shortcuts::label(Command::Search),
         Box::new(|app: &mut OxApp| app.ui.focus_search = true),
     );
@@ -136,45 +136,45 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         let (f1, f2, f3, f4, f5) = (f.clone(), f.clone(), f.clone(), f.clone(), f.clone());
         cmd(
             "📁",
-            "New folder",
+            tr("New folder"),
             &shortcuts::label(Command::NewFolder),
             act(move || Action::NewFolder(f1)),
         );
         cmd(
             "📄",
-            "New text document",
+            tr("New text document"),
             "",
             act(move || Action::NewFile(f2)),
         );
         cmd(
             "📥",
-            "Paste",
+            tr("Paste"),
             &shortcuts::label(Command::Paste),
             act(move || Action::Paste(f3)),
         );
         cmd(
             "🖳",
-            "Open terminal here",
+            tr("Open terminal here"),
             "",
             act(move || Action::OpenTerminal(f4)),
         );
         cmd(
             "🗔",
-            "Open in Windows Explorer",
+            tr("Open in Windows Explorer"),
             "",
             act(move || Action::Reveal(f5)),
         );
         if app.quick.is_favorite(&f) {
             cmd(
                 "☆",
-                "Unpin folder from Favorites",
+                tr("Unpin folder from Favorites"),
                 "",
                 act(move || Action::Unpin(f)),
             );
         } else {
             cmd(
                 "⭐",
-                "Pin folder to Favorites",
+                tr("Pin folder to Favorites"),
                 "",
                 act(move || Action::Pin(f)),
             );
@@ -183,7 +183,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
     if tab.location().shows_files() {
         cmd(
             "☑",
-            "Select all",
+            tr("Select all"),
             &shortcuts::label(Command::SelectAll),
             act(|| Action::SelectAll),
         );
@@ -197,26 +197,26 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         };
         cmd(
             "✏",
-            "Rename selection",
+            tr("Rename selection"),
             &shortcuts::label(Command::Rename),
             rename,
         );
         cmd(
             "🔗",
-            "Copy path of selection",
+            tr("Copy path of selection"),
             &shortcuts::label(Command::CopyPath),
             act(move || Action::CopyPathText(s2)),
         );
         cmd(
             "ℹ",
-            "Properties of selection",
+            tr("Properties of selection"),
             &shortcuts::label(Command::Properties),
             act(move || Action::Properties(s3)),
         );
         let zip = selection.clone();
         cmd(
             "🗜",
-            "Compress selection to ZIP",
+            tr("Compress selection to ZIP"),
             "",
             act(move || Action::Compress(zip)),
         );
@@ -224,9 +224,9 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             let (a1, a2) = (selection[0].clone(), selection[0].clone());
             cmd(
                 "📦",
-                &format!(
-                    "Extract to \"{}\"",
-                    ox_core::archive::base_name(&selection[0])
+                &ox_core::trf!(
+                    "Extract to \"{v1}\"",
+                    v1 = ox_core::archive::base_name(&selection[0])
                 ),
                 "",
                 act(move || Action::ExtractArchive {
@@ -236,7 +236,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             );
             cmd(
                 "📦",
-                "Extract here",
+                tr("Extract here"),
                 "",
                 act(move || Action::ExtractArchive {
                     archive: a2,
@@ -248,7 +248,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             let sel = selection.clone();
             cmd(
                 "🏷",
-                &format!("Tag selection: {}", app.tags.label(color)),
+                &ox_core::trf!("Tag selection: {v1}", v1 = app.tags.label(color)),
                 "",
                 act(move || Action::ToggleTag(sel, color)),
             );
@@ -258,8 +258,8 @@ fn entries(app: &OxApp) -> Vec<Entry> {
     for color in TagColor::ALL.into_iter().filter(|c| counts[c.index()] > 0) {
         cmd(
             "🏷",
-            &format!("Show items tagged {}", app.tags.label(color)),
-            &format::count(counts[color.index()] as u64, "item"),
+            &ox_core::trf!("Show items tagged {v1}", v1 = app.tags.label(color)),
+            &ox_core::i18n::count(counts[color.index()] as u64, "item"),
             act(move || Action::Navigate(Location::Tagged(color))),
         );
     }
@@ -267,113 +267,113 @@ fn entries(app: &OxApp) -> Vec<Entry> {
     if ox_core::shell::supported() {
         cmd(
             "🖧",
-            "Map network drive…",
+            tr("Map network drive…"),
             "",
             act(|| Action::NetworkDriveDialog(true)),
         );
         cmd(
             "🖧",
-            "Disconnect network drive…",
+            tr("Disconnect network drive…"),
             "",
             act(|| Action::NetworkDriveDialog(false)),
         );
     }
     cmd(
         "▭",
-        "Toggle terminal panel",
+        tr("Toggle terminal panel"),
         &shortcuts::label(Command::ToggleTerminal),
         act(|| Action::ToggleTerminal),
     );
     cmd(
         "◫",
-        "Toggle split view",
+        tr("Toggle split view"),
         &shortcuts::label(Command::ToggleSplit),
         act(|| Action::Tab(TabAction::ToggleSplit)),
     );
     if app.tabs.panes.is_some() {
         cmd(
             "⇆",
-            "Switch pane",
+            tr("Switch pane"),
             &shortcuts::label(Command::SwitchPane),
             act(|| Action::Tab(TabAction::SwitchPane)),
         );
     }
     cmd(
         "👁",
-        "Toggle preview pane",
+        tr("Toggle preview pane"),
         &shortcuts::label(Command::TogglePreview),
         setting(|a| a.settings.browsing.show_preview ^= true),
     );
     cmd(
         "◧",
-        "Toggle sidebar",
+        tr("Toggle sidebar"),
         "",
         setting(|a| a.settings.sidebar.visible ^= true),
     );
     cmd(
         "👻",
-        "Toggle hidden items",
+        tr("Toggle hidden items"),
         "",
         setting(|a| a.settings.browsing.show_hidden ^= true),
     );
     cmd(
         "🔤",
-        "Toggle file name extensions",
+        tr("Toggle file name extensions"),
         "",
         setting(|a| a.settings.browsing.show_extensions ^= true),
     );
     cmd(
         "▬",
-        "Toggle status bar",
+        tr("Toggle status bar"),
         "",
         setting(|a| a.settings.browsing.show_status_bar ^= true),
     );
     cmd(
         "☰",
-        "Details view",
+        tr("Details view"),
         "",
         Box::new(|a: &mut OxApp| a.tabs.active_mut().view_mode = ViewMode::Details),
     );
     cmd(
         "▦",
-        "Grid view",
+        tr("Grid view"),
         "",
         Box::new(|a: &mut OxApp| a.tabs.active_mut().view_mode = ViewMode::Grid),
     );
     for (theme, name) in [
-        (Theme::Dark, "dark"),
-        (Theme::Light, "light"),
-        (Theme::System, "system"),
+        (Theme::Dark, tr("dark")),
+        (Theme::Light, tr("light")),
+        (Theme::System, tr("system")),
     ] {
         cmd(
             "🎨",
-            &format!("Theme: {name}"),
+            &ox_core::trf!("Theme: {name}", name = name),
             "",
             setting(move |a| a.settings.appearance.theme = theme),
         );
     }
     cmd(
         "⚡",
-        "Rebuild search index",
+        tr("Rebuild search index"),
         "",
         act(|| Action::RebuildIndex),
     );
     cmd(
         "⇄",
-        "Show transfers",
+        tr("Show transfers"),
         "",
         Box::new(|a: &mut OxApp| a.ui.show_transfers = true),
     );
     cmd(
         "🧹",
-        "Clear finished transfers",
+        tr("Clear finished transfers"),
         "",
         Box::new(|a: &mut OxApp| a.engine.clear_finished()),
     );
-    cmd("🗑", "Empty Recycle Bin", "", act(|| Action::EmptyBin));
+    cmd("🗑", tr("Empty Recycle Bin"), "", act(|| Action::EmptyBin));
     cmd(
         "🕘",
-        "Clear recent history",
+        tr("Clear recent history"),
         "",
         act(|| Action::ClearRecent),
     );
@@ -408,8 +408,8 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         };
         v.push(Entry {
             icon: "🔍",
-            label: format!("Search: {}", s.name),
-            detail: "saved search".into(),
+            label: ox_core::trf!("Search: {v1}", v1 = s.name),
+            detail: tr("saved search").into(),
             run: act(move || Action::Navigate(loc)),
         });
     }
@@ -454,7 +454,7 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
     let modal = egui::Modal::new(Id::unique("command_palette")).show(ctx, |ui| {
         ui.set_width(560.0);
         let edit = egui::TextEdit::singleline(&mut state.query)
-            .hint_text("Type a command or a place…")
+            .hint_text(tr("Type a command or a place…"))
             .desired_width(f32::INFINITY)
             .font(egui::TextStyle::Heading);
         let resp = ui.add(edit);
@@ -467,7 +467,7 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
         }
         ui.add_space(6.0);
         if visible.is_empty() {
-            ui.label(RichText::new("Nothing found.").weak());
+            ui.label(RichText::new(tr("Nothing found.")).weak());
         }
         for (row, &i) in visible.iter().enumerate() {
             let e = &all[i];
@@ -492,7 +492,7 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
         }
         ui.add_space(4.0);
         ui.label(
-            RichText::new("↑↓ to choose · Enter to run · Esc to close")
+            RichText::new(tr("↑↓ to choose · Enter to run · Esc to close"))
                 .weak()
                 .small(),
         );

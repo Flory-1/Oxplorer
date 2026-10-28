@@ -71,16 +71,18 @@ impl FileEntry {
 
     /// Human readable type description, e.g. "PDF File" or "File folder".
     pub fn type_label(&self) -> String {
+        use crate::i18n::t;
         if self.is_dir {
-            return "File folder".to_owned();
+            return t("File folder").to_owned();
         }
         let ext = self.extension();
         if ext.is_empty() {
-            return "File".to_owned();
+            return t("File").to_owned();
         }
         match FileKind::from_extension(&ext) {
+            FileKind::Other if crate::i18n::is_german() => format!("{}-Datei", ext.to_uppercase()),
             FileKind::Other => format!("{} File", ext.to_uppercase()),
-            kind => format!("{} ({})", kind.label(), ext.to_uppercase()),
+            kind => format!("{} ({})", t(kind.label()), ext.to_uppercase()),
         }
     }
 
