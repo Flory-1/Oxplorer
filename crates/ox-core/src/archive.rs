@@ -1,5 +1,5 @@
-//! Archives as folders: list, read and extract zip and tar (.tar, .tar.gz,
-//! .tgz) files, and compress files to zip.
+//! Archives as folders: list, read and extract zip, 7z and tar (.tar,
+//! .tar.gz, .tgz) files, and compress files to zip.
 //!
 //! Items inside an archive have *virtual* paths: the archive's path joined
 //! with the path inside it (`C:\Downloads\photos.zip\2024\a.jpg`).
@@ -19,6 +19,7 @@ use crate::fsops;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Zip,
+    SevenZip,
     Tar,
     TarGz,
 }
@@ -28,6 +29,8 @@ pub fn kind(path: &Path) -> Option<Kind> {
     let name = path.file_name()?.to_string_lossy().to_lowercase();
     if name.ends_with(".zip") {
         Some(Kind::Zip)
+    } else if name.ends_with(".7z") {
+        Some(Kind::SevenZip)
     } else if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
         Some(Kind::TarGz)
     } else if name.ends_with(".tar") {
@@ -41,7 +44,7 @@ pub fn kind(path: &Path) -> Option<Kind> {
 pub fn base_name(path: &Path) -> String {
     let name = crate::entry::display_name(path);
     let lower = name.to_lowercase();
-    for ext in [".tar.gz", ".tgz", ".tar", ".zip"] {
+    for ext in [".tar.gz", ".tgz", ".tar", ".zip", ".7z"] {
         if lower.ends_with(ext) && name.len() > ext.len() {
             return name[..name.len() - ext.len()].to_owned();
         }
@@ -112,6 +115,7 @@ pub fn index(archive: &Path) -> io::Result<Arc<Index>> {
     let kind = kind(archive).ok_or_else(|| io::Error::other("Not a supported archive."))?;
     let idx = Arc::new(match kind {
         Kind::Zip => zip_index(archive)?,
+        Kind::SevenZip => sevenz_index(archive)?,
         Kind::Tar | Kind::TarGz => tar_index(archive, kind)?,
     });
     let mut cache = CACHE.lock().unwrap();
@@ -171,6 +175,42 @@ fn zip_index(archive: &Path) -> io::Result<Index> {
             index: i,
         });
     }
+    Ok(Index { entries })
+}
+
+fn sevenz_err(e: sevenz_rust2::Error) -> io::Error {
+    io::Error::other(e.to_string())
+}
+
+fn open_sevenz(archive: &Path) -> io::Result<sevenz_rust2::ArchiveReader<File>> {
+    sevenz_rust2::ArchiveReader::open(archive, sevenz_rust2::Password::empty()).map_err(sevenz_err)
+}
+
+/// 7z entry names may use either slash.
+fn sevenz_path(name: &str) -> Option<PathBuf> {
+    clean(Path::new(&name.replace('\\', "/")))
+}
+
+fn sevenz_index(archive: &Path) -> io::Result<Index> {
+    let reader = open_sevenz(archive)?;
+    let entries = reader
+        .archive()
+        .files
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| !f.is_anti_item)
+        .filter_map(|(i, f)| {
+            Some(ArchiveEntry {
+                path: sevenz_path(&f.name)?,
+                is_dir: f.is_directory,
+                size: f.size,
+                modified: f
+                    .has_last_modified_date
+                    .then(|| SystemTime::from(f.last_modified_date)),
+                index: i,
+            })
+        })
+        .collect();
     Ok(Index { entries })
 }
 
@@ -265,6 +305,12 @@ pub fn read_entry(archive: &Path, inner: &Path, max: u64) -> io::Result<Vec<u8>>
             let f = zip.by_index(entry.index).map_err(zip_err)?;
             f.take(max).read_to_end(&mut buf)?;
         }
+        Some(Kind::SevenZip) => {
+            let mut reader = open_sevenz(archive)?;
+            let name = reader.archive().files[entry.index].name.clone();
+            buf = reader.read_file(&name).map_err(sevenz_err)?;
+            buf.truncate(max as usize);
+        }
         Some(k) => {
             let mut tar = tar_reader(archive, k)?;
             for (i, e) in tar.entries()?.enumerate() {
@@ -352,6 +398,35 @@ pub fn extract(
                     let mut f = zip.by_index(i).map_err(zip_err)?;
                     write_file(out, &mut f, e.modified)?;
                 }
+            }
+        }
+        Some(Kind::SevenZip) => {
+            let mut reader = open_sevenz(archive)?;
+            // 7z streams entries in order; pick the wanted ones by name.
+            let by_name: HashMap<String, (&PathBuf, &ArchiveEntry)> = wanted
+                .iter()
+                .map(|(&i, (out, e))| (reader.archive().files[i].name.clone(), (out, *e)))
+                .collect();
+            let mut failed = None;
+            reader
+                .for_each_entries(|entry, data| {
+                    if cancel.load(Ordering::Relaxed) {
+                        failed = Some(cancelled());
+                        return Ok(false);
+                    }
+                    if let Some((out, e)) = by_name.get(&entry.name) {
+                        if !e.is_dir {
+                            if let Err(err) = write_file(out, data, e.modified) {
+                                failed = Some(err);
+                                return Ok(false);
+                            }
+                        }
+                    }
+                    Ok(true)
+                })
+                .map_err(sevenz_err)?;
+            if let Some(err) = failed {
+                return Err(err);
             }
         }
         Some(k) => {
@@ -558,6 +633,37 @@ mod tests {
         let out = tmp.path().join("out");
         extract(&arc, &["Docs/a.txt".into()], &out, &AtomicBool::new(false)).unwrap();
         assert_eq!(fs::read_to_string(out.join("a.txt")).unwrap(), "alpha");
+    }
+
+    #[test]
+    fn sevenz_list_read_extract() {
+        let tmp = tempfile::tempdir().unwrap();
+        let arc = tmp.path().join("photos.7z");
+        {
+            use sevenz_rust2::{ArchiveEntry as SzEntry, ArchiveWriter};
+            let mut w = ArchiveWriter::create(&arc).unwrap();
+            w.push_archive_entry::<&[u8]>(SzEntry::new_directory("2024"), None)
+                .unwrap();
+            w.push_archive_entry(SzEntry::new_file("2024/a.txt"), Some(&b"alpha"[..]))
+                .unwrap();
+            w.push_archive_entry(SzEntry::new_file("readme.md"), Some(&b"# hi"[..]))
+                .unwrap();
+            w.finish().unwrap();
+        }
+        assert_eq!(kind(&arc), Some(Kind::SevenZip));
+        assert_eq!(base_name(&arc), "photos");
+        assert_eq!(
+            names(list(&arc, Path::new("")).unwrap()),
+            [("2024".into(), true), ("readme.md".into(), false)]
+        );
+        assert_eq!(
+            read_entry(&arc, Path::new("2024/a.txt"), 99).unwrap(),
+            b"alpha"
+        );
+        let out = tmp.path().join("out");
+        extract(&arc, &[PathBuf::new()], &out, &AtomicBool::new(false)).unwrap();
+        assert_eq!(fs::read_to_string(out.join("2024/a.txt")).unwrap(), "alpha");
+        assert_eq!(fs::read_to_string(out.join("readme.md")).unwrap(), "# hi");
     }
 
     #[test]

@@ -114,7 +114,8 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 - ✅ Preview pane extras: syntax highlighting for code and config files, PDF first page (Windows' built-in PDF renderer), audio/video details with cover art
 - ✅ Bulk rename (F2 on several items): name patterns with `{name}`/`{n}`/`{date}` tokens, find & replace (text or regex), counters, case changes, live preview with conflict checks, all-or-nothing apply
 - ✅ Browse zip and tar (.tar, .tar.gz, .tgz) archives like folders, with previews; extract by drag & drop, copy/paste or *Extract here / Extract to*; *Compress to ZIP*
-- ⏳ 7z and rar archives
+- ✅ 7z archives (browse, preview, extract)
+- ⏳ rar archives (needs the non-free unrar library)
 - ✅ Folder size column: computed in the background (one walker, easy on HDDs), sub-folders cached on the way, refreshed when files change; sorting by size includes folders
 - ✅ Colour tags with custom names: tag from the context menu or palette, dots in the file view, a Tags section in the sidebar, tags follow renames and moves
 - ✅ Command palette (Ctrl+Shift+P / F1): fuzzy search over commands, favorites, drives, recent folders and saved searches
