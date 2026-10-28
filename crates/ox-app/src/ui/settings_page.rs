@@ -234,7 +234,7 @@ fn browsing(ui: &mut Ui, s: &mut Settings) {
         ui,
         &mut b.open_archives,
         "Open archives like folders",
-        "Browse zip and tar files in Oxplorer instead of opening them with another app.",
+        "Browse zip, 7z and tar files in Oxplorer instead of opening them with another app.",
     );
     toggle(
         ui,

@@ -98,7 +98,7 @@ Rust engine does the work and shows progress in a panel inside the window.
   jump to a favorite, drive, recent folder or saved search
 - **Split view** (Ctrl+\\ or the ◫ button): two folders side by side. Click a pane or press
   F6 to work in it, and drag files from one pane to the other.
-- **Archives as folders**: double-click a `.zip`, `.tar`, `.tar.gz` or `.tgz` file to browse it,
+- **Archives as folders**: double-click a `.zip`, `.7z`, `.tar`, `.tar.gz` or `.tgz` file to browse it,
   preview files inside it, and drag or copy items out to extract them. Right-click an archive for
   *Extract here* / *Extract to "name"*, or any selection for *Compress to ZIP*.
 - **Git status**: inside a Git repository a *Git* column shows what changed (M, A, D, R, ?, I).
@@ -164,7 +164,7 @@ crates/
     rename.rs         bulk rename: patterns, preview, safe apply with rollback
     fuzzy.rs          fuzzy matching for the command palette
     dirsize.rs        background folder sizes with a shared cache
-    archive.rs        zip/tar browsing, extraction and zip compression
+    archive.rs        zip/7z/tar browsing, extraction and zip compression
     git.rs            Git status via the git command line
     pdf.rs            PDF first-page previews (Windows.Data.Pdf)
     tags.rs           colour tags (stored in tags.toml)
@@ -215,8 +215,7 @@ Menus, tooltips and the command palette always show the keys in use.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md). Next up: the rest of Phase 5 (terminal
-panel, 7z/rar), then Phase 6 polish with an
+See [ROADMAP.md](ROADMAP.md). Next up: the built-in terminal panel, then Phase 6 polish with an
 in-app Help page.
 
 ## License

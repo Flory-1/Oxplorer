@@ -83,7 +83,7 @@ pub struct Browsing {
     pub auto_refresh: bool,
     /// Calculate folder sizes in the background for the Size column.
     pub folder_sizes: bool,
-    /// Open zip and tar files like folders (instead of the default app).
+    /// Open zip, 7z and tar files like folders (instead of the default app).
     pub open_archives: bool,
     /// Show the Git column and branch inside repositories.
     pub git_status: bool,
