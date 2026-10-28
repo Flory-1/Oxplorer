@@ -1,0 +1,118 @@
+# Oxplorer Roadmap
+
+Oxplorer is a fast Windows file explorer written in Rust. It has tabs and tab
+groups, a quick-access start page, a custom copy engine (no slow native copy
+dialog) and fast parallel search.
+
+The roadmap is split into phases. Each phase should end with a usable build.
+
+Status legend: ✅ done · 🚧 in progress · ⏳ planned
+
+---
+
+## Phase 0 — Foundation ✅
+
+- ✅ Cargo workspace: `ox-core` (logic, no GUI) + `ox-app` (egui/eframe UI)
+- ✅ Project docs: README, ROADMAP, license
+- ✅ CI (GitHub Actions): `cargo fmt`, `clippy`, tests on Windows and Linux, release build artifact for Windows
+
+## Phase 1 — MVP Explorer 🚧
+
+Goal: a daily-driver replacement for the basic Explorer tasks.
+
+Everything marked ✅ below is implemented and was tested on Linux. The phase is
+finished once it has been tested on Windows:
+
+- ⏳ **Test on Windows 10/11** and fix what comes up: `CopyFileExW` path,
+  Explorer clipboard interop, hidden/system attributes, drive labels, junctions,
+  long paths, high-DPI scaling
+- ⏳ Benchmark the copy engine against Explorer on Windows (many small files, one huge file, SSD → USB)
+
+**Browsing**
+- ✅ Directory listing on a background thread (big folders don't freeze the UI)
+- ✅ Details view (sortable columns) and grid view
+- ✅ Natural sort order (`file2` before `file10`), folders first
+- ✅ Multi-select (Ctrl/Shift click, Ctrl+A, keyboard navigation)
+- ✅ Back / forward / up, breadcrumb address bar with edit mode
+- ✅ Auto refresh when the folder changes on disk (file watcher)
+- ✅ Hidden files / extensions toggles
+
+**Layout**
+- ✅ Header bar with tabs and **tab groups** (named and coloured, collapsible, Chrome-style)
+- ✅ Sidebar: Home, Favorites, Drives, Recent folders
+- ✅ Quick Access / Favorites **start page** (pinned folders, drives with usage bars, recent folders and files)
+- ✅ Status bar (item count, selection size)
+- ✅ Restore the last session (tabs and groups) on startup
+
+**File operations**
+- ✅ **Custom Rust copy engine**: parallel workers, `CopyFileExW` fast path on Windows, pause/resume/cancel, live speed and ETA
+- ✅ Instant moves on the same volume (rename), copy + delete across volumes
+- ✅ One conflict prompt per job (replace all / skip / keep both / replace if newer) instead of one per file
+- ✅ Transfer panel instead of the native Windows copy dialog
+- ✅ Clipboard works both ways with Windows Explorer (CF_HDROP + Preferred DropEffect)
+- ✅ Drag & drop inside the app (onto folders, favorites, tabs); dropping files from other apps
+- ✅ New folder / new file, rename, delete to Recycle Bin, permanent delete (Shift+Del)
+- ✅ Copy path, open in terminal, show in Windows Explorer, "Copy to / Move to" favorites and open tabs
+
+**Search**
+- ✅ Instant filter of the current folder while typing
+- ✅ Press Enter for a deep, multi-threaded recursive search (streams results)
+- ✅ Query syntax: wildcards, `ext:`, `type:`, `size:`, `modified:`, `content:`, `-exclude`
+
+**Settings page**
+- ✅ Appearance (theme, accent colour, UI scale, compact rows)
+- ✅ Browsing, startup, sidebar, copy engine and search options
+- ✅ Saved as TOML in `%APPDATA%\Oxplorer`
+
+## Phase 2 — Deep Windows integration ⏳
+
+- ⏳ Real file icons and thumbnails (`SHGetFileInfo` / `IShellItemImageFactory`), cached
+- ⏳ Native shell context menu (`IContextMenu`) under "Show more options", so 7-Zip, VS Code and other entries work
+- ⏳ OLE drag & drop **out** of the app into other programs (`IDropSource`)
+- ⏳ Recycle Bin view (browse and restore)
+- ⏳ Network locations, UNC paths, mapped drives, `\\?\` long-path support
+- ⏳ Native Properties dialog (`ShellExecuteEx` "properties")
+- ⏳ Mica/Acrylic window backdrop, Windows 11 rounded corners, app icon, DPI-aware manifest
+- ⏳ Option to "Open folders in Oxplorer" by default (Win+E / folder association)
+- ⏳ Installer: MSIX / winget / portable zip
+
+## Phase 3 — Copy Engine 2.0 ⏳
+
+- ⏳ Detect the device type (SSD / HDD / network) and tune worker count and buffer size per volume
+- ⏳ Per-disk queues: jobs on the same physical disk run one after another, jobs on different disks run in parallel
+- ⏳ Optional verification after copying (xxHash3 / BLAKE3)
+- ⏳ Resume interrupted transfers (journal file)
+- ⏳ Per-file error dialog with retry / skip / skip all
+- ⏳ Speed limit, transfer history and log
+- ⏳ Keep ACLs, alternate data streams and attributes (optional)
+- ⏳ Benchmarks against Explorer, robocopy and TeraCopy in CI
+
+## Phase 4 — Search 2.0 ⏳
+
+- ⏳ NTFS MFT reader and USN journal watcher for an "Everything"-style instant index of the whole PC (optional background service with admin rights)
+- ⏳ Persistent on-disk index for non-NTFS drives
+- ⏳ Search-as-you-type across all drives in milliseconds
+- ⏳ Faster content search (memory-mapped, SIMD, skip binary files)
+- ⏳ Filter UI (chips for type, size, date), saved searches in the sidebar
+- ⏳ Regex mode
+
+## Phase 5 — Power-user features ⏳
+
+- ⏳ Dual-pane / split view
+- ⏳ Preview pane (images, text/code with syntax highlighting, PDF, audio/video metadata)
+- ⏳ Bulk rename (patterns, regex, counters, preview)
+- ⏳ Browse archives (zip, 7z, tar) like folders, compress/extract
+- ⏳ Folder size column (computed in the background and cached)
+- ⏳ Colour tags and labels
+- ⏳ Command palette (Ctrl+Shift+P) and custom keyboard shortcuts
+- ⏳ Git status column for repositories
+- ⏳ Built-in terminal panel
+
+## Phase 6 — Polish & 1.0 ⏳
+
+- ⏳ Themes and theme import/export
+- ⏳ Localisation (English, German, …)
+- ⏳ Accessibility pass (screen reader, keyboard-only use)
+- ⏳ Auto-update
+- ⏳ User documentation website
+- ⏳ 1.0 release
