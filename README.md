@@ -87,7 +87,8 @@ Rust engine does the work and shows progress in a panel inside the window.
   | `content:"TODO"` | text inside files |
 
 **Power tools**
-- **Preview pane** (Alt+P): images, text and code with line numbers, folder contents and
+- **Preview pane** (Alt+P): images, code with syntax highlighting and line numbers, the first
+  page of PDFs (on Windows), song and video details with cover art, folder contents and
   multi-selection totals. Loads in the background, so large files never block the window.
 - **Bulk rename** (F2 with several items selected): build names from a pattern
   (`{name}`, `{ext}`, `{n:3}`, `{date}`, `{parent}`), find & replace with text or regex,
@@ -165,6 +166,7 @@ crates/
     dirsize.rs        background folder sizes with a shared cache
     archive.rs        zip/tar browsing, extraction and zip compression
     git.rs            Git status via the git command line
+    pdf.rs            PDF first-page previews (Windows.Data.Pdf)
     tags.rs           colour tags (stored in tags.toml)
     disk.rs           volume ids, HDD/SSD detection
     entry.rs          directory listing, file kinds, sorting
@@ -214,7 +216,7 @@ Menus, tooltips and the command palette always show the keys in use.
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md). Next up: the rest of Phase 5 (terminal
-panel, 7z/rar, more previews), then Phase 6 polish with an
+panel, 7z/rar), then Phase 6 polish with an
 in-app Help page.
 
 ## License

@@ -5,6 +5,7 @@ use std::time::SystemTime;
 
 use crossbeam_channel::Receiver;
 use egui::{ColorImage, RichText, TextureHandle, TextureOptions, Ui};
+use egui_extras::syntax_highlighting::{highlight, CodeTheme};
 use ox_core::dirsize::DirSize;
 use ox_core::entry::{FileEntry, FileKind};
 use ox_core::format;
@@ -17,12 +18,24 @@ const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_IMAGE_SIDE: u32 = 1024;
 /// How much of a text file is shown.
 const MAX_TEXT_BYTES: usize = 128 * 1024;
+/// How many lines of it.
+const MAX_TEXT_LINES: usize = 3000;
+/// Larger texts are shown without syntax highlighting.
+const MAX_HIGHLIGHT_BYTES: usize = 64 * 1024;
 
 enum Loaded {
     Image(ColorImage, [u32; 2]),
+    /// First page of a PDF and the number of pages.
+    Page(ColorImage, u32),
     Text {
         text: String,
+        numbers: String,
         truncated: bool,
+    },
+    /// Audio/video details and the embedded cover picture.
+    Media {
+        info: Vec<(&'static str, String)>,
+        cover: Option<ColorImage>,
     },
     Folder {
         folders: usize,
@@ -36,9 +49,15 @@ enum Loaded {
 enum Content {
     Loading(Receiver<Loaded>),
     Image(TextureHandle, [u32; 2]),
+    Page(TextureHandle, u32),
     Text {
         text: String,
+        numbers: String,
         truncated: bool,
+    },
+    Media {
+        info: Vec<(&'static str, String)>,
+        cover: Option<TextureHandle>,
     },
     Folder {
         folders: usize,
@@ -61,6 +80,15 @@ fn is_image(e: &FileEntry) -> bool {
         e.extension().as_str(),
         "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "ico" | "tif" | "tiff"
     )
+}
+
+/// Code and config files get syntax highlighting (by extension).
+fn highlightable(e: &FileEntry) -> bool {
+    e.kind() == FileKind::Code
+        || matches!(
+            e.extension().as_str(),
+            "json" | "toml" | "yaml" | "yml" | "xml" | "ini" | "cfg" | "md" | "csv" | "sql"
+        )
 }
 
 fn is_text(e: &FileEntry) -> bool {
@@ -112,6 +140,28 @@ fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
             return Loaded::Error("The image is too large to preview.".into());
         }
         return image_result(image::open(&entry.path));
+    }
+    if matches!(entry.kind(), FileKind::Audio | FileKind::Video) {
+        if let Some(media) = media_info(&entry.path, entry.kind() == FileKind::Video) {
+            return media;
+        }
+    }
+    if entry.kind() == FileKind::Pdf {
+        return match ox_core::pdf::render_first_page(&entry.path, 800) {
+            Ok(pdf) => match image::load_from_memory(&pdf.png) {
+                Ok(img) => {
+                    let rgba = img.to_rgba8();
+                    let size = [rgba.width() as usize, rgba.height() as usize];
+                    Loaded::Page(
+                        ColorImage::from_rgba_unmultiplied(size, rgba.as_raw()),
+                        pdf.pages,
+                    )
+                }
+                Err(e) => Loaded::Error(e.to_string()),
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::Unsupported => Loaded::Nothing,
+            Err(e) => Loaded::Error(format!("Can't show this PDF: {e}")),
+        };
     }
     if is_text(&entry) || entry.size == 0 {
         return read_text(&entry.path);
@@ -192,12 +242,92 @@ fn text_from_bytes(mut buf: Vec<u8>) -> Loaded {
     if buf.iter().take(8192).any(|&b| b == 0) {
         return Loaded::Nothing; // binary
     }
-    let truncated = buf.len() > MAX_TEXT_BYTES;
+    let mut truncated = buf.len() > MAX_TEXT_BYTES;
     buf.truncate(MAX_TEXT_BYTES);
+    let all = String::from_utf8_lossy(&buf);
+    let lines: Vec<&str> = all.lines().take(MAX_TEXT_LINES + 1).collect();
+    truncated |= lines.len() > MAX_TEXT_LINES;
+    let lines = &lines[..lines.len().min(MAX_TEXT_LINES)];
+    let numbers = (1..=lines.len())
+        .map(|n| format!("{n:>4}"))
+        .collect::<Vec<_>>()
+        .join("\n");
     Loaded::Text {
-        text: String::from_utf8_lossy(&buf).into_owned(),
+        text: lines.join("\n"),
+        numbers,
         truncated,
     }
+}
+
+/// Tags and stream details of audio (and some video) files, with cover art.
+fn media_info(path: &Path, video: bool) -> Option<Loaded> {
+    use lofty::prelude::*;
+    let file = lofty::read_from_path(path).ok()?;
+    let mut info: Vec<(&'static str, String)> = Vec::new();
+    let tag = file.primary_tag().or_else(|| file.first_tag());
+    if let Some(tag) = tag {
+        let fields = [
+            ("Title", tag.title()),
+            ("Artist", tag.artist()),
+            ("Album", tag.album()),
+            ("Genre", tag.genre()),
+        ];
+        for (name, value) in fields {
+            if let Some(v) = value.filter(|v| !v.trim().is_empty()) {
+                info.push((name, v.into_owned()));
+            }
+        }
+        if let Some(date) = tag.date() {
+            info.push(("Year", date.year.to_string()));
+        }
+        if let Some(track) = tag.track() {
+            let total = tag
+                .track_total()
+                .map(|t| format!(" of {t}"))
+                .unwrap_or_default();
+            info.push(("Track", format!("{track}{total}")));
+        }
+    }
+    let props = file.properties();
+    let secs = props.duration().as_secs();
+    if secs > 0 {
+        let (h, m, s) = (secs / 3600, secs / 60 % 60, secs % 60);
+        let length = if h > 0 {
+            format!("{h}:{m:02}:{s:02}")
+        } else {
+            format!("{m}:{s:02}")
+        };
+        info.push(("Length", length));
+    }
+    // For videos these describe the sound track.
+    let (bitrate, rate_label) = if video {
+        ("Audio bitrate", "Audio")
+    } else {
+        ("Bitrate", "Sample rate")
+    };
+    if let Some(b) = props.audio_bitrate().filter(|b| *b > 0) {
+        info.push((bitrate, format!("{b} kbps")));
+    }
+    if let Some(rate) = props.sample_rate().filter(|r| *r > 0) {
+        info.push((rate_label, format!("{:.1} kHz", rate as f32 / 1000.0)));
+    }
+    if let Some(ch) = props.channels() {
+        let ch = match ch {
+            1 => "Mono".to_owned(),
+            2 => "Stereo".to_owned(),
+            n => format!("{n} channels"),
+        };
+        info.push(("Channels", ch));
+    }
+    let cover = tag
+        .and_then(|t| t.pictures().first())
+        .and_then(|pic| image::load_from_memory(pic.data()).ok())
+        .map(|img| {
+            let img = img.thumbnail(512, 512).to_rgba8();
+            let size = [img.width() as usize, img.height() as usize];
+            ColorImage::from_rgba_unmultiplied(size, img.as_raw())
+        });
+    (!info.is_empty() || cover.is_some()).then_some(Loaded::Media { info, cover })
 }
 
 impl PreviewState {
@@ -222,7 +352,24 @@ impl PreviewState {
                         let tex = ctx.load_texture("preview", img, TextureOptions::LINEAR);
                         Content::Image(tex, size)
                     }
-                    Loaded::Text { text, truncated } => Content::Text { text, truncated },
+                    Loaded::Page(img, pages) => {
+                        let tex = ctx.load_texture("preview", img, TextureOptions::LINEAR);
+                        Content::Page(tex, pages)
+                    }
+                    Loaded::Text {
+                        text,
+                        numbers,
+                        truncated,
+                    } => Content::Text {
+                        text,
+                        numbers,
+                        truncated,
+                    },
+                    Loaded::Media { info, cover } => Content::Media {
+                        info,
+                        cover: cover
+                            .map(|c| ctx.load_texture("preview_cover", c, TextureOptions::LINEAR)),
+                    },
                     Loaded::Folder {
                         folders,
                         files,
@@ -341,20 +488,33 @@ fn body(
             ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(6.0));
             ui.label(RichText::new(format!("{w} × {h} px")).weak().small());
         }
-        Some(Content::Text { text, truncated }) => {
-            let mut numbered = String::new();
-            for (i, line) in text.lines().take(3000).enumerate() {
-                numbered.push_str(&format!("{:>4}  {line}\n", i + 1));
-            }
+        Some(Content::Text {
+            text,
+            numbers,
+            truncated,
+        }) => {
+            const SIZE: f32 = 11.5;
             // Long lines scroll sideways instead of widening the pane.
             egui::ScrollArea::horizontal()
                 .id_salt("preview_text")
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    ui.add(
-                        egui::Label::new(RichText::new(numbered).monospace().size(11.5))
-                            .wrap_mode(egui::TextWrapMode::Extend),
-                    );
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = 10.0;
+                        ui.label(RichText::new(numbers).monospace().size(SIZE).weak());
+                        let code = if highlightable(e) && text.len() <= MAX_HIGHLIGHT_BYTES {
+                            let theme = if ui.visuals().dark_mode {
+                                CodeTheme::dark(SIZE)
+                            } else {
+                                CodeTheme::light(SIZE)
+                            };
+                            let job = highlight(ui.ctx(), ui.style(), &theme, text, &e.extension());
+                            egui::Label::new(job)
+                        } else {
+                            egui::Label::new(RichText::new(text.as_str()).monospace().size(SIZE))
+                        };
+                        ui.add(code.wrap_mode(egui::TextWrapMode::Extend));
+                    });
                 });
             if *truncated {
                 ui.label(
@@ -362,6 +522,36 @@ fn body(
                         .weak()
                         .small(),
                 );
+            }
+        }
+        Some(Content::Page(tex, pages)) => {
+            let avail = ui.available_width();
+            let size = tex.size_vec2();
+            ui.add(egui::Image::new((tex.id(), size * (avail / size.x))).corner_radius(4.0));
+            ui.label(RichText::new(format!("Page 1 of {pages}")).weak().small());
+        }
+        Some(Content::Media { info, cover }) => {
+            if let Some(tex) = cover {
+                let avail = ui.available_width();
+                let size = tex.size_vec2();
+                // Small enough to leave room for the details below.
+                let scale = (avail / size.x).min(220.0 / size.y).min(1.0);
+                ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(6.0));
+                ui.add_space(6.0);
+            }
+            egui::Grid::new("media_info")
+                .num_columns(2)
+                .spacing(egui::vec2(12.0, 4.0))
+                .show(ui, |ui| {
+                    for (name, value) in info {
+                        ui.label(RichText::new(*name).weak());
+                        ui.label(value.as_str());
+                        ui.end_row();
+                    }
+                });
+            ui.add_space(6.0);
+            if ui.button("▶ Play").clicked() {
+                actions.push(Action::Open(e.path.clone()));
             }
         }
         Some(Content::Folder {
