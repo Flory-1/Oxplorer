@@ -2912,6 +2912,7 @@ dependencies = [
  "ox-core",
  "serde",
  "toml",
+ "ttf-parser",
 ]
 
 [[package]]

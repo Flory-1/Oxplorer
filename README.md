@@ -87,9 +87,11 @@ Rust engine does the work and shows progress in a panel inside the window.
   | `content:"TODO"` | text inside files |
 
 **Power tools**
-- **Preview pane** (Alt+P): images, code with syntax highlighting and line numbers, the first
-  page of PDFs (on Windows), song and video details with cover art, folder contents and
-  multi-selection totals. Loads in the background, so large files never block the window.
+- **Preview pane** (Alt+P) with tabs: **Info** (size, location, dates, attributes and what the
+  file type adds) plus a tab for the content: images, code with syntax highlighting, the first
+  page of PDFs (on Windows), cover art, and for fonts a sample at several sizes and a **Glyphs**
+  grid of every character (click one to copy it). Loads in the background, so large files never
+  block the window.
 - **Bulk rename** (F2 with several items selected): build names from a pattern
   (`{name}`, `{ext}`, `{n:3}`, `{date}`, `{parent}`), find & replace with text or regex,
   change case, and see every new name before anything changes. Name clashes are
@@ -220,8 +222,8 @@ Menus, tooltips and the command palette always show the keys in use.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md). Phase 5 is done except rar archives. Next up: Phase 6, then Phase 6 polish with an
-in-app Help page.
+See [ROADMAP.md](ROADMAP.md). Phase 5 is done. Next up: Phase 6 (themes,
+localisation, accessibility and the in-app Help page) and the 1.0 release.
 
 ## License
 

@@ -42,6 +42,13 @@ enum Loaded {
         files: usize,
         bytes: u64,
     },
+    /// A font file: its bytes (installed into egui to draw it), details
+    /// and every character it has a glyph for.
+    Font {
+        data: Vec<u8>,
+        info: Vec<(&'static str, String)>,
+        chars: Vec<char>,
+    },
     Nothing,
     Error(String),
 }
@@ -64,8 +71,84 @@ enum Content {
         files: usize,
         bytes: u64,
     },
+    Font {
+        /// egui font family the file was installed as.
+        family: String,
+        info: Vec<(&'static str, String)>,
+        chars: Vec<char>,
+    },
     Nothing,
     Error(String),
+}
+
+/// Tabs of the preview pane: Info first, then what the file type offers.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PreviewTab {
+    Info,
+    Image,
+    Text,
+    Page,
+    Media,
+    FontSample,
+    Glyphs,
+}
+
+impl PreviewTab {
+    fn label(self) -> &'static str {
+        match self {
+            PreviewTab::Info => "ℹ Info",
+            PreviewTab::Image => "🖼 Image",
+            PreviewTab::Text => "📝 Text",
+            PreviewTab::Page => "📄 Page",
+            PreviewTab::Media => "🎵 Cover",
+            PreviewTab::FontSample => "Aa Preview",
+            PreviewTab::Glyphs => "🔣 Glyphs",
+        }
+    }
+}
+
+impl Content {
+    fn tabs(&self) -> Vec<PreviewTab> {
+        use PreviewTab::*;
+        match self {
+            Content::Image(..) => vec![Info, Image],
+            Content::Page(..) => vec![Info, Page],
+            Content::Text { .. } => vec![Info, Text],
+            Content::Media { cover: Some(_), .. } => vec![Info, Media],
+            Content::Font { .. } => vec![Info, FontSample, Glyphs],
+            _ => vec![Info],
+        }
+    }
+
+    /// What the file type adds to the Info tab.
+    fn facts(&self) -> Vec<(&'static str, String)> {
+        match self {
+            Content::Image(_, [w, h]) => vec![("Dimensions", format!("{w} × {h} px"))],
+            Content::Page(_, pages) => vec![("Pages", pages.to_string())],
+            Content::Text {
+                numbers, truncated, ..
+            } => {
+                let lines = numbers.lines().count();
+                let more = if *truncated { "+" } else { "" };
+                vec![("Lines", format!("{lines}{more}"))]
+            }
+            Content::Media { info, .. } | Content::Font { info, .. } => info.clone(),
+            Content::Folder {
+                folders,
+                files,
+                bytes,
+            } => vec![(
+                "Contains",
+                format!(
+                    "{}, {} ({})",
+                    format::count(*folders as u64, "folder"),
+                    format::count(*files as u64, "file"),
+                    format::size(*bytes)
+                ),
+            )],
+            _ => Vec::new(),
+        }
+    }
 }
 
 /// The preview of one item, cached until the selection (or the file) changes.
@@ -73,6 +156,13 @@ enum Content {
 pub struct PreviewState {
     key: Option<(PathBuf, Option<SystemTime>)>,
     content: Option<Content>,
+    /// The tab last picked; used whenever the file offers it.
+    wanted: Option<PreviewTab>,
+    /// Text for the font preview.
+    sample: String,
+    /// The previewed font installed into egui (removed when the next loads).
+    font_family: Option<String>,
+    font_seq: u64,
 }
 
 fn is_image(e: &FileEntry) -> bool {
@@ -145,6 +235,9 @@ fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
         if let Some(media) = media_info(&entry.path, entry.kind() == FileKind::Video) {
             return media;
         }
+    }
+    if entry.kind() == FileKind::Font {
+        return font_info(&entry.path).unwrap_or(Loaded::Nothing);
     }
     if entry.kind() == FileKind::Pdf {
         return match ox_core::pdf::render_first_page(&entry.path, 800) {
@@ -330,6 +423,82 @@ fn media_info(path: &Path, video: bool) -> Option<Loaded> {
     (!info.is_empty() || cover.is_some()).then_some(Loaded::Media { info, cover })
 }
 
+/// Largest font file that is loaded for the preview.
+const MAX_FONT_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Names, details and the character set of a TrueType/OpenType font.
+fn font_info(path: &Path) -> Option<Loaded> {
+    use ttf_parser::name_id;
+    if std::fs::metadata(path).ok()?.len() > MAX_FONT_BYTES {
+        return None;
+    }
+    let data = std::fs::read(path).ok()?;
+    let face = ttf_parser::Face::parse(&data, 0).ok()?;
+    let name = |id: u16| {
+        face.names()
+            .into_iter()
+            .filter(|n| n.name_id == id)
+            .find_map(|n| n.to_string())
+            .filter(|s| !s.trim().is_empty())
+    };
+    let mut info: Vec<(&'static str, String)> = Vec::new();
+    let family = name(name_id::TYPOGRAPHIC_FAMILY).or_else(|| name(name_id::FAMILY));
+    for (label, value) in [
+        ("Family", family),
+        ("Style", name(name_id::SUBFAMILY)),
+        ("Full name", name(name_id::FULL_NAME)),
+        ("Version", name(name_id::VERSION)),
+        ("Designer", name(name_id::DESIGNER)),
+        ("Foundry", name(name_id::MANUFACTURER)),
+    ] {
+        if let Some(v) = value {
+            info.push((label, v));
+        }
+    }
+    info.push(("Weight", face.weight().to_number().to_string()));
+    let mut traits = Vec::new();
+    if face.is_italic() {
+        traits.push("italic");
+    }
+    if face.is_monospaced() {
+        traits.push("monospaced");
+    }
+    if face.is_variable() {
+        traits.push("variable");
+    }
+    if !traits.is_empty() {
+        info.push(("Traits", traits.join(", ")));
+    }
+    if let Some(n) = ttf_parser::fonts_in_collection(&data).filter(|n| *n > 1) {
+        info.push(("Fonts in file", format!("{n} (showing the first)")));
+    }
+
+    let mut chars = std::collections::BTreeSet::new();
+    if let Some(cmap) = face.tables().cmap {
+        for sub in cmap.subtables {
+            if !sub.is_unicode() {
+                continue;
+            }
+            sub.codepoints(|cp| {
+                let has_glyph = sub.glyph_index(cp).is_some_and(|g| g.0 != 0);
+                if let Some(c) = char::from_u32(cp).filter(|c| has_glyph && !c.is_control()) {
+                    chars.insert(c);
+                }
+            });
+        }
+    }
+    info.push(("Glyphs", face.number_of_glyphs().to_string()));
+    info.push(("Characters", chars.len().to_string()));
+    if let Some(c) = name(name_id::COPYRIGHT_NOTICE) {
+        info.push(("Copyright", c));
+    }
+    Some(Loaded::Font {
+        data,
+        info,
+        chars: chars.into_iter().collect(),
+    })
+}
+
 impl PreviewState {
     /// Make sure the preview shows `entry`, starting a background load if needed.
     fn update(&mut self, ctx: &egui::Context, entry: &FileEntry, show_hidden: bool) {
@@ -379,11 +548,38 @@ impl PreviewState {
                         files,
                         bytes,
                     },
+                    Loaded::Font { data, info, chars } => Content::Font {
+                        family: self.install_font(ctx, data),
+                        info,
+                        chars,
+                    },
                     Loaded::Nothing => Content::Nothing,
                     Loaded::Error(e) => Content::Error(e),
                 });
             }
         }
+    }
+
+    /// Make the font drawable under its own family name, replacing the
+    /// previously previewed font so they don't pile up in memory.
+    fn install_font(&mut self, ctx: &egui::Context, data: Vec<u8>) -> String {
+        use egui::{FontData, FontFamily};
+        self.font_seq += 1;
+        let name = format!("oxplorer-preview-{}", self.font_seq);
+        let mut defs = ctx.fonts_mut(|f| f.definitions().clone());
+        if let Some(old) = self.font_family.take() {
+            defs.font_data.remove(&old);
+            defs.families.remove(&FontFamily::Name(old.into()));
+        }
+        defs.font_data.insert(
+            name.clone(),
+            std::sync::Arc::new(FontData::from_owned(data)),
+        );
+        defs.families
+            .insert(FontFamily::Name(name.clone().into()), vec![name.clone()]);
+        ctx.set_fonts(defs);
+        self.font_family = Some(name.clone());
+        name
     }
 
     fn clear(&mut self) {
@@ -405,94 +601,306 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let date_fmt = app.settings.browsing.date_format.clone();
     let mut actions = Vec::new();
 
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            ui.add_space(4.0);
-            match selected.as_slice() {
-                [] => {
-                    app.preview.clear();
-                    ui.add_space(40.0);
-                    ui.vertical_centered(|ui| {
-                        ui.label(RichText::new("👁").size(32.0).weak());
-                        ui.label(RichText::new("Select a file to preview it.").weak());
-                    });
-                }
-                [entry] if !in_bin => {
-                    app.preview
-                        .update(ui.ctx(), entry, app.settings.browsing.show_hidden);
-                    header(ui, entry, &date_fmt);
-                    ui.separator();
-                    let total = entry
-                        .is_dir
-                        .then(|| app.folder_sizes.get(&entry.path))
-                        .flatten();
-                    body(ui, &app.preview, entry, total, &mut actions);
-                }
-                [entry] => {
-                    app.preview.clear();
-                    header(ui, entry, &date_fmt);
-                }
-                many => {
-                    app.preview.clear();
-                    let files: Vec<&FileEntry> = many.iter().filter(|e| !e.is_dir).collect();
-                    let bytes: u64 = files.iter().map(|e| e.size).sum();
-                    ui.label(
-                        RichText::new(format!(
-                            "{} selected",
-                            format::count(many.len() as u64, "item")
-                        ))
-                        .strong()
-                        .size(15.0),
-                    );
-                    ui.label(format!(
-                        "{} · {} · {}",
-                        format::count((many.len() - files.len()) as u64, "folder"),
-                        format::count(files.len() as u64, "file"),
-                        format::size(bytes)
-                    ));
-                }
-            }
-        });
+    ui.add_space(4.0);
+    match selected.as_slice() {
+        [] => {
+            app.preview.clear();
+            ui.add_space(40.0);
+            ui.vertical_centered(|ui| {
+                ui.label(RichText::new("👁").size(32.0).weak());
+                ui.label(RichText::new("Select a file to preview it.").weak());
+            });
+        }
+        [entry] if !in_bin => {
+            app.preview
+                .update(ui.ctx(), entry, app.settings.browsing.show_hidden);
+            header(ui, entry);
+            let total = entry
+                .is_dir
+                .then(|| app.folder_sizes.get(&entry.path))
+                .flatten();
+            tabbed(ui, &mut app.preview, entry, total, &date_fmt, &mut actions);
+        }
+        [entry] => {
+            app.preview.clear();
+            header(ui, entry);
+            ui.separator();
+            info_grid(ui, entry, Vec::new(), &date_fmt);
+        }
+        many => {
+            app.preview.clear();
+            let files: Vec<&FileEntry> = many.iter().filter(|e| !e.is_dir).collect();
+            let bytes: u64 = files.iter().map(|e| e.size).sum();
+            ui.label(
+                RichText::new(format!(
+                    "{} selected",
+                    format::count(many.len() as u64, "item")
+                ))
+                .strong()
+                .size(15.0),
+            );
+            ui.label(format!(
+                "{} · {} · {}",
+                format::count((many.len() - files.len()) as u64, "folder"),
+                format::count(files.len() as u64, "file"),
+                format::size(bytes)
+            ));
+        }
+    }
     app.actions.extend(actions);
 }
 
-fn header(ui: &mut Ui, e: &FileEntry, date_fmt: &str) {
+fn header(ui: &mut Ui, e: &FileEntry) {
     ui.label(RichText::new(&e.name).strong().size(15.0));
     ui.label(RichText::new(e.type_label()).weak());
-    let mut info = Vec::new();
-    if !e.is_dir {
-        info.push(format::size(e.size));
-    }
-    if let Some(t) = e.modified {
-        info.push(format!("modified {}", format::time(t, date_fmt)));
-    }
-    ui.label(RichText::new(info.join(" · ")).weak().small());
 }
 
-fn body(
+/// The tab row and the chosen tab's content.
+fn tabbed(
     ui: &mut Ui,
-    state: &PreviewState,
+    state: &mut PreviewState,
     e: &FileEntry,
     total: Option<DirSize>,
+    date_fmt: &str,
     actions: &mut Vec<Action>,
 ) {
-    match &state.content {
-        None | Some(Content::Loading(_)) => {
-            ui.spinner();
+    let Some(content) = state
+        .content
+        .as_ref()
+        .filter(|c| !matches!(c, Content::Loading(_)))
+    else {
+        ui.separator();
+        ui.spinner();
+        return;
+    };
+    let tabs = content.tabs();
+    // The tab picked last, if this file has it; otherwise its main view.
+    let tab = state
+        .wanted
+        .filter(|t| tabs.contains(t))
+        .unwrap_or_else(|| tabs.get(1).copied().unwrap_or(PreviewTab::Info));
+    ui.add_space(4.0);
+    ui.horizontal_wrapped(|ui| {
+        for t in &tabs {
+            if ui.selectable_label(*t == tab, t.label()).clicked() {
+                state.wanted = Some(*t);
+            }
         }
-        Some(Content::Image(tex, [w, h])) => {
+    });
+    ui.separator();
+
+    let content = state.content.as_ref().expect("checked above");
+    if let (PreviewTab::Glyphs, Content::Font { family, chars, .. }) = (tab, content) {
+        glyph_grid(ui, family, chars, actions);
+        return;
+    }
+    egui::ScrollArea::vertical()
+        .id_salt("preview_tab")
+        .auto_shrink([false, false])
+        .show(ui, |ui| match tab {
+            PreviewTab::Info => {
+                let mut facts = content.facts();
+                if let Some(t) = total.filter(|t| t.folders > 0) {
+                    facts.push((
+                        "Total size",
+                        format!(
+                            "{} ({}, {})",
+                            format::size(t.bytes),
+                            format::count(t.files, "file"),
+                            format::count(t.folders, "folder")
+                        ),
+                    ));
+                }
+                info_grid(ui, e, facts, date_fmt);
+                ui.add_space(8.0);
+                let label = match content {
+                    Content::Media { .. } => "▶ Play",
+                    Content::Folder { .. } => "📂 Open",
+                    _ => "📂 Open with default app",
+                };
+                if ui.button(label).clicked() {
+                    actions.push(Action::Open(e.path.clone()));
+                }
+                if let Content::Error(err) = content {
+                    ui.add_space(6.0);
+                    ui.colored_label(egui::Color32::from_rgb(0xe5, 0x48, 0x4d), err);
+                }
+            }
+            PreviewTab::FontSample => {
+                if let Content::Font { family, .. } = content {
+                    font_sample(ui, family, &mut state.sample);
+                }
+            }
+            _ => body(ui, content, e),
+        });
+}
+
+/// Name, size, place, dates and attributes, then the type's own details.
+fn info_grid(ui: &mut Ui, e: &FileEntry, facts: Vec<(&'static str, String)>, date_fmt: &str) {
+    let mut rows: Vec<(&str, String)> = Vec::new();
+    rows.push(("Name", e.name.clone()));
+    rows.push(("Type", e.type_label()));
+    if !e.is_dir {
+        rows.push((
+            "Size",
+            format!("{} ({} bytes)", format::size(e.size), group_digits(e.size)),
+        ));
+    }
+    if let Some(parent) = e.path.parent() {
+        rows.push(("Location", parent.display().to_string()));
+    }
+    if let Some(t) = e.modified {
+        rows.push(("Modified", format::time(t, date_fmt)));
+    }
+    if let Some(t) = e.created {
+        rows.push(("Created", format::time(t, date_fmt)));
+    }
+    let mut attrs = Vec::new();
+    if e.hidden {
+        attrs.push("hidden");
+    }
+    if e.readonly {
+        attrs.push("read-only");
+    }
+    if e.is_symlink {
+        attrs.push("link");
+    }
+    if !attrs.is_empty() {
+        rows.push(("Attributes", attrs.join(", ")));
+    }
+    rows.extend(facts);
+    egui::Grid::new("preview_info")
+        .num_columns(2)
+        .spacing(egui::vec2(12.0, 4.0))
+        .show(ui, |ui| {
+            for (name, value) in rows {
+                ui.label(RichText::new(name).weak());
+                ui.add(egui::Label::new(value).wrap());
+                ui.end_row();
+            }
+        });
+}
+
+/// 1234567 → "1,234,567".
+fn group_digits(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+const SAMPLE: &str = "The quick brown fox jumps over the lazy dog";
+
+/// Editable sample text at several sizes, plus the alphabet.
+fn font_sample(ui: &mut Ui, family: &str, sample: &mut String) {
+    use egui::{FontFamily, FontId};
+    if sample.is_empty() {
+        *sample = SAMPLE.to_owned();
+    }
+    ui.add(
+        egui::TextEdit::singleline(sample)
+            .hint_text("Type to try the font")
+            .desired_width(f32::INFINITY),
+    );
+    ui.add_space(6.0);
+    let font = |size: f32| FontId::new(size, FontFamily::Name(family.into()));
+    ui.label(
+        RichText::new(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789 .,;:!?&@#%*()[]{}",
+        )
+        .font(font(18.0)),
+    );
+    for size in [12.0, 16.0, 20.0, 28.0, 36.0, 48.0, 64.0] {
+        ui.add_space(6.0);
+        ui.label(RichText::new(format!("{size:.0} px")).weak().small());
+        ui.add(egui::Label::new(RichText::new(sample.as_str()).font(font(size))).wrap());
+    }
+}
+
+/// Every character of the font in a grid; only visible rows are drawn.
+/// Clicking a glyph copies it.
+fn glyph_grid(ui: &mut Ui, family: &str, chars: &[char], actions: &mut Vec<Action>) {
+    use egui::{Align2, FontFamily, FontId, Sense};
+    const CELL: egui::Vec2 = egui::vec2(44.0, 48.0);
+    ui.label(
+        RichText::new(format!(
+            "{} · click one to copy it",
+            format::count(chars.len() as u64, "character")
+        ))
+        .weak()
+        .small(),
+    );
+    let cols = ((ui.available_width() / CELL.x).floor() as usize).max(1);
+    let rows = chars.len().div_ceil(cols);
+    let font = FontId::new(24.0, FontFamily::Name(family.into()));
+    let v = ui.visuals().clone();
+    egui::ScrollArea::vertical()
+        .id_salt("preview_glyphs")
+        .auto_shrink([false, false])
+        .show_rows(ui, CELL.y, rows, |ui, range| {
+            for row in range {
+                let (line, _) = ui
+                    .allocate_exact_size(egui::vec2(cols as f32 * CELL.x, CELL.y), Sense::hover());
+                for col in 0..cols {
+                    let Some(&c) = chars.get(row * cols + col) else {
+                        break;
+                    };
+                    let rect = egui::Rect::from_min_size(
+                        line.min + egui::vec2(col as f32 * CELL.x, 0.0),
+                        CELL,
+                    )
+                    .shrink(2.0);
+                    let id = egui::Id::unique(("glyph", row, col));
+                    let resp = ui.interact(rect, id, Sense::click());
+                    let fill = if resp.hovered() {
+                        v.widgets.hovered.weak_bg_fill
+                    } else {
+                        v.faint_bg_color
+                    };
+                    ui.painter().rect_filled(rect, 4.0, fill);
+                    ui.painter().text(
+                        rect.center() - egui::vec2(0.0, 5.0),
+                        Align2::CENTER_CENTER,
+                        c,
+                        font.clone(),
+                        v.text_color(),
+                    );
+                    ui.painter().text(
+                        rect.center_bottom() - egui::vec2(0.0, 6.0),
+                        Align2::CENTER_CENTER,
+                        format!("{:04X}", c as u32),
+                        FontId::monospace(8.0),
+                        v.weak_text_color(),
+                    );
+                    let resp = resp.on_hover_text(format!("U+{:04X}", c as u32));
+                    if resp.clicked() {
+                        ui.ctx().copy_text(c.to_string());
+                        actions.push(Action::Toast(format!("Copied “{c}” (U+{:04X})", c as u32)));
+                    }
+                }
+            }
+        });
+}
+
+/// The type-specific tabs (Image, Text, Page, Cover).
+fn body(ui: &mut Ui, content: &Content, e: &FileEntry) {
+    match content {
+        Content::Image(tex, _) => {
             let avail = ui.available_width();
             let size = tex.size_vec2();
             let scale = (avail / size.x).min(1.5);
             ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(6.0));
-            ui.label(RichText::new(format!("{w} × {h} px")).weak().small());
         }
-        Some(Content::Text {
+        Content::Text {
             text,
             numbers,
             truncated,
-        }) => {
+        } => {
             const SIZE: f32 = 11.5;
             // Long lines scroll sideways instead of widening the pane.
             egui::ScrollArea::horizontal()
@@ -524,67 +932,20 @@ fn body(
                 );
             }
         }
-        Some(Content::Page(tex, pages)) => {
+        Content::Page(tex, pages) => {
             let avail = ui.available_width();
             let size = tex.size_vec2();
             ui.add(egui::Image::new((tex.id(), size * (avail / size.x))).corner_radius(4.0));
             ui.label(RichText::new(format!("Page 1 of {pages}")).weak().small());
         }
-        Some(Content::Media { info, cover }) => {
-            if let Some(tex) = cover {
-                let avail = ui.available_width();
-                let size = tex.size_vec2();
-                // Small enough to leave room for the details below.
-                let scale = (avail / size.x).min(220.0 / size.y).min(1.0);
-                ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(6.0));
-                ui.add_space(6.0);
-            }
-            egui::Grid::new("media_info")
-                .num_columns(2)
-                .spacing(egui::vec2(12.0, 4.0))
-                .show(ui, |ui| {
-                    for (name, value) in info {
-                        ui.label(RichText::new(*name).weak());
-                        ui.label(value.as_str());
-                        ui.end_row();
-                    }
-                });
-            ui.add_space(6.0);
-            if ui.button("▶ Play").clicked() {
-                actions.push(Action::Open(e.path.clone()));
-            }
+        Content::Media {
+            cover: Some(tex), ..
+        } => {
+            let avail = ui.available_width();
+            let size = tex.size_vec2();
+            let scale = (avail / size.x).min(1.0);
+            ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(6.0));
         }
-        Some(Content::Folder {
-            folders,
-            files,
-            bytes,
-        }) => {
-            ui.label(format!(
-                "Contains {} and {} ({}).",
-                format::count(*folders as u64, "folder"),
-                format::count(*files as u64, "file"),
-                format::size(*bytes)
-            ));
-            if let Some(t) = total.filter(|t| t.folders > 0) {
-                ui.label(format!(
-                    "Total with sub-folders: {} ({}, {})",
-                    format::size(t.bytes),
-                    format::count(t.files, "file"),
-                    format::count(t.folders, "folder")
-                ));
-            }
-            if ui.button("📂 Open").clicked() {
-                actions.push(Action::Open(e.path.clone()));
-            }
-        }
-        Some(Content::Nothing) => {
-            ui.label(RichText::new("No preview available for this file type.").weak());
-            if ui.button("📂 Open with default app").clicked() {
-                actions.push(Action::Open(e.path.clone()));
-            }
-        }
-        Some(Content::Error(err)) => {
-            ui.colored_label(egui::Color32::from_rgb(0xe5, 0x48, 0x4d), err);
-        }
+        _ => {}
     }
 }

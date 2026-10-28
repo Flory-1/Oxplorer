@@ -119,6 +119,7 @@ pub enum FileKind {
     Code,
     Text,
     Executable,
+    Font,
     Other,
 }
 
@@ -143,6 +144,7 @@ impl FileKind {
             }
             "txt" | "md" | "log" | "ini" | "cfg" | "conf" => Self::Text,
             "exe" | "msi" | "dll" | "appx" | "msix" | "com" | "scr" => Self::Executable,
+            "ttf" | "otf" | "ttc" | "otc" | "woff" | "woff2" | "fon" | "fnt" => Self::Font,
             _ => Self::Other,
         }
     }
@@ -161,6 +163,7 @@ impl FileKind {
             Self::Code => "Source code",
             Self::Text => "Text document",
             Self::Executable => "Application",
+            Self::Font => "Font",
             Self::Other => "File",
         }
     }
