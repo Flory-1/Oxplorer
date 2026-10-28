@@ -36,6 +36,8 @@ pub enum Action {
     Forward,
     Up,
     Refresh,
+    /// Windows' "Map network drive" (`true`) or "Disconnect" (`false`) dialog.
+    NetworkDriveDialog(bool),
     /// Open a folder (navigate) or file (default app).
     Open(PathBuf),
     CopyItems(Vec<PathBuf>),
@@ -1107,7 +1109,7 @@ impl OxApp {
             Action::Open(path) => {
                 let in_archive = archive::split_virtual(&path)
                     .filter(|(_, inner)| !inner.as_os_str().is_empty());
-                if path.is_dir() {
+                if ox_core::network::is_dir(&path) {
                     self.navigate(Location::Folder(path));
                 } else if self.settings.browsing.open_archives && archive::is_archive(&path) {
                     self.quick.open_file(&path);
@@ -1298,6 +1300,13 @@ impl OxApp {
                 }
                 Err(e) => self.toast(format!("This isn't a theme file: {e}")),
             },
+            Action::NetworkDriveDialog(map) => {
+                if map {
+                    ox_core::network::map_drive_dialog();
+                } else {
+                    ox_core::network::disconnect_drive_dialog();
+                }
+            }
             Action::ToggleTerminal => {
                 self.ui.show_terminal = !self.ui.show_terminal;
                 self.ui.terminal_focused = false;
@@ -1508,7 +1517,7 @@ impl OxApp {
 
     pub fn navigate(&mut self, loc: Location) {
         if let Location::Folder(p) = &loc {
-            if !p.is_dir() {
+            if !ox_core::network::is_dir(p) {
                 self.toast(format!(
                     "\"{}\" doesn't exist or isn't a folder.",
                     p.display()
