@@ -17,6 +17,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Check the tag matches the version
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ("${{ github.ref_name }}" -ne "v$version") {
+            throw "Tag ${{ github.ref_name }} doesn't match the version $version in Cargo.toml"
+          }
       - name: Test
         run: cargo test --workspace
       - name: Build
@@ -26,14 +33,32 @@ jobs:
         run: |
           $name = "oxplorer-${{ github.ref_name }}-windows-x64"
           New-Item -ItemType Directory -Path $name | Out-Null
-          Copy-Item target/release/oxplorer.exe, README.md, LICENSE, ROADMAP.md -Destination $name
+          Copy-Item target/release/oxplorer.exe, README.md, CHANGELOG.md, LICENSE, ROADMAP.md -Destination $name
           Compress-Archive -Path $name -DestinationPath "$name.zip"
           (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" | Out-File -Encoding ascii "$name.zip.sha256"
       - name: Build installer and winget manifests
         shell: pwsh
         run: installer/build.ps1 -Tag "${{ github.ref_name }}" -Repository "${{ github.repository }}"
+      - name: Release notes from CHANGELOG.md
+        shell: pwsh
+        run: |
+          # The section of this version: from its "## [x.y.z]" heading to the next one.
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $notes = @()
+          $inside = $false
+          foreach ($line in Get-Content CHANGELOG.md) {
+            if ($line -match '^## \[') {
+              if ($inside) { break }
+              $inside = $line.StartsWith("## [$version]")
+              continue
+            }
+            if ($inside) { $notes += $line }
+          }
+          if ($notes.Count -eq 0) { throw "CHANGELOG.md has no section for $version" }
+          $notes -join "`n" | Out-File -Encoding utf8 release-notes.md
       - uses: softprops/action-gh-release@v2
         with:
+          body_path: release-notes.md
           files: |
             oxplorer-*.zip
             oxplorer-*.zip.sha256

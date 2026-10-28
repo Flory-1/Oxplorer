@@ -123,10 +123,10 @@ Windows-only APIs and still need a manual check on a real Windows machine.
 - ✅ Git status column for repositories (M/A/D/R/?/I, folders summarise their contents) and the branch with ahead/behind in the status bar
 - ✅ Built-in terminal panel (Ctrl+`): your shell in a real terminal (ConPTY on Windows) under the file view, with *cd here* and optional folder following
 
-## Phase 6 — Polish & 1.0 ⏳
+## Phase 6 — Polish & 1.0 🚧
 
 - ✅ Themes and theme import/export: a colour theme per mode (6 built in), colour editor, themes as shareable `.toml` files (export, *Use as theme*)
 - ✅ Localisation: English and German, following the Windows language or chosen in Settings; everything translated incl. Help, messages and key names; a test catches untranslated texts
 - ⏳ Accessibility pass (keyboard-only use)
 - ✅ In-app **Help** page (F1, or Help at the bottom of the sidebar): getting started, features, search syntax, the keyboard shortcuts in use, questions, and a topic filter
-- ⏳ 1.0 release
+- ✅ 1.0 release: version 1.0.0, [CHANGELOG.md](CHANGELOG.md), the release workflow checks the tag against the version and uses the changelog as release notes
