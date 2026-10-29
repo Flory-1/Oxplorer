@@ -4,7 +4,12 @@
 use std::io::{self, Read};
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+
+use crossbeam_channel::RecvTimeoutError;
+
+use super::progress::Lines;
 
 /// How long reading git (status, log, diff) may take.
 pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(60);
@@ -61,6 +66,86 @@ pub(super) fn output(cmd: &mut Command, timeout: Duration) -> io::Result<Output>
         status,
         stdout: stdout.join().unwrap_or_default(),
         stderr: stderr.join().unwrap_or_default(),
+    })
+}
+
+/// Like [`output`], but every line git writes to stderr goes to `on_line`
+/// as it comes, progress updates too (see [`Lines`]), and setting `cancel`
+/// stops git. The stderr returned has the lines that stay only.
+pub(super) fn output_watched(
+    cmd: &mut Command,
+    timeout: Duration,
+    cancel: &AtomicBool,
+    on_line: &mut dyn FnMut(&str),
+) -> io::Result<Output> {
+    let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let stdout = read_all(child.stdout.take());
+    let (tx, rx) = crossbeam_channel::unbounded::<Vec<u8>>();
+    if let Some(mut pipe) = child.stderr.take() {
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = pipe.read(&mut buf) {
+                if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+    }
+    let mut lines = Lines::default();
+    let mut stays = Vec::new();
+    let mut take = |bytes: &[u8], stays: &mut Vec<String>| {
+        for (text, keep) in lines.feed(bytes) {
+            on_line(&text);
+            if keep {
+                stays.push(text);
+            }
+        }
+    };
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        // Cancelled counts even if git just finished: the user said stop.
+        let stop = if cancel.load(Ordering::Relaxed) {
+            Some(io::Error::new(
+                io::ErrorKind::Interrupted,
+                crate::i18n::t("Cancelled"),
+            ))
+        } else if Instant::now() >= deadline {
+            Some(io::Error::new(
+                io::ErrorKind::TimedOut,
+                crate::trf!(
+                    "Git didn't finish within {n} seconds and was stopped.",
+                    n = timeout.as_secs()
+                ),
+            ))
+        } else {
+            None
+        };
+        if let Some(e) = stop {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e);
+        }
+        match rx.recv_timeout(Duration::from_millis(50)) {
+            Ok(bytes) => take(&bytes, &mut stays),
+            // stderr is closed already.
+            Err(RecvTimeoutError::Disconnected) => std::thread::sleep(Duration::from_millis(20)),
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+    };
+    // The rest of stderr; not for long, a helper git started may still
+    // hold the pipe open.
+    let until = Instant::now() + Duration::from_millis(300);
+    while let Ok(bytes) = rx.recv_deadline(until) {
+        take(&bytes, &mut stays);
+    }
+    stays.extend(lines.finish());
+    Ok(Output {
+        status,
+        stdout: stdout.join().unwrap_or_default(),
+        stderr: stays.join("\n").into_bytes(),
     })
 }
 

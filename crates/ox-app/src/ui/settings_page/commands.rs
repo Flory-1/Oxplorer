@@ -12,7 +12,7 @@ use ox_core::i18n::t as tr;
 use ox_core::trf;
 
 use crate::app::{shortcut_of, OxApp};
-use crate::shortcuts;
+use crate::shortcuts::{self, Binding};
 use crate::ui::commands::{icon, ICONS};
 
 const WARN: Color32 = Color32::from_rgb(0xe5, 0x48, 0x4d);
@@ -238,14 +238,13 @@ fn launch_of(inv: &Invocation) -> Result<Launch, String> {
 fn form(ui: &mut Ui, app: &mut OxApp, i: usize, preview: &PreviewItems) {
     record_shortcut(ui, app, i);
     let keymap = app.keymap.clone();
-    let others: Vec<(String, String)> = app
+    // The names of all commands, for a clash with another one.
+    let others: Vec<String> = app
         .settings
         .commands
         .0
         .iter()
-        .enumerate()
-        .filter(|(j, _)| *j != i)
-        .map(|(_, c)| (c.name.clone(), c.shortcut.clone()))
+        .map(|c| c.name.clone())
         .collect();
     let recording = app.commands.recording;
     let mut toggle_recording = false;
@@ -399,28 +398,26 @@ fn form(ui: &mut Ui, app: &mut OxApp, i: usize, preview: &PreviewItems) {
                         c.shortcut.clear();
                     }
                 });
-                if let Some(k) = shortcut_of(c) {
-                    let builtin = shortcuts::COMMANDS
-                        .iter()
-                        .find(|b| keymap.keys(b.cmd).contains(&k));
-                    if let Some(b) = builtin {
+                // The same clash the Shortcuts page shows.
+                let clash = shortcut_of(c).and_then(|k| keymap.conflict(Binding::Custom(i), &k));
+                match clash {
+                    Some(Binding::Builtin(b)) => {
                         ui.colored_label(
                             WARN,
                             trf!(
                                 "⚠ Already the shortcut of “{other}”, which goes first. Change it in Settings → Shortcuts or pick other keys.",
-                                other = tr(b.label)
+                                other = tr(shortcuts::command_info(b).label)
                             ),
                         );
                     }
-                    let other = others.iter().find(|(_, s)| {
-                        shortcuts::parse(s).is_some_and(|o| o == k)
-                    });
-                    if let Some((name, _)) = other {
+                    Some(Binding::Custom(j)) => {
+                        let name = others.get(j).cloned().unwrap_or_default();
                         ui.colored_label(
                             WARN,
                             trf!("⚠ Also the shortcut of “{other}”", other = name),
                         );
                     }
+                    None => {}
                 }
             });
             ui.end_row();
@@ -481,36 +478,13 @@ fn record_shortcut(ui: &mut Ui, app: &mut OxApp, i: usize) {
     if !app.commands.recording {
         return;
     }
-    let pressed = ui.input(|inp| {
-        inp.events.iter().find_map(|e| match e {
-            egui::Event::Key {
-                key,
-                pressed: true,
-                modifiers,
-                ..
-            } if !shortcuts::is_modifier(*key) => Some((*key, *modifiers)),
-            _ => None,
-        })
-    });
-    let Some((key, m)) = pressed else {
+    let Some(keys) = ui.input(shortcuts::recorded) else {
         return;
     };
     app.commands.recording = false;
-    if key == egui::Key::Escape && m.is_none() {
-        return;
+    if let Some(k) = keys {
+        app.settings.commands.0[i].shortcut = shortcuts::to_text(&k);
     }
-    let mut mods = egui::Modifiers::NONE;
-    if m.ctrl || m.command {
-        mods |= egui::Modifiers::COMMAND;
-    }
-    if m.alt {
-        mods |= egui::Modifiers::ALT;
-    }
-    if m.shift {
-        mods |= egui::Modifiers::SHIFT;
-    }
-    app.settings.commands.0[i].shortcut =
-        shortcuts::to_text(&egui::KeyboardShortcut::new(mods, key));
 }
 
 fn placeholder_help(p: &str) -> &'static str {

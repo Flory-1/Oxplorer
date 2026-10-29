@@ -895,6 +895,7 @@ mod help_views;
 mod index_live;
 mod libraries;
 mod mirror_undo;
+mod notify_keys_stash;
 mod operations;
 mod picture_tools;
 mod pictures;
@@ -943,4 +944,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(mirror_undo::TABLE)
         .chain(views_more::TABLE)
         .chain(previews_more::TABLE)
+        .chain(notify_keys_stash::TABLE)
 }

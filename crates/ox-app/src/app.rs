@@ -153,7 +153,7 @@ pub struct UiState {
     pub default_folder_handler: Option<bool>,
     pub palette: Option<crate::ui::palette::PaletteState>,
     /// The settings page is waiting for keys for this command.
-    pub recording: Option<crate::shortcuts::Command>,
+    pub recording: Option<crate::shortcuts::Binding>,
     pub show_terminal: bool,
     pub help: crate::ui::help_page::HelpState,
     /// The terminal has the keyboard (app shortcuts are off then).
@@ -335,7 +335,7 @@ impl OxApp {
                 &self.themes,
                 self.backdrop() != Backdrop::Off,
             );
-            self.keymap = crate::shortcuts::Keymap::new(&self.settings.shortcuts);
+            self.keymap = crate::shortcuts::Keymap::from_settings(&self.settings);
             crate::shortcuts::set_current(&self.keymap);
             crate::ui::commands::set_current(&self.settings.commands.0);
             self.engine

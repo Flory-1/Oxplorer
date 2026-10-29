@@ -2,9 +2,12 @@
 //! what was read from git, the command running and the commit message.
 //! Git runs on threads of its own; only reads start by themselves.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+
 use super::*;
 use ox_core::git::diff::{self as gitdiff, Diff, DiffOf};
-use ox_core::git::{Branch, Change, Changes, Group, RepoStatus};
+use ox_core::git::{Branch, Change, Changes, Group, Progress, RepoStatus, Stash};
 
 use crate::app::GitAction;
 
@@ -21,6 +24,7 @@ pub(super) enum GitView {
 pub(super) struct Snapshot {
     pub(super) changes: Changes,
     pub(super) branches: Vec<Branch>,
+    pub(super) stashes: Vec<Stash>,
     /// The last commit's message (to amend it).
     pub(super) last_message: Option<String>,
     /// The history, when it was read again (after a commit or a switch).
@@ -34,7 +38,7 @@ impl Snapshot {
 }
 
 /// What a finished command means for the views.
-enum Then {
+pub(super) enum Then {
     Nothing,
     /// The message was committed: empty the boxes.
     Committed,
@@ -42,12 +46,26 @@ enum Then {
     Switched(Branch),
     /// The new branch was created: empty its box.
     Created,
+    /// The changes were stashed: empty the message box.
+    Stashed,
 }
+
+/// A long command's latest progress line, and the flag that stops it.
+type Watch = (Arc<Mutex<Option<Progress>>>, Arc<AtomicBool>);
 
 struct Running {
     what: String,
     then: Then,
     rx: Receiver<Result<String, String>>,
+    /// Fetch, pull and push: their latest progress line, and the flag that
+    /// stops them.
+    progress: Option<Watch>,
+}
+
+/// A long command's progress, for the status line.
+pub(super) struct Live {
+    pub(super) progress: Option<Progress>,
+    pub(super) cancelling: bool,
 }
 
 /// What the last command printed.
@@ -161,6 +179,10 @@ pub struct GitPanel {
     pub(super) filter: String,
     /// Git refused to switch to this branch because of local changes.
     pub(super) blocked: Option<Branch>,
+    /// The message for *Stash changes*.
+    pub(super) stash_message: String,
+    /// Drop this stash? Asked first.
+    pub(super) confirm_drop: Option<Stash>,
 }
 
 /// Without news from the file list, the views are read again this often
@@ -233,6 +255,7 @@ impl GitPanel {
             let read = || -> std::io::Result<Snapshot> {
                 let changes = ox_core::git::changes(&root)?;
                 let branches = ox_core::git::branches(&root).unwrap_or_default();
+                let stashes = ox_core::git::stash_list(&root).unwrap_or_default();
                 let last_message = match changes.head.commit {
                     Some(_) => ox_core::git::last_message(&root).ok(),
                     None => None,
@@ -240,6 +263,7 @@ impl GitPanel {
                 Ok(Snapshot {
                     changes,
                     branches,
+                    stashes,
                     last_message,
                     history: history.then(|| fresh_git_info(&root)).flatten(),
                 })
@@ -276,13 +300,64 @@ impl GitPanel {
         self.running.as_ref().map(|r| r.what.as_str())
     }
 
+    /// The progress of a fetch, pull or push while it runs.
+    pub(super) fn live(&self) -> Option<Live> {
+        let (progress, cancel) = self.running.as_ref()?.progress.as_ref()?;
+        Some(Live {
+            progress: progress.lock().ok()?.clone(),
+            cancelling: cancel.load(Ordering::Relaxed),
+        })
+    }
+
+    /// Stop the fetch, pull or push that runs.
+    pub(super) fn cancel(&self) {
+        if let Some((_, cancel)) = self.running.as_ref().and_then(|r| r.progress.as_ref()) {
+            cancel.store(true, Ordering::Relaxed);
+        }
+    }
+
     /// Run a command that changes the repository; the views are read again
     /// when it's done.
-    fn start(
+    pub(super) fn start(
         &mut self,
         ctx: &egui::Context,
         what: String,
         then: Then,
+        work: impl FnOnce(&Path) -> std::io::Result<String> + Send + 'static,
+    ) {
+        self.spawn(ctx, what, then, None, work);
+    }
+
+    /// [`Self::start`] for fetch, pull and push: their progress is shown
+    /// while they run, and they can be cancelled.
+    fn start_watched(
+        &mut self,
+        ctx: &egui::Context,
+        what: String,
+        work: impl FnOnce(&Path, &AtomicBool, &mut dyn FnMut(Progress)) -> std::io::Result<String>
+            + Send
+            + 'static,
+    ) {
+        let progress = Arc::new(Mutex::new(None));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (p, c, repaint) = (progress.clone(), cancel.clone(), ctx.clone());
+        let work = move |root: &Path| {
+            work(root, &c, &mut |line: Progress| {
+                if let Ok(mut latest) = p.lock() {
+                    *latest = Some(line);
+                }
+                repaint.request_repaint();
+            })
+        };
+        self.spawn(ctx, what, Then::Nothing, Some((progress, cancel)), work);
+    }
+
+    fn spawn(
+        &mut self,
+        ctx: &egui::Context,
+        what: String,
+        then: Then,
+        progress: Option<Watch>,
         work: impl FnOnce(&Path) -> std::io::Result<String> + Send + 'static,
     ) {
         let Some(root) = self.root.clone() else {
@@ -298,7 +373,12 @@ impl GitPanel {
             repaint.request_repaint();
         });
         self.outcome = None;
-        self.running = Some(Running { what, then, rx });
+        self.running = Some(Running {
+            what,
+            then,
+            rx,
+            progress,
+        });
     }
 
     fn finish_command(&mut self, actions: &mut Vec<Action>) {
@@ -317,6 +397,7 @@ impl GitPanel {
                 self.amend = false;
             }
             (Then::Created, Ok(_)) => self.new_branch.clear(),
+            (Then::Stashed, Ok(_)) => self.stash_message.clear(),
             (Then::Switched(b), Err(e)) if ox_core::git::would_overwrite(e) => {
                 self.blocked = Some(b.clone());
             }
@@ -400,15 +481,11 @@ impl GitPanel {
     }
 
     pub(super) fn fetch(&mut self, ctx: &egui::Context) {
-        self.start(ctx, tr("Fetching…").into(), Then::Nothing, |root| {
-            ox_core::git::fetch(root)
-        });
+        self.start_watched(ctx, tr("Fetching…").into(), ox_core::git::fetch);
     }
 
     pub(super) fn pull(&mut self, ctx: &egui::Context) {
-        self.start(ctx, tr("Pulling…").into(), Then::Nothing, |root| {
-            ox_core::git::pull(root)
-        });
+        self.start_watched(ctx, tr("Pulling…").into(), ox_core::git::pull);
     }
 
     pub(super) fn push(&mut self, ctx: &egui::Context) {
@@ -416,9 +493,11 @@ impl GitPanel {
             .snapshot()
             .map(|s| s.changes.head.clone())
             .unwrap_or_default();
-        self.start(ctx, tr("Pushing…").into(), Then::Nothing, move |root| {
-            ox_core::git::push(root, &head)
-        });
+        self.start_watched(
+            ctx,
+            tr("Pushing…").into(),
+            move |root, cancel, progress| ox_core::git::push(root, &head, cancel, progress),
+        );
     }
 
     /// The Changes view's diff: of the selected file, if it's still changed.

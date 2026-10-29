@@ -132,6 +132,12 @@ pub(super) fn transfer(ui: &mut Ui, s: &mut Settings) {
     );
     toggle(
         ui,
+        &mut t.notify_done,
+        tr("Notifications when transfers are done"),
+        tr("A Windows notification when copies and moves finish while Oxplorer is in the background. Click it to bring Oxplorer back."),
+    );
+    toggle(
+        ui,
         &mut t.preserve_timestamps,
         tr("Keep modification dates"),
         "",

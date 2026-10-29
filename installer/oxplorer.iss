@@ -57,8 +57,11 @@ Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\Oxplorer"; Filename: "{app}\oxplorer.exe"
-Name: "{autodesktop}\Oxplorer"; Filename: "{app}\oxplorer.exe"; Tasks: desktopicon
+; The AppUserModelID is the one the program gives itself (ox_core::toast::APP_ID):
+; Windows shows Oxplorer's notifications under it and the taskbar groups
+; its windows with the shortcut.
+Name: "{autoprograms}\Oxplorer"; Filename: "{app}\oxplorer.exe"; AppUserModelID: "Flory-1.Oxplorer"
+Name: "{autodesktop}\Oxplorer"; Filename: "{app}\oxplorer.exe"; AppUserModelID: "Flory-1.Oxplorer"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\oxplorer.exe"; Parameters: "--register-default"; Tasks: defaultfolders; Flags: runhidden waituntilterminated
@@ -67,3 +70,5 @@ Filename: "{app}\oxplorer.exe"; Description: "{cm:LaunchProgram,Oxplorer}"; Flag
 [UninstallRun]
 ; Give folders back to Explorer if Oxplorer was opening them.
 Filename: "{app}\oxplorer.exe"; Parameters: "--unregister-default"; Flags: runhidden waituntilterminated; RunOnceId: "UnregisterDefault"
+; Forget the registration for notifications (HKCU\Software\Classes\AppUserModelId).
+Filename: "{app}\oxplorer.exe"; Parameters: "--unregister-notifications"; Flags: runhidden waituntilterminated; RunOnceId: "UnregisterNotifications"

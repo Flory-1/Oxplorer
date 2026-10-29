@@ -9,6 +9,7 @@ mod git_changes;
 pub(crate) mod git_diff;
 mod git_graph;
 mod git_panel;
+mod git_stashes;
 mod hex;
 mod info;
 mod large;

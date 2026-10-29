@@ -10,10 +10,14 @@ mod changes;
 mod cmd;
 pub mod diff;
 mod ops;
+mod progress;
+mod stash;
 
 pub use branches::{branches, parse_branches, parse_track, Branch};
 pub use changes::{changes, parse_changes, Change, Changes, Group, Head};
 pub use ops::*;
+pub use progress::{parse_progress, Lines, Progress};
+pub use stash::{parse_stashes, stash_apply, stash_drop, stash_list, stash_pop, stash_push, Stash};
 
 use std::collections::HashMap;
 use std::io;
