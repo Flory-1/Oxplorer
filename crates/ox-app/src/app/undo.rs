@@ -1,9 +1,11 @@
 //! Undo and redo (Ctrl+Z, Ctrl+Y): file operations are recorded as they
 //! finish and reversed on a helper thread. The logic is in `ox_core::undo`.
+//! The history is saved as it changes and loaded again when the main window
+//! starts (Settings → Browsing → Keep undo history after restart).
 
 use super::*;
 use ox_core::transfer::Job;
-use ox_core::undo::{self, Entry, History, Kind, Op, Outcome, Placed};
+use ox_core::undo::{self, Entry, History, Kind, Op, Outcome, Placed, Store};
 
 /// Records operations that finish on other threads (deletes, copies).
 #[derive(Clone)]
@@ -42,6 +44,10 @@ pub struct UndoState {
     running: Option<(bool, Entry, Running)>,
     /// Transfer jobs started by an undo or redo (not recorded themselves).
     own_jobs: HashSet<u64>,
+    /// Where the history is kept across restarts.
+    store: Store,
+    /// Whether it is kept, as of the last frame (`None`: first frame).
+    keeping: Option<bool>,
 }
 
 impl Default for UndoState {
@@ -51,6 +57,8 @@ impl Default for UndoState {
             records: crossbeam_channel::unbounded(),
             running: None,
             own_jobs: HashSet::new(),
+            store: Store::new(Store::default_path()),
+            keeping: None,
         }
     }
 }
@@ -76,6 +84,33 @@ impl UndoState {
     fn take_records(&mut self) {
         while let Ok(entry) = self.records.1.try_recv() {
             self.history.record(entry);
+        }
+    }
+
+    /// Keep the history across restarts (`keep`): the main window loads it
+    /// once, every window saves its changes. Turned off: the file goes.
+    fn persist(&mut self, keep: bool, main_window: bool) {
+        let first = self.keeping.is_none();
+        if !keep {
+            if self.keeping != Some(false) {
+                if let Err(e) = self.store.remove() {
+                    log::warn!("could not remove the undo history: {e}");
+                }
+            }
+            self.keeping = Some(false);
+            return;
+        }
+        let empty = !self.history.can_undo() && !self.history.can_redo();
+        if self.keeping != Some(true) && first && main_window && empty {
+            self.history = self.store.load();
+        }
+        // Turned on later: what is there now is saved at once.
+        let turned_on = !first && self.keeping == Some(false);
+        self.keeping = Some(true);
+        if self.history.take_changed() || turned_on {
+            if let Err(e) = self.store.save(&mut self.history) {
+                log::warn!("could not save the undo history: {e}");
+            }
         }
     }
 }
@@ -136,6 +171,11 @@ impl OxApp {
     /// Every frame: take in recorded operations and finish undos and redos.
     pub(super) fn poll_undo(&mut self) {
         self.undo.take_records();
+        let (keep, main) = (
+            self.settings.browsing.keep_undo_history,
+            self.instance.owns_session(),
+        );
+        self.undo.persist(keep, main);
         let Some((redo, entry, running)) = self.undo.running.take() else {
             return;
         };

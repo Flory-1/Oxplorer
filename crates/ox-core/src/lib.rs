@@ -36,6 +36,7 @@ pub mod instance;
 pub mod library;
 pub mod links;
 pub mod logfile;
+pub mod mirror;
 pub mod natural;
 pub mod network;
 pub mod pathfmt;

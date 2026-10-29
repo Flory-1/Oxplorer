@@ -138,6 +138,7 @@ impl OxApp {
     /// Keep the comparison in step with the panes: compare again when a pane
     /// shows another folder or its files changed, and pick up results.
     pub(super) fn poll_compare(&mut self) {
+        self.poll_mirror();
         let Some(state) = &mut self.compare else {
             return;
         };

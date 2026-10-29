@@ -83,7 +83,7 @@ fn rename_is_undone_and_redone() {
         Kind::Rename,
         Op::Renamed(vec![(a.clone(), b.clone())]),
     ));
-    assert_eq!(h.undo.back().unwrap().subject, "a.txt");
+    assert_eq!(h.undo.back().unwrap().entry.subject, "a.txt");
 
     undo_redo(&mut h, false, &bin).unwrap();
     assert!(a.exists() && !b.exists());
@@ -202,7 +202,7 @@ fn copy_goes_to_the_bin_and_comes_back() {
         Placed::now(file.clone()).unwrap(),
     ];
     h.record(Entry::new(Kind::Copy, Op::Placed(items)));
-    assert_eq!(h.undo.back().unwrap().describe(), "Copy (2 items)");
+    assert_eq!(h.undo.back().unwrap().entry.describe(), "Copy (2 items)");
 
     undo_redo(&mut h, false, &bin).unwrap();
     assert!(!copy.exists() && !file.exists());
@@ -378,7 +378,7 @@ fn history_is_bounded_and_new_operations_end_redo() {
         ));
     }
     assert_eq!(h.undo.len(), LIMIT);
-    assert_eq!(h.undo.front().unwrap().subject, "5");
+    assert_eq!(h.undo.front().unwrap().entry.subject, "5");
 
     let e = h.take(false).unwrap();
     h.reversed(false, e);
