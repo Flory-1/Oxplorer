@@ -38,6 +38,7 @@ pub mod pdf;
 pub mod places;
 pub mod player;
 pub mod power;
+pub mod preview_handler;
 pub mod props;
 pub mod recycle;
 pub mod rename;
