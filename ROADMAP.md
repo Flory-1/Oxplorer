@@ -1,132 +1,126 @@
 # Oxplorer Roadmap
 
-Oxplorer is a fast Windows file explorer written in Rust. It has tabs and tab
-groups, a quick-access start page, a custom copy engine (no slow native copy
-dialog) and fast parallel search.
+What's still to do and what would be nice to have. Everything that is already in
+Oxplorer is listed in the [README](README.md) and, release by release, in the
+[CHANGELOG](CHANGELOG.md).
 
-The roadmap is split into phases. Each phase should end with a usable build.
+Each phase should end with a usable release. The order within a phase is a
+rough priority, not a promise.
 
-Status legend: ✅ done · 🚧 in progress · ⏳ planned
+Legend: ⏳ planned · 💡 idea, needs a closer look first
 
 ---
 
-## Phase 0 — Foundation ✅
+## Phase 7 — Tried and tested on Windows
 
-- ✅ Cargo workspace: `ox-core` (logic, no GUI) + `ox-app` (egui/eframe UI)
-- ✅ Project docs: README, ROADMAP, license
-- ✅ CI (GitHub Actions): `cargo fmt`, `clippy`, tests on Windows and Linux, release build artifact for Windows
+Oxplorer is developed on Linux and its automated tests run on Windows in CI. These
+Windows-only parts build and pass their tests but haven't been tried by hand on a real
+Windows machine yet.
 
-## Phase 1 — MVP Explorer 🚧
+- ⏳ **Manual test on Windows 10 and 11** and fix what comes up:
+  - Shell icons, thumbnails, the native context menu, Properties and *Open with*
+  - drag & drop out of the app
+  - network shares and mapped drives
+  - Mica/Acrylic, *Open folders in Oxplorer* (incl. Win+E), HDD/SSD detection
+  - the built-in player and the tabs in the title bar (snap layouts, resizing at the top
+    edge, Mica without a second set of caption buttons)
+  - Explorer clipboard interop, hidden/system attributes, junctions, long paths, high DPI and
+    moving the window between monitors with different scaling
+- ⏳ **Copy engine benchmarks** against Explorer, robocopy and TeraCopy (many small files, one
+  huge file, SSD → USB stick, network share), with the numbers in the README
+- ⏳ **Log file and crash report**: panics and errors written to a log in the config folder,
+  with *Help → Open log folder* to attach it to a bug report
+- ⏳ **Update check**: a quiet note on the Home page when a newer release is on GitHub (can be
+  turned off), and a link to the release notes
+- ⏳ Code-signed releases, so SmartScreen doesn't warn on the first start
 
-Goal: a daily-driver replacement for the basic Explorer tasks.
+## Phase 8 — Safer file operations
 
-Everything marked ✅ below is implemented and was tested by hand on Linux. The
-automated tests (copy engine, conflicts, search, settings, tabs) also pass on
-Windows in CI. The phase is finished once the app has been tried by hand on Windows:
+- ⏳ **Undo** (Ctrl+Z) for the last operations: rename, bulk rename, move, copy (deletes the
+  copies), new folder/file and delete to the Recycle Bin, with Redo (Ctrl+Y)
+- ⏳ **Resume interrupted transfers**: a journal per job, so a copy cut off by a crash, sleep or a
+  pulled USB stick continues where it stopped
+- ⏳ **Ask about errors while the job runs** (retry / skip / skip all) instead of only
+  collecting them for the end
+- ⏳ **Transfer queue**: reorder or pause single jobs, *run after the current one*, and a
+  setting for what happens when a job finishes (nothing, notification, sleep)
+- ⏳ Keep permissions (ACLs), alternate data streams and timestamps of folders, optional
+- ⏳ **Compare folders**: two folders side by side with new, changed and missing files marked,
+  and copy over what's missing (uses the split view)
+- 💡 **Mirror / sync** a folder to another (one way, with a preview of what will change)
+- ⏳ Benchmarks in CI, so a slower copy engine fails the build
 
-- ⏳ **Manual test on Windows 10/11** and fix what comes up: Explorer clipboard
-  interop, hidden/system attributes, drive labels, junctions, long paths, high-DPI scaling
-- ⏳ Benchmark the copy engine against Explorer on Windows (many small files, one huge file, SSD → USB)
+## Phase 9 — Views and browsing
 
-**Browsing**
-- ✅ Directory listing on a background thread (big folders don't freeze the UI)
-- ✅ Details view (sortable columns) and grid view
-- ✅ Natural sort order (`file2` before `file10`), folders first
-- ✅ Multi-select (Ctrl/Shift click, Ctrl+A, keyboard navigation)
-- ✅ Back / forward / up, breadcrumb address bar with edit mode
-- ✅ Auto refresh when the folder changes on disk (file watcher)
-- ✅ Hidden files / extensions toggles
+- ⏳ **Remember the view per folder**: sort order, view mode and columns (e.g. *Downloads* by
+  date, *Pictures* as a grid)
+- ⏳ **Column chooser**: show, hide, reorder and resize columns, with extra ones such as
+  dimensions, length, author, version, attributes and *date taken*
+- ⏳ **Grid zoom** with Ctrl+mouse wheel and a size slider, from small icons to large thumbnails
+- ⏳ **Group by** type, date, size or tag, with collapsible groups
+- ⏳ **Select by pattern** (`*.jpg`), invert selection, select all of the same type
+- ⏳ **Quick Look**: Space opens a large preview of the selected file over the window; arrow
+  keys go to the next file
+- ⏳ **Flat view**: every file in a folder and its sub-folders in one list
+- ⏳ **Pinned tabs** (small, always first, not closed by *Close other tabs*) and **named
+  sessions/workspaces** (save a set of tabs and groups, open it again later)
+- ⏳ **More windows**: open a new window (Ctrl+N), drag a tab out of the window into its own
+- ⏳ **Cloud files**: OneDrive / Dropbox status (online only, on this device, syncing) as an
+  icon overlay and a column, plus *Always keep on this device* / *Free up space*
+- ⏳ **Links**: create symbolic links, junctions and hard links from the New menu or by
+  dragging with Ctrl+Shift, and show where a link points
+- 💡 Libraries and the Windows Gallery as places in the sidebar
 
-**Layout**
-- ✅ Header bar with tabs and **tab groups** (named and coloured, collapsible, Chrome-style)
-- ✅ Sidebar: Home, Favorites, Drives, Recent folders
-- ✅ Quick Access / Favorites **start page** (pinned folders, drives with usage bars, recent folders and files)
-- ✅ Status bar (item count, selection size)
-- ✅ Restore the last session (tabs and groups) on startup
+## Phase 10 — Search and disk usage
 
-**File operations**
-- ✅ **Custom Rust copy engine**: parallel workers, `CopyFileExW` fast path on Windows, pause/resume/cancel, live speed and ETA
-- ✅ Instant moves on the same volume (rename), copy + delete across volumes
-- ✅ One conflict prompt per job (replace all / skip / keep both / replace if newer) instead of one per file
-- ✅ Transfer panel instead of the native Windows copy dialog
-- ✅ Clipboard works both ways with Windows Explorer (CF_HDROP + Preferred DropEffect)
-- ✅ Drag & drop inside the app (onto folders, favorites, tabs); dropping files from other apps
-- ✅ New folder / new file, rename, delete to Recycle Bin, permanent delete (Shift+Del)
-- ✅ Copy path, open in terminal, show in Windows Explorer, "Copy to / Move to" favorites and open tabs
+- ⏳ **Live index updates** from file system events (today the index is refreshed on a schedule)
+- ⏳ **NTFS MFT reader** (`FSCTL_ENUM_USN_DATA`) as a much faster index builder on Windows, and
+  the USN journal for live updates (needs admin rights → optional helper service)
+- ⏳ `tag:` in the query syntax and tags as a filter chip
+- ⏳ **Search inside archives** (names of the files in zip/7z/tar)
+- ⏳ Search history and suggestions in the search box
+- ⏳ **Disk usage view**: a treemap or sunburst of a drive or folder, built from the folder
+  size cache, to find what fills the disk
+- ⏳ **Find duplicates** (same size, then same hash) and **empty folders**, with a list to
+  review before deleting
+- 💡 Optional full-text index of documents (txt, md, code, PDF and Office text) for fast
+  `content:` searches
 
-**Search**
-- ✅ Instant filter of the current folder while typing
-- ✅ Press Enter for a deep, multi-threaded recursive search (streams results)
-- ✅ Query syntax: wildcards, `ext:`, `type:`, `size:`, `modified:`, `content:`, `-exclude`
+## Phase 11 — Previews and media
 
-**Settings page**
-- ✅ Appearance (theme, accent colour, UI scale, compact rows)
-- ✅ Browsing, startup, sidebar, copy engine and search options
-- ✅ Saved as TOML in `%APPDATA%\Oxplorer`
+- ⏳ **Office and other documents** in the preview through Windows' preview handlers
+  (`IPreviewHandler`): Word, Excel, PowerPoint, Outlook mails and everything else Explorer
+  can preview
+- ⏳ **More picture formats**: SVG, HEIC/HEIF, AVIF, RAW (through Windows' codecs), animated
+  GIF/WebP, and the photo's **EXIF details** (camera, exposure, date taken, location)
+- ⏳ **Data files**: CSV/TSV as a table, JSON/XML/YAML as a collapsible tree, SQLite tables
+- ⏳ **Hex view** for binary files
+- ⏳ **Player**: next/previous file of the folder, playlists, subtitles (`.srt`), playback speed,
+  and *keep playing* while browsing other folders
+- ⏳ **Picture tools**: rotate, convert (PNG/JPG/WebP) and resize one or many pictures
+- 💡 Diff of two selected text files, and the changes of a file in a Git repository
 
-## Phase 2 — Deep Windows integration ✅
+## Phase 12 — Your own tools
 
-Items marked ✅ build and pass CI on Windows. The ones marked *(untested)* use
-Windows-only APIs and still need a manual check on a real Windows machine.
+- ⏳ **Custom commands** in the right-click menu and the command palette: a command line with
+  placeholders (`{path}`, `{folder}`, `{name}`, `{selection}`), for files of certain types,
+  optionally with a shortcut
+- ⏳ **Remote locations**: SFTP, FTP and WebDAV as places in the sidebar, browsed and copied
+  like local folders through the copy engine
+- ⏳ **WSL**: Linux distributions under *This PC* (`\\wsl$`)
+- ⏳ **More Git**: stage, commit and switch branches from the Git tab, and the diff of a changed file
+- ⏳ **Portable mode**: settings next to `oxplorer.exe` when a `portable` file is there
+- ⏳ **Export and import all settings** (incl. favorites, tags, themes and shortcuts) as one file
+- ⏳ **Tray icon and global hotkey** to open a window quickly (optional)
+- 💡 Plugins or scripts (e.g. Rhai or Lua) for previews, columns and commands
 
-- ✅ Real Windows file icons (`SHGetFileInfo` + system image list, loaded in the background and cached per file type) *(untested)*
-- ✅ Native shell context menu under "Show more options" / Shift+F10 (`IContextMenu`, incl. owner-drawn submenus like "Send to"), so 7-Zip, VS Code and other entries work *(untested)*
-- ✅ Native Properties dialog (`ShellExecuteEx` "properties") and "Open with…" (`SHOpenWithDialog`) *(untested)*
-- ✅ Recycle Bin view: browse, restore, delete permanently, empty, drop files onto it
-- ✅ App icon, version info and manifest (per-monitor DPI v2, long paths, modern common controls)
-- ✅ Portable zip on GitHub Releases (push a `v*` tag)
-- ✅ Thumbnails for pictures, videos and PDFs in the grid view (`IShellItemImageFactory`; the `image` crate elsewhere) *(Shell thumbnails untested)*
-- ✅ Drag & drop **out** of the app into other programs (`SHDoDragDrop` with the Shell's data object and drop source) *(untested)*
-- ✅ Network locations: browse `\\server` shares (`WNetEnumResource`), mapped drives under This PC, a Network section, Map/Disconnect network drive *(untested)*
-- ✅ Mica/Acrylic window backdrop, Windows 11 rounded corners, title bar following dark/light mode (DWM attributes) *(untested)*
-- ✅ Option to "Open folders in Oxplorer" by default: folders, drives and Win+E (HKCU registry, undone cleanly) *(untested)*
-- ✅ Installer (Inno Setup, per user) and winget manifests built for every release. MSIX was left out: it only installs when signed with a trusted code-signing certificate.
+## Phase 13 — Accessibility and languages
 
-## Phase 3 — Copy Engine 2.0 🚧
-
-- ✅ Detect the drive type (HDD vs SSD) and pick the worker count: one file at a time on HDDs, 8 in parallel on SSDs ("Auto" setting). Linux via sysfs; Windows via the seek-penalty IOCTL *(untested)*
-- ✅ Per-disk queue: jobs on the same drive run one after another, jobs on different drives run in parallel
-- ✅ Optional verification after copying (xxh3-128). Moves only delete originals that were copied correctly
-- ✅ Retry failed files with one click (each file goes back to its exact target path)
-- ✅ Speed limit per transfer
-- ✅ Transfer history log (`transfers.log`, with errors), opened from the transfer panel or Settings
-- ⏳ Resume interrupted transfers (journal file)
-- ⏳ Per-file error dialog while the job runs (retry / skip / skip all) instead of collecting errors
-- ⏳ Keep ACLs (security descriptors), optional
-- ⏳ Benchmarks against Explorer, robocopy and TeraCopy in CI
-
-## Phase 4 — Search 2.0 🚧
-
-- ✅ Persistent file-name index (`ox-core::index`) for all drives: ~24 bytes per item plus names, saved to the cache folder and loaded in milliseconds at startup, rebuilt in the background on start and every N minutes. Benchmark (Linux, warm disk cache): 280k items indexed in 0.24 s, queries in 2–12 ms
-- ✅ Search-as-you-type across all indexed drives (Home page and search tabs)
-- ✅ Searches inside a folder use the index too when it covers the folder; otherwise the parallel walker is used
-- ✅ Faster content search: one compiled pattern per query, reused buffers, binary files skipped (memory-mapping was rejected: a file truncated during the search would crash the app)
-- ✅ Filter chips (kind, date, size) and saved searches in the sidebar
-- ✅ Regex mode (`/pattern/` or `regex:`), `kind:` filter (image, video, audio, document, archive, code, app)
-- ✅ Index settings: folders, excluded names, refresh interval, rebuild now, live status
-- ⏳ Live index updates from file system events (today the index is refreshed on a schedule)
-- ⏳ NTFS MFT reader (`FSCTL_ENUM_USN_DATA`) as a much faster index builder on Windows, plus USN journal for live updates (needs admin rights → optional helper service)
-
-## Phase 5 — Power-user features ✅
-
-- ✅ Dual-pane / split view (Ctrl+\\): two panes side by side, each with its own tab; F6 or a click switches the focused pane, drag & drop between panes, narrow panes hide less important columns
-- ✅ Preview pane (Alt+P): images, text and code with line numbers, folder and multi-selection summaries
-- ✅ Preview pane extras: syntax highlighting for code and config files, PDF first page (Windows' built-in PDF renderer), audio/video details with cover art
-- ✅ Tabbed preview pane: Info first, then the file type's tabs; fonts get a sample text tab and a Glyphs grid
-- ✅ Bulk rename (F2 on several items): name patterns with `{name}`/`{n}`/`{date}` tokens, find & replace (text or regex), counters, case changes, live preview with conflict checks, all-or-nothing apply
-- ✅ Browse zip and tar (.tar, .tar.gz, .tgz) archives like folders, with previews; extract by drag & drop, copy/paste or *Extract here / Extract to*; *Compress to ZIP*
-- ✅ 7z archives (browse, preview, extract)
-- ✅ Folder size column: computed in the background (one walker, easy on HDDs), sub-folders cached on the way, refreshed when files change; sorting by size includes folders
-- ✅ Colour tags with custom names: tag from the context menu or palette, dots in the file view, a Tags section in the sidebar, tags follow renames and moves
-- ✅ Command palette (Ctrl+Shift+P / F1): fuzzy search over commands, favorites, drives, recent folders and saved searches
-- ✅ Custom keyboard shortcuts: Settings → Shortcuts, click and press the new keys; conflicts are flagged and menus, tooltips and the palette show your keys
-- ✅ Git status column for repositories (M/A/D/R/?/I, folders summarise their contents) and the branch with ahead/behind in the status bar
-- ✅ Built-in terminal panel (Ctrl+`): your shell in a real terminal (ConPTY on Windows) under the file view, with *cd here* and optional folder following
-
-## Phase 6 — Polish & 1.0 🚧
-
-- ✅ Themes and theme import/export: a colour theme per mode (6 built in), colour editor, themes as shareable `.toml` files (export, *Use as theme*)
-- ✅ Localisation: English and German, following the Windows language or chosen in Settings; everything translated incl. Help, messages and key names; a test catches untranslated texts
-- ⏳ Accessibility pass (keyboard-only use)
-- ✅ In-app **Help** page (F1, or Help at the bottom of the sidebar): getting started, features, search syntax, the keyboard shortcuts in use, questions, and a topic filter
-- ✅ 1.0 release: version 1.0.0, [CHANGELOG.md](CHANGELOG.md), the release workflow checks the tag against the version and uses the changelog as release notes
+- ⏳ **Keyboard-only use**: everything reachable with Tab, arrow keys and shortcuts, a visible
+  focus everywhere, F6 cycling through sidebar, file view and preview
+- ⏳ **Screen readers** through AccessKit (egui supports it): names and roles for tabs, list
+  rows, buttons and dialogs
+- ⏳ Follow Windows' text size and high-contrast settings
+- ⏳ **More languages** (French, Spanish, Italian, Dutch, Polish …) and a guide for translators;
+  translations as files, so they can be added without touching the code
+- 💡 Touch and pen: bigger hit targets, swipe for back/forward
