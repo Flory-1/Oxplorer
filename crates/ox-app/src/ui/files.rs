@@ -6,7 +6,7 @@ mod details;
 mod grid;
 mod item;
 pub(crate) use cells::header_label;
-pub(crate) use column_header::{column_context, column_menu};
+pub(crate) use column_header::{column_context, column_menu, folder_view_menu};
 use details::details;
 use grid::grid;
 use item::{item_context_menu, item_interact};
@@ -149,7 +149,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     };
     let folders_first = app.settings.browsing.folders_first;
     let case = app.settings.search.case_sensitive;
-    let layout = &app.settings.browsing.columns;
+    let layout = app.columns_of(app.tabs.active()).clone();
     let col_cx = column_context(app.tabs.active());
     let mut actions = Vec::new();
     let tab = app.tabs.active_mut();
@@ -180,7 +180,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             &mut tab.view,
             tab.id,
             &cx,
-            layout,
+            &layout,
             col_cx,
             &mut actions,
             &mut sort_clicked,

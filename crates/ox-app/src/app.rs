@@ -141,6 +141,9 @@ pub struct OxApp {
     pub thumbs: crate::thumbs::Thumbnails,
     /// Values of the extra details columns, read in the background.
     pub column_values: crate::column_values::ColumnValues,
+    /// The view each folder was last shown with.
+    pub folder_views: ox_core::folder_views::FolderViews,
+    folder_views_saved: Instant,
     pub index: IndexService,
     pub preview: crate::ui::preview::PreviewState,
     pub folder_sizes: FolderSizes,
@@ -283,6 +286,8 @@ impl OxApp {
             icons: crate::icons::IconCache::new(&cc.egui_ctx),
             thumbs: crate::thumbs::Thumbnails::new(&cc.egui_ctx),
             column_values: crate::column_values::ColumnValues::new(&cc.egui_ctx),
+            folder_views: ox_core::folder_views::FolderViews::load(),
+            folder_views_saved: Instant::now(),
             index: {
                 let repaint = cc.egui_ctx.clone();
                 IndexService::start(ox_core::index::default_cache_path(), move || {
@@ -369,6 +374,7 @@ impl OxApp {
         self.column_values.poll();
         self.manage_index();
         self.tabs.fix_panes();
+        self.sync_folder_views();
         self.load_active_tab();
         if let Some(other) = self.tabs.split_partner() {
             // Load the other pane's tab too (`load_active_tab` works on the active one).
@@ -800,6 +806,7 @@ impl eframe::App for OxApp {
         self.process_actions();
         if ctx.input(|i| i.viewport().close_requested()) {
             self.save_session();
+            self.save_folder_views();
             self.save_quick();
         }
     }

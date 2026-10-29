@@ -134,6 +134,11 @@ pub struct Tab {
     pub view_mode: ViewMode,
     pub sort_key: SortKey,
     pub sort_order: SortOrder,
+    /// Columns of its own (a folder's remembered ones); `None` = the default columns.
+    pub columns: Option<ox_core::columns::ColumnLayout>,
+    /// The folder whose remembered view was applied last, and that view:
+    /// changes from it are remembered for the folder.
+    pub remembered: Option<(PathBuf, ox_core::folder_views::SavedView)>,
     /// Listing must be reloaded before the tab is shown again.
     pub stale: bool,
 }
@@ -156,6 +161,8 @@ impl Tab {
             view_mode: settings.browsing.default_view,
             sort_key: settings.browsing.default_sort,
             sort_order: settings.browsing.default_order,
+            columns: None,
+            remembered: None,
             stale: true,
         }
     }
@@ -454,11 +461,12 @@ impl Tabs {
             return;
         }
         let src = self.active();
-        let (loc, mode, key, order) = (
+        let (loc, mode, key, order, columns) = (
             src.location().clone(),
             src.view_mode,
             src.sort_key,
             src.sort_order,
+            src.columns.clone(),
         );
         let active = self.active;
         let id = self.open(loc, Some(active), false, settings);
@@ -466,6 +474,7 @@ impl Tabs {
             t.view_mode = mode;
             t.sort_key = key;
             t.sort_order = order;
+            t.columns = columns;
         }
         self.panes = Some([active, id]);
         self.focus = 0;
@@ -509,17 +518,19 @@ impl Tabs {
         if self.is_home(id) {
             return;
         }
-        let (loc, mode, key, order) = (
+        let (loc, mode, key, order, columns) = (
             src.location().clone(),
             src.view_mode,
             src.sort_key,
             src.sort_order,
+            src.columns.clone(),
         );
         let new_id = self.open(loc, Some(id), true, settings);
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == new_id) {
             t.view_mode = mode;
             t.sort_key = key;
             t.sort_order = order;
+            t.columns = columns;
         }
     }
 

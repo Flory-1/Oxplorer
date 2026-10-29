@@ -17,7 +17,7 @@ pub(super) fn entries(app: &OxApp, v: &mut Vec<Entry>) {
             run,
         })
     };
-    let layout = &app.settings.browsing.columns;
+    let layout = app.columns_of(tab);
     let col_cx = crate::ui::files::column_context(tab);
     let is_bin = tab.location().is_bin();
     for id in ColumnId::ALL {
@@ -40,5 +40,19 @@ pub(super) fn entries(app: &OxApp, v: &mut Vec<Entry>) {
         "☰",
         tr("Reset columns").to_owned(),
         act(|| Action::View(ViewAction::Columns(ColumnEdit::Reset))),
+    );
+    if let Some(folder) = app.remembered_folder() {
+        if app.folder_views.get(&folder).is_some() {
+            cmd(
+                "👁",
+                tr("Reset view of this folder").to_owned(),
+                act(|| Action::View(ViewAction::ResetFolder)),
+            );
+        }
+    }
+    cmd(
+        "👁",
+        tr("Use this view for all folders").to_owned(),
+        act(|| Action::View(ViewAction::MakeDefault)),
     );
 }
