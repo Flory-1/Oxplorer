@@ -16,6 +16,7 @@ mod poll;
 mod process;
 mod properties;
 mod quick_look;
+mod search_history;
 mod select;
 mod sessions;
 mod transfer_watch;
@@ -26,6 +27,7 @@ pub use action::{Action, TabAction};
 pub use compare::{CompareAction, CompareState};
 pub use instances::Start;
 pub use properties::Properties;
+pub use search_history::{HistoryAction, RecentSearches};
 pub use select::SelectAction;
 pub use sessions::{SavedSessions, SessionAction};
 pub use transfer_watch::TransferWatch;
@@ -220,6 +222,8 @@ pub struct OxApp {
     pub undo: undo::UndoState,
     /// Named sessions (sets of tabs saved to open again).
     pub sessions: SavedSessions,
+    /// Searches that were run, suggested under the search box.
+    pub search_history: RecentSearches,
     /// This window among other Oxplorer windows (files they share).
     instance: instances::Instance,
     /// When the panes were last checked for syncing cloud files.
@@ -373,6 +377,7 @@ impl OxApp {
             index_settings: None,
             undo: Default::default(),
             sessions: Default::default(),
+            search_history: Default::default(),
             instance,
             cloud_check: None,
             libraries: Vec::new(),

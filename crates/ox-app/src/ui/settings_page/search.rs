@@ -218,6 +218,39 @@ pub(super) fn index_section(ui: &mut Ui, app: &mut OxApp) {
     });
 }
 
+/// Remembering searches for the suggestions under the search box.
+pub(super) fn history_section(ui: &mut Ui, app: &mut OxApp) {
+    ui.add_space(14.0);
+    ui.label(RichText::new(tr("Search history")).size(16.0).strong());
+    ui.add_space(8.0);
+    toggle(
+        ui,
+        &mut app.settings.search.remember_searches,
+        tr("Remember searches"),
+        tr("Suggest earlier searches under the search box. Kept only on this computer."),
+    );
+    app.search_history.refresh();
+    let empty = app.search_history.entries().is_empty();
+    row(
+        ui,
+        tr("Clear search history"),
+        if empty {
+            tr("Nothing remembered yet")
+        } else {
+            ""
+        },
+        |ui| {
+            if ui
+                .add_enabled(!empty, egui::Button::new(tr("🗑 Clear")))
+                .clicked()
+            {
+                app.actions
+                    .push(Action::SearchHistory(crate::app::HistoryAction::Clear));
+            }
+        },
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -887,6 +887,7 @@ mod help_views;
 mod libraries;
 mod operations;
 mod search_tags;
+mod search_history;
 mod tabs;
 mod views;
 mod zoom_select;
@@ -905,4 +906,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(libraries::TABLE)
         .chain(help_views::TABLE)
         .chain(search_tags::TABLE)
+        .chain(search_history::TABLE)
 }

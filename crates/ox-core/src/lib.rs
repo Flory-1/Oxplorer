@@ -40,6 +40,7 @@ pub mod props;
 pub mod recycle;
 pub mod rename;
 pub mod search;
+pub mod search_history;
 pub mod select;
 pub mod sessions;
 pub mod settings;
