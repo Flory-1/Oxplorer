@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/ox-core", "crates/ox-app"]
+members = ["crates/ox-core", "crates/ox-app", "crates/ox-indexer"]
 
 [workspace.package]
 version = "1.0.4"

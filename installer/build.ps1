@@ -1,6 +1,7 @@
 # Build the Windows installer and the winget manifests for a release.
 #   pwsh installer/build.ps1 -Tag v0.2.0 [-Repository Flory-1/oxplorer]
-# Needs target/release/oxplorer.exe (cargo build --release -p ox-app).
+# Needs target/release/oxplorer.exe and oxplorer-indexer.exe
+# (cargo build --release -p ox-app -p ox-indexer).
 # Writes dist/oxplorer-<tag>-setup-x64.exe (+ .sha256) and
 # dist/oxplorer-<tag>-winget.zip (manifests to submit to microsoft/winget-pkgs).
 param(

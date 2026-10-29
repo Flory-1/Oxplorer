@@ -1,0 +1,30 @@
+[package]
+name = "ox-indexer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Oxplorer index service: reads NTFS master file tables and change journals for Oxplorer"
+
+# Installed by the installer's optional "Fast index service" task as a
+# LocalSystem service (see ox_core::index::helper for the security model).
+[[bin]]
+name = "oxplorer-indexer"
+path = "src/main.rs"
+
+[dependencies]
+ox-core.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Pipes",
+    "Win32_System_Registry",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Services",
+    "Win32_System_Threading",
+] }

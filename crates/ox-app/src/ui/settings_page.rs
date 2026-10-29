@@ -7,6 +7,7 @@ use ox_core::settings::{Backdrop, Settings, StartPage, Theme, ViewMode};
 
 mod commands;
 mod fulltext;
+mod index_service;
 mod keys;
 mod search;
 mod theme;

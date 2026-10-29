@@ -1,6 +1,6 @@
-//! Live index updates. Changes come from the NTFS change journal where the
-//! volume can be opened (Windows, as administrator), otherwise from a
-//! recursive file watcher. A background thread coalesces bursts into a
+//! Live index updates. Changes come from the NTFS change journal where it
+//! can be read (Windows: through the index service or as administrator),
+//! otherwise from a recursive file watcher. A background thread coalesces bursts into a
 //! [`Batch`] and applies it to the index (see `patch`). Changes that arrive
 //! while a build runs are kept and replayed on the new index; lost changes
 //! (watcher overflow or errors, journal wrap) trigger a full rebuild. The
@@ -16,7 +16,7 @@ use notify::event::{ModifyKind, RenameMode};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use super::patch::{Batch, Signal};
-use super::service::{self, Shared};
+use super::service::{self, IndexState, Shared};
 use super::{FileIndex, IndexConfig};
 
 /// Apply a batch once no change came for this long…
@@ -49,6 +49,8 @@ struct Status {
 /// The running live updater; dropping it stops it.
 pub(super) struct Live {
     cfg: IndexConfig,
+    /// Whether the index service could be used when this started.
+    service: bool,
     stop: Arc<AtomicBool>,
     status: Arc<Status>,
 }
@@ -65,11 +67,20 @@ impl Live {
             .name("index-live".into())
             .spawn(move || run(weak, run_cfg, run_stop, run_status))
             .expect("failed to spawn index thread");
-        Live { cfg, stop, status }
+        Live {
+            cfg,
+            service: super::helper::enabled(),
+            stop,
+            status,
+        }
     }
 
     pub fn config(&self) -> &IndexConfig {
         &self.cfg
+    }
+
+    pub fn service(&self) -> bool {
+        self.service
     }
 
     pub fn info(&self) -> LiveInfo {
@@ -158,8 +169,22 @@ fn collect(rx: &Receiver<Signal>) -> Batch {
 
 fn run(weak: Weak<Shared>, cfg: IndexConfig, stop: Arc<AtomicBool>, status: Arc<Status>) {
     let (tx, rx) = crossbeam_channel::unbounded();
+    // A saved index is caught up on from the change journals while it
+    // loads; the journals are followed from where that ended.
+    let loading = || {
+        weak.upgrade()
+            .is_some_and(|s| *s.state.lock().unwrap() == IndexState::Loading)
+    };
+    while loading() && !stop.load(Ordering::Relaxed) {
+        std::thread::sleep(Duration::from_millis(50));
+    }
     #[cfg(windows)]
-    let (journals, rest) = super::mft::follow_journals(&cfg.roots, &tx, &stop);
+    let journal = weak
+        .upgrade()
+        .map(|s| s.journal.lock().unwrap().clone())
+        .unwrap_or_default();
+    #[cfg(windows)]
+    let (journals, rest) = super::journal::follow_journals(&cfg.roots, &tx, &stop, &journal);
     #[cfg(not(windows))]
     let (journals, rest) = (0, cfg.roots.clone());
     let (_watcher, watched) = watch(&rest, &tx);
@@ -192,6 +217,12 @@ fn run(weak: Weak<Shared>, cfg: IndexConfig, stop: Arc<AtomicBool>, status: Arc<
         } else if !backlog.is_empty() && !building {
             let batch = std::mem::take(&mut backlog);
             let n = apply(&shared, &batch, &exclude);
+            {
+                let mut journal = shared.journal.lock().unwrap();
+                for &cp in batch.checkpoints() {
+                    journal.set(cp);
+                }
+            }
             // A build that started meanwhile may have read the folders before
             // they changed: replay on the new index.
             if shared.building.load(Ordering::SeqCst) {
@@ -204,8 +235,7 @@ fn run(weak: Weak<Shared>, cfg: IndexConfig, stop: Arc<AtomicBool>, status: Arc<
             }
         }
         if unsaved && !building && last_save.elapsed() >= SAVE_EVERY {
-            let current = shared.index.read().unwrap().clone();
-            if let Some(Err(e)) = current.map(|idx| idx.save(&shared.cache)) {
+            if let Err(e) = service::save(&shared) {
                 log::warn!("index: couldn't save: {e}");
             }
             unsaved = false;
@@ -218,7 +248,7 @@ fn run(weak: Weak<Shared>, cfg: IndexConfig, stop: Arc<AtomicBool>, status: Arc<
 /// paths) runs on a snapshot while queries continue; the index is then
 /// patched in place, or as a copy when a search is still using it. Returns
 /// how many items changed.
-fn apply(shared: &Shared, batch: &Batch, exclude: &[String]) -> usize {
+pub(super) fn apply(shared: &Shared, batch: &Batch, exclude: &[String]) -> usize {
     let current = || shared.index.read().unwrap().clone();
     let mut changed = 0;
     for step in batch.steps() {

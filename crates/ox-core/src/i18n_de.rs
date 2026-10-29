@@ -894,6 +894,7 @@ mod help_search;
 mod help_tools;
 mod help_views;
 mod index_live;
+mod index_service;
 mod libraries;
 mod mirror_undo;
 mod notify_keys_stash;
@@ -947,4 +948,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(previews_more::TABLE)
         .chain(notify_keys_stash::TABLE)
         .chain(fulltext::TABLE)
+        .chain(index_service::TABLE)
 }

@@ -54,7 +54,7 @@ pdf-extract = "0.12"
 
 [target.'cfg(windows)'.dependencies]
 clipboard-win = { version = "5", features = ["std"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Credentials", "Win32_Storage_FileSystem", "Win32_Globalization", "Win32_System_IO", "Win32_System_Ioctl"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Credentials", "Win32_Storage_FileSystem", "Win32_Globalization", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Pipes", "Win32_System_Services"] }
 windows = { version = "0.62", features = [
     "Data_Pdf",
     "Data_Xml_Dom",
