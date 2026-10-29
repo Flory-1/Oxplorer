@@ -9,7 +9,7 @@ use super::{row, toggle};
 use crate::app::{Action, OxApp};
 
 /// Query examples on the Search page: what to type, and what it does.
-const QUERY_SYNTAX: [(&str, &str); 11] = [
+const QUERY_SYNTAX: [(&str, &str); 13] = [
     ("report", "name contains \"report\""),
     ("\"annual report\"", "exact phrase"),
     ("*.rs   img_??", "wildcards"),
@@ -24,6 +24,14 @@ const QUERY_SYNTAX: [(&str, &str); 11] = [
     ("size:>10mb   size:<1kb", "by size"),
     ("modified:7d   modified:today", "recently modified"),
     ("content:\"TODO\"", "text inside files (≤ 32 MB)"),
+    (
+        "tag:red,blue",
+        "tagged with one of these colours or tag names",
+    ),
+    (
+        "archives:yes",
+        "also the files inside zip, 7z and tar archives (not with the index)",
+    ),
 ];
 
 pub(super) fn search(ui: &mut Ui, s: &mut Settings) {

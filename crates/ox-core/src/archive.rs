@@ -112,13 +112,7 @@ pub fn index(archive: &Path) -> io::Result<Arc<Index>> {
             return Ok(idx.clone());
         }
     }
-    let kind = kind(archive)
-        .ok_or_else(|| io::Error::other(crate::i18n::t("Not a supported archive.")))?;
-    let idx = Arc::new(match kind {
-        Kind::Zip => zip_index(archive)?,
-        Kind::SevenZip => sevenz_index(archive)?,
-        Kind::Tar | Kind::TarGz => tar_index(archive, kind)?,
-    });
+    let idx = Arc::new(read_index(archive)?);
     let mut cache = CACHE.lock().unwrap();
     let cache = cache.get_or_insert_with(HashMap::new);
     if cache.len() > 32 {
@@ -126,6 +120,18 @@ pub fn index(archive: &Path) -> io::Result<Arc<Index>> {
     }
     cache.insert(archive.to_path_buf(), (stamp, idx.clone()));
     Ok(idx)
+}
+
+/// Read the table of contents of `archive`, bypassing the cache (for
+/// searches, which meet many archives once).
+pub fn read_index(archive: &Path) -> io::Result<Index> {
+    let kind = kind(archive)
+        .ok_or_else(|| io::Error::other(crate::i18n::t("Not a supported archive.")))?;
+    match kind {
+        Kind::Zip => zip_index(archive),
+        Kind::SevenZip => sevenz_index(archive),
+        Kind::Tar | Kind::TarGz => tar_index(archive, kind),
+    }
 }
 
 /// Only plain relative paths are accepted (no `..`, roots or drive letters),

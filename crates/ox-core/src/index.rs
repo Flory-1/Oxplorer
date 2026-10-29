@@ -299,6 +299,9 @@ impl FileIndex {
                             {
                                 continue;
                             }
+                            if query.has_tags() && !query.matches_tags(&self.path_of(i)) {
+                                continue;
+                            }
                             hits.push(i);
                             if found.fetch_add(1, Ordering::Relaxed) > max {
                                 break;
