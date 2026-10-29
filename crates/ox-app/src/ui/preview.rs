@@ -62,6 +62,8 @@ enum Content {
         text: String,
         numbers: String,
         truncated: bool,
+        /// A Markdown file: also shown rendered.
+        markdown: bool,
     },
     Media {
         info: Vec<(&'static str, String)>,
@@ -87,6 +89,7 @@ enum Content {
 pub enum PreviewTab {
     Info,
     Image,
+    Markdown,
     Text,
     Page,
     Media,
@@ -99,6 +102,7 @@ impl PreviewTab {
         match self {
             PreviewTab::Info => tr("ℹ Info"),
             PreviewTab::Image => tr("🖼 Image"),
+            PreviewTab::Markdown => tr("📖 Markdown"),
             PreviewTab::Text => tr("📝 Text"),
             PreviewTab::Page => tr("📄 Page"),
             PreviewTab::Media => tr("🎵 Cover"),
@@ -114,6 +118,7 @@ impl Content {
         match self {
             Content::Image(..) => vec![Info, Image],
             Content::Page(..) => vec![Info, Page],
+            Content::Text { markdown: true, .. } => vec![Info, Markdown, Text],
             Content::Text { .. } => vec![Info, Text],
             Content::Media { cover: Some(_), .. } => vec![Info, Media],
             Content::Font { .. } => vec![Info, FontSample, Glyphs],
@@ -164,6 +169,12 @@ pub struct PreviewState {
     /// The previewed font installed into egui (removed when the next loads).
     font_family: Option<String>,
     font_seq: u64,
+    /// Layout cache of the Markdown view.
+    markdown: egui_commonmark::CommonMarkCache,
+}
+
+fn is_markdown(e: &FileEntry) -> bool {
+    matches!(e.extension().as_str(), "md" | "markdown" | "mdown" | "mkd")
 }
 
 fn is_image(e: &FileEntry) -> bool {
@@ -537,6 +548,7 @@ impl PreviewState {
                         text,
                         numbers,
                         truncated,
+                        markdown: is_markdown(entry),
                     },
                     Loaded::Media { info, cover } => Content::Media {
                         info,
@@ -735,6 +747,11 @@ fn tabbed(
                     font_sample(ui, family, &mut state.sample);
                 }
             }
+            PreviewTab::Markdown => {
+                if let Content::Text { text, .. } = content {
+                    markdown(ui, &mut state.markdown, text, e);
+                }
+            }
             _ => body(ui, content, e),
         });
 }
@@ -900,6 +917,19 @@ fn glyph_grid(ui: &mut Ui, family: &str, chars: &[char], actions: &mut Vec<Actio
 }
 
 /// The type-specific tabs (Image, Text, Page, Cover).
+/// A Markdown file rendered. Relative image paths are taken from its folder.
+fn markdown(ui: &mut Ui, cache: &mut egui_commonmark::CommonMarkCache, text: &str, e: &FileEntry) {
+    let folder = e
+        .path
+        .parent()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    egui_commonmark::CommonMarkViewer::new()
+        .default_implicit_uri_scheme(format!("file://{folder}/"))
+        .max_image_width(Some(ui.available_width().max(50.0) as usize))
+        .show(ui, cache, text);
+}
+
 fn body(ui: &mut Ui, content: &Content, e: &FileEntry) {
     match content {
         Content::Image(tex, _) => {
@@ -912,6 +942,7 @@ fn body(ui: &mut Ui, content: &Content, e: &FileEntry) {
             text,
             numbers,
             truncated,
+            ..
         } => {
             const SIZE: f32 = 11.5;
             // Long lines scroll sideways instead of widening the pane.

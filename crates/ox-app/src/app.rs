@@ -272,6 +272,8 @@ impl OxApp {
     /// `see_through`: the window was created transparent (for Mica/Acrylic).
     pub fn new(cc: &eframe::CreationContext<'_>, open: Option<PathBuf>, see_through: bool) -> Self {
         let ctx = cc.egui_ctx.clone();
+        // Images in the Markdown preview (local files).
+        egui_extras::install_image_loaders(&ctx);
         let settings = Settings::load();
         // Before anything is named (e.g. the default favorites on first start).
         ox_core::i18n::set_language(settings.appearance.language);
