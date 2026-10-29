@@ -354,7 +354,7 @@ fn status_bar(app: &mut OxApp, ui: &mut Ui) {
         ui.set_min_height(text.max(ui.spacing().interact_size.y));
         let tab = app.tabs.active();
         if tab.location().shows_files() {
-            let total = tab.view.visible.len();
+            let total = tab.view.shown_count();
             ui.label(ox_core::i18n::count(total as u64, "item"));
             let selected = tab.view.selected_entries();
             if !selected.is_empty() {

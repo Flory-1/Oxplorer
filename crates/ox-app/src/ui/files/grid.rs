@@ -13,8 +13,11 @@ pub(super) fn grid(
 ) {
     let tile = Tile::new(cx.grid_size);
     let size = vec2(tile.width, tile.height);
-    let width = ui.available_width();
     let gap = 6.0;
+    if !view.groups.is_empty() {
+        return super::grouped::grid(ui, view, tab_id, cx, actions, &tile, gap);
+    }
+    let width = ui.available_width();
     let cols = (((width - 12.0) / (tile.width + gap)).floor() as usize).max(1);
     ui.data_mut(|d| d.insert_temp(Id::unique(("grid_columns", tab_id)), cols));
     let n = view.visible.len();
@@ -85,13 +88,13 @@ pub(super) fn grid(
 }
 
 #[derive(Clone, Copy)]
-struct TileState {
-    selected: bool,
+pub(super) struct TileState {
+    pub(super) selected: bool,
     /// Files are dragged over it.
-    drop_hover: bool,
+    pub(super) drop_hover: bool,
 }
 
-fn paint_tile(
+pub(super) fn paint_tile(
     ui: &Ui,
     rect: Rect,
     tile: &Tile,

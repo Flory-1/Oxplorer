@@ -1,5 +1,5 @@
-//! How the file view looks: its columns, and the view each folder keeps
-//! (view mode, sort order, columns) when *Remember the view of each
+//! How the file view looks: its columns and groups, and the view each
+//! folder keeps (view mode, sort order, columns, grouping) when *Remember the view of each
 //! folder* is on.
 
 use super::*;
@@ -16,6 +16,12 @@ pub enum ViewAction {
     MakeDefault,
     /// Forget the views of all folders.
     ForgetAll,
+    /// Group the items of the active tab.
+    GroupBy(ox_core::grouping::GroupBy),
+    /// Collapse or expand a group (by its id).
+    ToggleGroup(String),
+    /// Collapse (`true`) or expand all groups.
+    CollapseAll(bool),
 }
 
 pub enum ColumnEdit {
@@ -50,6 +56,7 @@ fn view_of(tab: &Tab) -> SavedView {
         sort: tab.sort_key,
         order: tab.sort_order,
         columns: tab.columns.clone(),
+        group: tab.group_by,
     }
 }
 
@@ -58,6 +65,10 @@ fn show_view(tab: &mut Tab, view: &SavedView) {
     tab.sort_key = view.sort;
     tab.sort_order = view.order;
     tab.columns = view.columns.clone();
+    if tab.group_by != view.group {
+        tab.group_by = view.group;
+        tab.collapsed.clear();
+    }
 }
 
 /// Give `tab` its folder's view when it opened another folder, or remember
@@ -129,6 +140,19 @@ impl OxApp {
         }
     }
 
+    /// Group the tabs that need the tags for it (grouped by tag, or the
+    /// tags changed). Once per frame, before keys are handled.
+    pub(super) fn sync_groups(&mut self) {
+        let tags = &self.tags;
+        for tab in &mut self.tabs.tabs {
+            let tags_changed = tab.group_by == ox_core::grouping::GroupBy::Tag
+                && tab.view.grouped_tags != tags.version;
+            if tab.view.needs_grouping || tags_changed {
+                tab.regroup(tags);
+            }
+        }
+    }
+
     pub(super) fn save_folder_views(&mut self) {
         self.folder_views_saved = Instant::now();
         if !self.folder_views.dirty {
@@ -160,6 +184,7 @@ impl OxApp {
                 b.default_view = view.mode;
                 b.default_sort = view.sort;
                 b.default_order = view.order;
+                b.default_group = view.group;
                 b.columns = columns;
                 let defaults = SavedView::defaults(b);
                 if let Some(folder) = self.remembered_folder() {
@@ -175,6 +200,22 @@ impl OxApp {
                 self.toast(tr(
                     "Folders without a view of their own are now shown like this.",
                 ));
+            }
+            ViewAction::GroupBy(by) => {
+                let tab = self.tabs.active_mut();
+                if tab.group_by != by {
+                    tab.group_by = by;
+                    tab.collapsed.clear();
+                    tab.regroup(&self.tags);
+                }
+            }
+            ViewAction::ToggleGroup(id) => {
+                let tab = self.tabs.active_mut();
+                tab.toggle_group(&id, &self.tags);
+            }
+            ViewAction::CollapseAll(collapse) => {
+                let tab = self.tabs.active_mut();
+                tab.collapse_all(collapse, &self.tags);
             }
             ViewAction::ForgetAll => {
                 self.folder_views.clear();

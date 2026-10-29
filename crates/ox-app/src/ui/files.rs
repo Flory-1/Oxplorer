@@ -5,12 +5,14 @@ mod column_header;
 mod details;
 mod flat;
 mod grid;
+mod grouped;
 mod item;
 mod zoom;
 pub(crate) use cells::header_label;
 pub(crate) use column_header::{column_context, column_menu, folder_view_menu};
 use details::details;
 use grid::grid;
+pub(crate) use grouped::group_by_menu;
 use item::{item_context_menu, item_interact, item_tooltip};
 use ox_core::i18n::t as tr;
 use std::collections::HashSet;
@@ -184,6 +186,9 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let bg_rect = ui.available_rect_before_wrap();
     let bg = ui.interact(bg_rect, Id::unique(("files_bg", tab.id)), Sense::click());
 
+    if tab.view.needs_grouping {
+        tab.regroup(cx.tags);
+    }
     let mut sort_clicked = None;
     match tab.view_mode {
         ViewMode::Details => details(

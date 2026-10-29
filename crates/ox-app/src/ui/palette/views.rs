@@ -1,8 +1,10 @@
-//! Palette entries for the look of the file view: the columns.
+//! Palette entries for the look of the file view: columns, the folder's
+//! view and grouping.
 
 use super::*;
 use crate::app::{ColumnEdit, ViewAction};
 use ox_core::columns::ColumnId;
+use ox_core::grouping::GroupBy;
 
 pub(super) fn entries(app: &OxApp, v: &mut Vec<Entry>) {
     let tab = app.tabs.active();
@@ -55,4 +57,26 @@ pub(super) fn entries(app: &OxApp, v: &mut Vec<Entry>) {
         tr("Use this view for all folders").to_owned(),
         act(|| Action::View(ViewAction::MakeDefault)),
     );
+    for by in GroupBy::ALL {
+        if by != tab.group_by {
+            let label = ox_core::trf!("Group by: {name}", name = tr(by.label()));
+            cmd(
+                "☰",
+                label,
+                act(move || Action::View(ViewAction::GroupBy(by))),
+            );
+        }
+    }
+    if tab.group_by != GroupBy::None {
+        cmd(
+            "⏵",
+            tr("Collapse all groups").to_owned(),
+            act(|| Action::View(ViewAction::CollapseAll(true))),
+        );
+        cmd(
+            "⏷",
+            tr("Expand all groups").to_owned(),
+            act(|| Action::View(ViewAction::CollapseAll(false))),
+        );
+    }
 }

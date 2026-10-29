@@ -4,6 +4,7 @@ use super::cells::{cell, Cell};
 use super::column_header::header;
 use super::*;
 use ox_core::columns::{ColumnContext, ColumnId, ColumnLayout};
+use ox_core::grouping::{self, ListRow};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn details(
@@ -33,17 +34,35 @@ pub(super) fn details(
     // Only read files when a shown column needs it.
     let props = cx.props.filter(|_| fitted.iter().any(|c| c.0.info().props));
 
-    let n = view.visible.len();
+    // Group headers are rows too, as high as the items.
+    let groups = view.groups.clone();
+    let rows = grouping::row_count(&groups, view.visible.len());
     let row_h = cx.row_h;
     let mut area = egui::ScrollArea::vertical()
         .id_salt(("details", tab_id))
         .auto_shrink([false, false]);
     if let Some(target) = view.scroll_to.take() {
-        area = scroll_into_view(ui, area, ("details", tab_id), target as f32 * row_h, row_h);
+        let row = grouping::row_of(&groups, target);
+        // The first item of a group brings its header along.
+        let first = grouping::group_of(&groups, target).is_some_and(|g| groups[g].start == target);
+        let (y, h) = if first {
+            ((row - 1) as f32 * row_h, 2.0 * row_h)
+        } else {
+            (row as f32 * row_h, row_h)
+        };
+        area = scroll_into_view(ui, area, ("details", tab_id), y, h);
     }
     ui.spacing_mut().item_spacing.y = 0.0;
-    let out = area.show_rows(ui, row_h, n, |ui, range| {
-        for i in range {
+    let out = area.show_rows(ui, row_h, rows, |ui, range| {
+        for r in range {
+            let i = match grouping::row_at(&groups, r) {
+                ListRow::Item(i) => i,
+                ListRow::Header(g) => {
+                    let (rect, _) = ui.allocate_exact_size(vec2(width, row_h), Sense::hover());
+                    super::grouped::header_row(ui, rect, &groups[g], tab_id, cx, actions);
+                    continue;
+                }
+            };
             let (rect, resp) = ui.allocate_exact_size(vec2(width, row_h), Sense::click_and_drag());
             let Some(entry) = view.visible_entry(i).cloned() else {
                 continue;

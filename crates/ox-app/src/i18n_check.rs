@@ -41,6 +41,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("tabs.rs"),
     app!("tabs/flat.rs"),
     app!("tabs/groups.rs"),
+    app!("tabs/item_groups.rs"),
     app!("tabs/location.rs"),
     app!("tabs/session.rs"),
     app!("thumbs.rs"),
@@ -52,6 +53,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("ui/files/details.rs"),
     app!("ui/files/flat.rs"),
     app!("ui/files/grid.rs"),
+    app!("ui/files/grouped.rs"),
     app!("ui/files/item.rs"),
     app!("ui/files/zoom.rs"),
     app!("ui/header.rs"),
@@ -95,8 +97,10 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     core!("default_app.rs"),
     core!("details.rs"),
     core!("entry.rs"),
+    core!("folder_views.rs"),
     core!("fsops.rs"),
     core!("links.rs"),
+    core!("grouping.rs"),
     core!("pathfmt.rs"),
     core!("places.rs"),
     core!("props.rs"),
@@ -258,6 +262,33 @@ fn texts_translated_where_they_are_shown_have_german_too() {
     texts.extend(ox_core::tags::TagColor::ALL.map(|c| c.name()));
     texts.extend(ox_core::columns::ColumnId::ALL.map(|c| c.label()));
     texts.extend(ox_core::entry::SortKey::ALL.map(|k| k.label()));
+    texts.extend(ox_core::grouping::GroupBy::ALL.map(|g| g.label()));
+    use ox_core::grouping::{DateBucket as D, SizeBucket as S};
+    texts.extend(
+        [
+            D::Today,
+            D::Yesterday,
+            D::EarlierThisWeek,
+            D::LastWeek,
+            D::EarlierThisMonth,
+            D::LastMonth,
+            D::EarlierThisYear,
+            D::LongAgo,
+        ]
+        .map(D::label),
+    );
+    texts.extend(
+        [
+            S::Empty,
+            S::Tiny,
+            S::Small,
+            S::Medium,
+            S::Large,
+            S::Huge,
+            S::Gigantic,
+        ]
+        .map(S::label),
+    );
     texts.extend(crate::tabs::GROUP_COLORS.map(|(name, _)| name));
     texts.extend(ConflictPolicy::ALL.map(ConflictPolicy::label));
     texts.extend([TransferKind::Copy.verb(), TransferKind::Move.verb()]);

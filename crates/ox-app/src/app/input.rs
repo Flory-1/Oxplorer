@@ -186,11 +186,9 @@ impl OxApp {
             .data(|d| d.get_temp::<usize>(egui::Id::unique(("grid_columns", tab.id))))
             .unwrap_or(1)
             .max(1);
-        let step = if tab.view_mode == ox_core::settings::ViewMode::Grid {
-            grid_cols
-        } else {
-            1
-        };
+        let grid = tab.view_mode == ox_core::settings::ViewMode::Grid;
+        let step = if grid { grid_cols } else { 1 };
+        let groups = &tab.view.groups;
         ctx.input_mut(|i| {
             let cur = tab.view.cursor;
             extend = i.modifiers.shift;
@@ -205,7 +203,13 @@ impl OxApp {
                 if delta != 0
                     && (i.consume_key(Modifiers::NONE, key) || i.consume_key(Modifiers::SHIFT, key))
                 {
+                    let rows = if key == Key::ArrowDown { 1 } else { -1 };
+                    let by_rows =
+                        grid && !groups.is_empty() && matches!(key, Key::ArrowDown | Key::ArrowUp);
                     target = Some(match cur {
+                        Some(c) if by_rows => {
+                            ox_core::grouping::grid_step(groups, grid_cols, c, rows)
+                        }
                         Some(c) => (c as isize + delta).clamp(0, n as isize - 1) as usize,
                         None => 0,
                     });

@@ -437,6 +437,7 @@ impl OxApp {
         self.poll_notices();
         self.poll_dropped_files(ctx);
         self.follow_folder_in_terminal();
+        self.sync_groups();
         if self.ui.show_terminal && self.ui.terminal_focused {
             // The terminal gets every key except its own toggle.
             let toggle = ctx.input_mut(|i| {

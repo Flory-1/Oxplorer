@@ -18,6 +18,7 @@ pub type GroupId = u64;
 
 mod flat;
 mod groups;
+mod item_groups;
 mod location;
 mod pinned;
 mod select;
@@ -52,6 +53,14 @@ pub struct FolderView {
     pub version: u64,
     /// Git status of the repository this folder is in.
     pub git: Option<std::sync::Arc<ox_core::git::RepoStatus>>,
+    /// Group by: the items that pass the filter, sorted, before grouping.
+    pub ungrouped: Vec<usize>,
+    /// The group headers (empty when not grouped); `visible` is in their order.
+    pub groups: Vec<ox_core::grouping::GroupRow>,
+    /// Grouping needs the tags (`Tab::regroup`).
+    pub needs_grouping: bool,
+    /// `TagStore::version` the items were grouped with.
+    pub grouped_tags: u64,
 }
 
 impl FolderView {
@@ -142,6 +151,9 @@ pub struct Tab {
     pub sort_order: SortOrder,
     /// Columns of its own (a folder's remembered ones); `None` = the default columns.
     pub columns: Option<ox_core::columns::ColumnLayout>,
+    pub group_by: ox_core::grouping::GroupBy,
+    /// Ids of the collapsed groups.
+    pub collapsed: HashSet<String>,
     /// The folder whose remembered view was applied last, and that view:
     /// changes from it are remembered for the folder.
     pub remembered: Option<(PathBuf, ox_core::folder_views::SavedView)>,
@@ -171,6 +183,8 @@ impl Tab {
             sort_key: settings.browsing.default_sort,
             sort_order: settings.browsing.default_order,
             columns: None,
+            group_by: settings.browsing.default_group,
+            collapsed: HashSet::new(),
             remembered: None,
             stale: true,
             flat: None,
@@ -261,6 +275,7 @@ impl Tab {
         self.search = None;
         self.flat = None;
         self.filter.clear();
+        self.collapsed.clear();
         // The search box shows the query of a search tab.
         if let Location::Search { query, .. } = self.location() {
             self.filter = query.clone();
@@ -283,7 +298,7 @@ impl Tab {
         let query = Query::parse(&self.filter, case_sensitive);
         let filtering =
             (self.location().folder().is_some() || self.location().is_bin()) && !query.is_empty();
-        self.view.visible = self
+        self.view.ungrouped = self
             .view
             .entries
             .iter()
@@ -291,6 +306,7 @@ impl Tab {
             .filter(|(_, e)| !filtering || query.matches_name(&e.name))
             .map(|(i, _)| i)
             .collect();
+        self.group_visible(None);
         let max = self.view.visible.len();
         if self.view.cursor.is_some_and(|c| c >= max) {
             self.view.cursor = max.checked_sub(1);
@@ -477,7 +493,7 @@ impl Tabs {
             src.view_mode,
             src.sort_key,
             src.sort_order,
-            src.columns.clone(),
+            (src.columns.clone(), src.group_by),
         );
         let active = self.active;
         let id = self.open(loc, Some(active), false, settings);
@@ -485,7 +501,7 @@ impl Tabs {
             t.view_mode = mode;
             t.sort_key = key;
             t.sort_order = order;
-            t.columns = columns;
+            (t.columns, t.group_by) = columns;
         }
         self.panes = Some([active, id]);
         self.focus = 0;
@@ -536,14 +552,14 @@ impl Tabs {
             src.sort_key,
             src.sort_order,
             src.pinned,
-            src.columns.clone(),
+            (src.columns.clone(), src.group_by),
         );
         let new_id = self.open(loc, Some(id), true, settings);
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == new_id) {
             t.view_mode = mode;
             t.sort_key = key;
             t.sort_order = order;
-            t.columns = columns;
+            (t.columns, t.group_by) = columns;
         }
         // A pinned tab's copy is pinned too, right after it.
         if pinned {
