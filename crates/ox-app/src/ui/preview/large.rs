@@ -9,6 +9,7 @@ pub(super) fn show(ui: &mut Ui, quick_look: bool, tab: PreviewTab, content: &Con
         (PreviewTab::Contents, Content::Folder { items, .. }) => contents(ui, items),
         _ if !quick_look => return false,
         (PreviewTab::Image, Content::Image(tex, _)) => fitted(ui, tex, None),
+        (PreviewTab::Image, Content::Animation(a)) => fitted(ui, a.texture(ui.ctx()), None),
         (PreviewTab::Page, Content::Page(tex, pages)) => fitted(
             ui,
             tex,

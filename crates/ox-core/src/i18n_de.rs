@@ -891,6 +891,7 @@ mod index_live;
 mod libraries;
 mod operations;
 mod picture_tools;
+mod pictures;
 mod search_history;
 mod search_tags;
 mod tabs;
@@ -917,4 +918,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(help_search::TABLE)
         .chain(index_live::TABLE)
         .chain(picture_tools::TABLE)
+        .chain(pictures::TABLE)
 }

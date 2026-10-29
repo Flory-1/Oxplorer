@@ -1,10 +1,12 @@
 //! Preview pane: shows the selected file (image, text/code) or a summary.
 
+mod animation;
 mod font;
 mod git_graph;
 mod info;
 mod large;
 mod load;
+mod picture;
 mod player;
 use font::*;
 use git_graph::*;
@@ -12,6 +14,7 @@ use info::{checksums, info_grid};
 pub use info::{info_rows, other_attributes, type_facts};
 use load::*;
 use ox_core::i18n::t as tr;
+pub(crate) use picture::{is_picture, still};
 use player::*;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -34,6 +37,8 @@ const MAX_HIGHLIGHT_BYTES: usize = 64 * 1024;
 enum Content {
     Loading(Receiver<Loaded>),
     Image(TextureHandle, [u32; 2]),
+    /// An animated GIF/WebP.
+    Animation(animation::Animation),
     Page(TextureHandle, u32),
     Text {
         text: String,
@@ -107,6 +112,7 @@ impl Content {
         use PreviewTab::*;
         match self {
             Content::Image(..) => vec![Info, Image],
+            Content::Animation(..) => vec![Info, Image],
             Content::Page(..) => vec![Info, Page],
             Content::Text { markdown: true, .. } => vec![Info, Markdown, Text],
             Content::Text { .. } => vec![Info, Text],
@@ -131,6 +137,7 @@ impl Content {
     fn facts(&self) -> Vec<(&'static str, String)> {
         match self {
             Content::Image(_, [w, h]) => vec![(tr("Dimensions"), format!("{w} × {h} px"))],
+            Content::Animation(a) => a.facts(),
             Content::Page(_, pages) => vec![(tr("Pages"), pages.to_string())],
             Content::Text {
                 numbers,
@@ -254,6 +261,9 @@ impl PreviewState {
                     Loaded::Image(img, size) => {
                         let tex = ctx.load_texture("preview", img, TextureOptions::LINEAR);
                         Content::Image(tex, size)
+                    }
+                    Loaded::Animation(frames, size) => {
+                        Content::Animation(animation::Animation::new(ctx, frames, size))
                     }
                     Loaded::Page(img, pages) => {
                         let tex = ctx.load_texture("preview", img, TextureOptions::LINEAR);
@@ -540,6 +550,7 @@ fn tabbed(
                     ));
                 }
                 info_grid(ui, e, state.details.as_ref(), facts, date_fmt);
+                picture::map_button(ui, state.details.as_ref());
                 if !e.is_dir && ox_core::archive::split_virtual(&e.path).is_none() {
                     ui.add_space(6.0);
                     checksums(ui, &mut state.checksums, e, actions);
@@ -613,6 +624,7 @@ fn body(ui: &mut Ui, content: &Content, e: &FileEntry) {
             let scale = (avail / size.x).min(1.5);
             ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(6.0));
         }
+        Content::Animation(a) => a.show(ui),
         Content::Text {
             text,
             numbers,

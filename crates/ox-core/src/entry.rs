@@ -135,6 +135,8 @@ impl FileKind {
         match ext {
             "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" | "ico" | "tif" | "tiff"
             | "heic" | "avif" | "raw" | "psd" => Self::Image,
+            // Read by Windows' codecs, and SVG compressed.
+            e if crate::picture::is_wic(e) || e == "svgz" => Self::Image,
             "mp4" | "mkv" | "avi" | "mov" | "wmv" | "webm" | "flv" | "m4v" => Self::Video,
             "mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac" | "wma" | "opus" => Self::Audio,
             "doc" | "docx" | "odt" | "rtf" => Self::Document,
