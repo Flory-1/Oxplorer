@@ -201,7 +201,7 @@ impl OxApp {
     }
 
     /// Save the settings, keeping what another window changed meanwhile.
-    pub(super) fn save_settings(&mut self) -> std::io::Result<()> {
+    pub(crate) fn save_settings(&mut self) -> std::io::Result<()> {
         if let Some(merged) = self.instance.settings.save(&self.settings)? {
             self.settings = merged;
         }

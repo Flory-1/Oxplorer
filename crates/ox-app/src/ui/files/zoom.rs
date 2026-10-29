@@ -77,8 +77,8 @@ fn set_size(app: &mut OxApp, size: u32) {
     }
 }
 
-fn save(app: &OxApp) {
-    if let Err(e) = app.settings.save() {
+fn save(app: &mut OxApp) {
+    if let Err(e) = app.save_settings() {
         log::warn!("could not save settings: {e}");
     }
 }
