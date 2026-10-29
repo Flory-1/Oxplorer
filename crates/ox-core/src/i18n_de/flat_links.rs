@@ -8,7 +8,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Every file in this folder and its sub-folders in one list", "Alle Dateien dieses Ordners und seiner Unterordner in einer Liste"),
     ("Flat view works in folders only.", "Die flache Ansicht gibt es nur in Ordnern."),
     ("There are no files in this folder or its sub-folders.", "In diesem Ordner und seinen Unterordnern gibt es keine Dateien."),
-    ("🗂 Flat view ✖", "🗂 Flache Ansicht ✖"),
+    ("🗃 Flat view ✖", "🗃 Flache Ansicht ✖"),
     ("Turn off flat view", "Flache Ansicht ausschalten"),
     ("All files in this folder and its sub-folders", "Alle Dateien dieses Ordners und seiner Unterordner"),
     ("Listing… {v1}", "Wird aufgelistet … {v1}"),

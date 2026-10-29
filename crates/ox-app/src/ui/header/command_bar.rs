@@ -223,7 +223,7 @@ pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 }
             });
             let tip = shortcuts::hint(tr("Flat view"), Command::FlatView);
-            let flat_button = egui::Button::new(RichText::new("🗂").size(13.5))
+            let flat_button = egui::Button::new(RichText::new("🗃").size(13.5))
                 .frame(flat)
                 .selected(flat);
             if ui

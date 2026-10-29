@@ -444,7 +444,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
     );
     if app.tabs.active().can_flat() {
         cmd(
-            "🗂",
+            "🗃",
             tr("Toggle flat view (all files in sub-folders)"),
             &shortcuts::label(Command::FlatView),
             act(|| Action::ToggleFlatView),

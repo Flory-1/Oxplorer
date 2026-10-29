@@ -266,7 +266,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         } else if cx.flat && tab.filter.is_empty() {
             centered_message(
                 ui,
-                "🗂",
+                "🗃",
                 tr("There are no files in this folder or its sub-folders."),
             );
         } else if !tab.filter.is_empty() {

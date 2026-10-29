@@ -10,7 +10,7 @@ pub(super) fn bar(ui: &mut Ui, state: &FlatState, files: usize, actions: &mut Ve
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
-                let chip = egui::Button::new(tr("🗂 Flat view ✖"))
+                let chip = egui::Button::new(tr("🗃 Flat view ✖"))
                     .selected(true)
                     .corner_radius(CornerRadius::same(12));
                 if ui

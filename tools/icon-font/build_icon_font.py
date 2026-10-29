@@ -89,7 +89,7 @@ ICONS = {
     # Views and panels
     "☰": "list",
     "▦": "layout-grid",
-    "🗂": "layers",
+    "🗃": "folder-tree",
     "◧": "panel-left",
     "◨": "panel-right",
     "◫": "columns-2",
@@ -131,6 +131,7 @@ ICONS = {
     "📌": "pin",
     "📍": "pin-off",
     "💾": "save",
+    "🗂": "layers",
     "🗔": "app-window",
 }
 
