@@ -13,7 +13,7 @@ use crate::entry::display_name;
 use crate::fsops;
 use crate::i18n::t;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum LinkKind {
     Symbolic,
     Junction,
@@ -133,7 +133,7 @@ fn check(kind: LinkKind, link: &Path, target: &Path) -> Result<(), String> {
     }
 }
 
-fn is_network(path: &Path) -> bool {
+pub(crate) fn is_network(path: &Path) -> bool {
     let p = plain(path);
     p.to_string_lossy().starts_with(r"\\") || crate::network::server_name(&p).is_some()
 }

@@ -113,6 +113,7 @@ impl OxApp {
                 tags
             },
             compare: None,
+            mirror: Default::default(),
             keymap: Default::default(),
             themes: ox_core::themes::load_all(),
             themes_changed: false,

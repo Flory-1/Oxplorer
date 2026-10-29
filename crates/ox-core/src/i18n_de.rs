@@ -894,6 +894,7 @@ mod help_tools;
 mod help_views;
 mod index_live;
 mod libraries;
+mod mirror_undo;
 mod operations;
 mod picture_tools;
 mod pictures;
@@ -937,4 +938,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(git_ops::TABLE)
         .chain(remote::TABLE)
         .chain(help_tools::TABLE)
+        .chain(mirror_undo::TABLE)
 }

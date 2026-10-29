@@ -158,6 +158,10 @@ pub fn bar(app: &mut OxApp, ui: &mut Ui) {
                 c.newer_left + c.newer_right > 0,
                 CompareAction::CopyNewer,
             );
+            if let Some(r) = state.result.as_ref().filter(|_| !busy) {
+                ui.separator();
+                super::mirror::split_buttons(ui, &r.left, &r.right, &mut actions);
+            }
             ui.separator();
             legend(ui);
         });

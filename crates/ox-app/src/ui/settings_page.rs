@@ -345,6 +345,12 @@ fn browsing(ui: &mut Ui, s: &mut Settings) {
     );
     toggle(
         ui,
+        &mut b.keep_undo_history,
+        tr("Keep undo history after restart"),
+        tr("Ctrl+Z can still undo the last 100 operations of the last 30 days after Oxplorer was closed."),
+    );
+    toggle(
+        ui,
         &mut b.auto_refresh,
         tr("Refresh automatically"),
         tr("Update the view when files change on disk."),

@@ -281,6 +281,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         }
         super::wsl::terminal_button(ui, dir, actions);
         super::cleanup::menu(ui, dir, actions);
+        super::mirror::menu(ui, dir, t.destinations, actions);
         disk_usage_button(ui, dir, actions);
     }
     if ui

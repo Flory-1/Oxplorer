@@ -113,6 +113,8 @@ pub struct Browsing {
     pub confirm_delete: bool,
     /// Delete moves items to the Recycle Bin (Shift+Delete always deletes permanently).
     pub delete_to_trash: bool,
+    /// Keep what can be undone across restarts (see `undo::Store`).
+    pub keep_undo_history: bool,
     /// `chrono` format string for dates.
     pub date_format: String,
     pub show_status_bar: bool,
@@ -145,6 +147,7 @@ impl Default for Browsing {
             single_click_open: false,
             confirm_delete: true,
             delete_to_trash: true,
+            keep_undo_history: true,
             date_format: "%d.%m.%Y %H:%M".into(),
             show_status_bar: true,
             show_preview: false,

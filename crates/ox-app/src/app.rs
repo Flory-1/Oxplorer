@@ -18,6 +18,7 @@ mod instances;
 mod library;
 mod links;
 mod load;
+pub mod mirror;
 mod picture_tools;
 mod player;
 mod poll;
@@ -220,6 +221,7 @@ pub struct OxApp {
     pub tags: TagStore,
     /// Compare folders: the comparison of the split view's panes.
     pub compare: Option<CompareState>,
+    pub mirror: mirror::MirrorState,
     /// (tabs, listing versions, cache epoch) the folder sizes were requested for.
     sizes_key: Option<(Vec<(TabId, u64)>, u64)>,
     /// `folder_sizes.version()` last copied into the listing.

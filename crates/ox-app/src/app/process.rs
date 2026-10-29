@@ -510,6 +510,7 @@ impl OxApp {
             }
             Action::Tab(t) => self.process_tab(t),
             Action::Compare(a) => self.process_compare(a),
+            Action::Mirror(a) => self.process_mirror(a),
             Action::Cleanup(a) => self.process_cleanup(a),
             Action::Pictures(a) => self.process_pictures(a),
             Action::Command(a) => self.command_action(a),
