@@ -5,6 +5,8 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-29
+
 ### Added
 - **Tabs in the title bar** (Windows), as in Windows 11's Explorer: the separate title bar
   above the tabs is gone, and minimize, maximize and close sit next to the tabs, drawn like
