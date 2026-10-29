@@ -9,6 +9,7 @@ mod keys;
 mod search;
 mod theme;
 mod transfer;
+mod views;
 
 use keys::shortcuts;
 use search::{index_section, search};
@@ -82,7 +83,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                             appearance(ui, app);
                             theme_editor(ui, app);
                         }
-                        Section::Browsing => browsing(ui, &mut app.settings),
+                        Section::Browsing => {
+                            browsing(ui, &mut app.settings);
+                            views::folder_views(ui, app);
+                        }
                         Section::Startup => {
                             startup(ui, &mut app.settings);
                             default_folder_handler(ui, app);
@@ -309,15 +313,10 @@ fn browsing(ui: &mut Ui, s: &mut Settings) {
     });
     row(ui, tr("Default sort"), "", |ui| {
         egui::ComboBox::from_id_salt("default_sort")
-            .selected_text(format!("{:?}", b.default_sort))
+            .selected_text(tr(b.default_sort.label()))
             .show_ui(ui, |ui| {
-                for k in [
-                    SortKey::Name,
-                    SortKey::Modified,
-                    SortKey::Type,
-                    SortKey::Size,
-                ] {
-                    ui.selectable_value(&mut b.default_sort, k, format!("{k:?}"));
+                for k in SortKey::ALL {
+                    ui.selectable_value(&mut b.default_sort, k, tr(k.label()));
                 }
             });
         ui.selectable_value(&mut b.default_order, SortOrder::Ascending, "⏶");
@@ -480,6 +479,12 @@ fn sidebar(ui: &mut Ui, s: &mut Settings) {
     toggle(ui, &mut sb.show_favorites, tr("Favorites section"), "");
     toggle(ui, &mut sb.show_drives, tr("Drives section"), "");
     toggle(ui, &mut sb.show_recent, tr("Recent folders section"), "");
+    toggle(
+        ui,
+        &mut sb.show_libraries,
+        tr("Libraries section"),
+        tr("The Gallery and the Windows libraries (Documents, Music, Pictures, Videos and your own)"),
+    );
     row(ui, tr("Recent folders shown"), "", |ui| {
         ui.add(egui::Slider::new(&mut sb.recent_count, 1..=20));
     });

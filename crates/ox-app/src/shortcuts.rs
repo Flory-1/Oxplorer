@@ -9,6 +9,7 @@ use egui::{InputState, Key, KeyboardShortcut, Modifiers};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Command {
     NewTab,
+    NewWindow,
     CloseTab,
     NextTab,
     PrevTab,
@@ -24,8 +25,13 @@ pub enum Command {
     Palette,
     Help,
     TogglePreview,
+    FlatView,
     Settings,
     SelectAll,
+    SelectPattern,
+    DeselectPattern,
+    InvertSelection,
+    SelectSameType,
     Copy,
     Cut,
     Paste,
@@ -40,6 +46,7 @@ pub enum Command {
     ShellMenu,
     ToggleTerminal,
     OpenInEditor,
+    QuickLook,
 }
 
 pub struct CommandInfo {
@@ -67,6 +74,7 @@ const fn info(
 /// Every command with a shortcut, in the order the settings page lists them.
 pub const COMMANDS: &[CommandInfo] = &[
     info(Command::NewTab, "new_tab", "New tab", &["Ctrl+T"]),
+    info(Command::NewWindow, "new_window", "New window", &["Ctrl+N"]),
     info(Command::CloseTab, "close_tab", "Close tab", &["Ctrl+W"]),
     info(Command::NextTab, "next_tab", "Next tab", &["Ctrl+Tab"]),
     info(
@@ -112,8 +120,38 @@ pub const COMMANDS: &[CommandInfo] = &[
         "Preview pane",
         &["Alt+P"],
     ),
+    info(
+        Command::FlatView,
+        "flat_view",
+        "Flat view",
+        &["Ctrl+Shift+F"],
+    ),
     info(Command::Settings, "settings", "Settings", &["Ctrl+Comma"]),
     info(Command::SelectAll, "select_all", "Select all", &["Ctrl+A"]),
+    info(
+        Command::SelectPattern,
+        "select_pattern",
+        "Select by pattern",
+        &["Ctrl+Shift+A"],
+    ),
+    info(
+        Command::DeselectPattern,
+        "deselect_pattern",
+        "Deselect by pattern",
+        &[],
+    ),
+    info(
+        Command::InvertSelection,
+        "invert_selection",
+        "Invert selection",
+        &["Ctrl+Shift+I"],
+    ),
+    info(
+        Command::SelectSameType,
+        "select_same_type",
+        "Select all of the same type",
+        &[],
+    ),
     info(Command::Copy, "copy", "Copy", &["Ctrl+C"]),
     info(Command::Cut, "cut", "Cut", &["Ctrl+X"]),
     info(Command::Paste, "paste", "Paste", &["Ctrl+V"]),
@@ -163,6 +201,7 @@ pub const COMMANDS: &[CommandInfo] = &[
         "Open in editor",
         &["Ctrl+Shift+E"],
     ),
+    info(Command::QuickLook, "quick_look", "Quick Look", &["Space"]),
 ];
 
 pub fn command_info(cmd: Command) -> &'static CommandInfo {

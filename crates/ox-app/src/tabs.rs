@@ -16,146 +16,19 @@ use serde::{Deserialize, Serialize};
 pub type TabId = u64;
 pub type GroupId = u64;
 
-/// What a tab is showing.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Location {
-    /// Quick access / favorites start page.
-    Home,
-    Folder(PathBuf),
-    /// Search results. `root: None` searches all drives.
-    Search {
-        root: Option<PathBuf>,
-        query: String,
-    },
-    Settings,
-    /// The Help page.
-    Help,
-    RecycleBin,
-    /// Everything with this colour tag, wherever it is.
-    Tagged(TagColor),
-    /// A folder inside a zip or tar file (read-only). `inner` is empty at
-    /// the archive's top level.
-    Archive {
-        archive: PathBuf,
-        inner: PathBuf,
-    },
-}
+mod flat;
+mod groups;
+mod item_groups;
+mod location;
+mod pinned;
+mod select;
+mod session;
+#[cfg(test)]
+mod tests;
 
-impl Location {
-    pub fn title(&self) -> String {
-        match self {
-            Location::Home => tr("Home").into(),
-            Location::Folder(p) => entry::display_name(p),
-            Location::Search { query, .. } => ox_core::trf!("Search: {query}", query = query),
-            Location::Settings => tr("Settings").into(),
-            Location::Help => tr("Help").into(),
-            Location::RecycleBin => tr("Recycle Bin").into(),
-            Location::Tagged(c) => c.name().into(),
-            Location::Archive { archive, inner } => match inner.file_name() {
-                Some(name) => name.to_string_lossy().into_owned(),
-                None => entry::display_name(archive),
-            },
-        }
-    }
-
-    pub fn icon(&self) -> &'static str {
-        match self {
-            Location::Home => "🏠",
-            Location::Folder(p) if p.parent().is_none() => "🖴",
-            Location::Folder(_) => "📁",
-            Location::Search { .. } => "🔍",
-            Location::Settings => "⚙",
-            Location::Help => "❓",
-            Location::RecycleBin => "🗑",
-            Location::Tagged(_) => "🏷",
-            Location::Archive { .. } => "📦",
-        }
-    }
-
-    /// The folder this location represents, if any (used for paste, new folder, …).
-    pub fn folder(&self) -> Option<&Path> {
-        match self {
-            Location::Folder(p) => Some(p),
-            _ => None,
-        }
-    }
-
-    pub fn shows_files(&self) -> bool {
-        matches!(
-            self,
-            Location::Folder(_)
-                | Location::Search { .. }
-                | Location::RecycleBin
-                | Location::Tagged(_)
-                | Location::Archive { .. }
-        )
-    }
-
-    pub fn is_bin(&self) -> bool {
-        matches!(self, Location::RecycleBin)
-    }
-
-    /// Settings, Help and the Recycle Bin: there is one of each, so opening
-    /// one again switches to the tab that already shows it.
-    pub fn is_page(&self) -> bool {
-        matches!(
-            self,
-            Location::Settings | Location::Help | Location::RecycleBin
-        )
-    }
-
-    /// Items here can't be changed (inside an archive).
-    pub fn is_read_only(&self) -> bool {
-        matches!(self, Location::Archive { .. })
-    }
-}
-
-/// Result of loading a location in the background.
-pub struct Listing {
-    pub entries: Vec<FileEntry>,
-    /// Trash items behind the entries, when showing the Recycle Bin.
-    pub bin: BinListing,
-}
-
-impl Listing {
-    pub fn folder(path: &Path, show_hidden: bool) -> io::Result<Self> {
-        Ok(Self {
-            entries: entry::list_dir(path, show_hidden)?,
-            bin: BinListing::default(),
-        })
-    }
-
-    /// The items in `paths` that still exist.
-    pub fn items(paths: &[PathBuf]) -> Self {
-        Self {
-            entries: paths
-                .iter()
-                .filter_map(|p| FileEntry::from_path(p).ok())
-                .collect(),
-            bin: BinListing::default(),
-        }
-    }
-
-    pub fn archive(archive: &Path, inner: &Path) -> io::Result<Self> {
-        Ok(Self {
-            entries: ox_core::archive::list(archive, inner)?,
-            bin: BinListing::default(),
-        })
-    }
-
-    pub fn recycle_bin() -> Result<Self, String> {
-        let items = ox_core::recycle::list()?;
-        let mut bin = BinListing::default();
-        let entries = items
-            .into_iter()
-            .map(|b| {
-                bin.items.insert(b.entry.path.clone(), b.item);
-                b.entry
-            })
-            .collect();
-        Ok(Self { entries, bin })
-    }
-}
+pub use flat::FlatState;
+pub use location::{Listing, Location};
+pub use session::{Session, SessionTab};
 
 /// Listing + selection state of the file view in one tab.
 #[derive(Default)]
@@ -180,6 +53,14 @@ pub struct FolderView {
     pub version: u64,
     /// Git status of the repository this folder is in.
     pub git: Option<std::sync::Arc<ox_core::git::RepoStatus>>,
+    /// Group by: the items that pass the filter, sorted, before grouping.
+    pub ungrouped: Vec<usize>,
+    /// The group headers (empty when not grouped); `visible` is in their order.
+    pub groups: Vec<ox_core::grouping::GroupRow>,
+    /// Grouping needs the tags (`Tab::regroup`).
+    pub needs_grouping: bool,
+    /// `TagStore::version` the items were grouped with.
+    pub grouped_tags: u64,
 }
 
 impl FolderView {
@@ -257,6 +138,8 @@ pub struct SearchState {
 pub struct Tab {
     pub id: TabId,
     pub group: Option<GroupId>,
+    /// Pinned tabs are small and come first (see `pinned.rs`).
+    pub pinned: bool,
     history: Vec<Location>,
     pos: usize,
     pub view: FolderView,
@@ -266,8 +149,18 @@ pub struct Tab {
     pub view_mode: ViewMode,
     pub sort_key: SortKey,
     pub sort_order: SortOrder,
+    /// Columns of its own (a folder's remembered ones); `None` = the default columns.
+    pub columns: Option<ox_core::columns::ColumnLayout>,
+    pub group_by: ox_core::grouping::GroupBy,
+    /// Ids of the collapsed groups.
+    pub collapsed: HashSet<String>,
+    /// The folder whose remembered view was applied last, and that view:
+    /// changes from it are remembered for the folder.
+    pub remembered: Option<(PathBuf, ox_core::folder_views::SavedView)>,
     /// Listing must be reloaded before the tab is shown again.
     pub stale: bool,
+    /// Flat view is on: the folder's files and those of all its sub-folders.
+    pub flat: Option<FlatState>,
 }
 
 impl Tab {
@@ -280,6 +173,7 @@ impl Tab {
         Self {
             id,
             group: None,
+            pinned: false,
             history: vec![location],
             pos: 0,
             view: FolderView::default(),
@@ -288,7 +182,12 @@ impl Tab {
             view_mode: settings.browsing.default_view,
             sort_key: settings.browsing.default_sort,
             sort_order: settings.browsing.default_order,
+            columns: None,
+            group_by: settings.browsing.default_group,
+            collapsed: HashSet::new(),
+            remembered: None,
             stale: true,
+            flat: None,
         }
     }
 
@@ -374,10 +273,18 @@ impl Tab {
     fn on_location_changed(&mut self) {
         self.view = FolderView::default();
         self.search = None;
+        self.flat = None;
         self.filter.clear();
+        self.collapsed.clear();
         // The search box shows the query of a search tab.
         if let Location::Search { query, .. } = self.location() {
             self.filter = query.clone();
+        }
+        if *self.location() == Location::Gallery {
+            // Like Windows' Gallery: large pictures, newest first.
+            self.view_mode = ViewMode::Grid;
+            self.sort_key = SortKey::Modified;
+            self.sort_order = SortOrder::Descending;
         }
         self.stale = true;
     }
@@ -395,9 +302,10 @@ impl Tab {
             folders_first,
         );
         let query = Query::parse(&self.filter, case_sensitive);
+        let here = self.location();
         let filtering =
-            (self.location().folder().is_some() || self.location().is_bin()) && !query.is_empty();
-        self.view.visible = self
+            (here.folder().is_some() || here.is_bin() || here.is_collection()) && !query.is_empty();
+        self.view.ungrouped = self
             .view
             .entries
             .iter()
@@ -405,6 +313,7 @@ impl Tab {
             .filter(|(_, e)| !filtering || query.matches_name(&e.name))
             .map(|(i, _)| i)
             .collect();
+        self.group_visible(None);
         let max = self.view.visible.len();
         if self.view.cursor.is_some_and(|c| c >= max) {
             self.view.cursor = max.checked_sub(1);
@@ -526,11 +435,11 @@ impl Tabs {
         let id = self.alloc_id();
         let mut tab = Tab::new(id, loc, settings);
         let idx = match after.and_then(|a| self.index_of(a)) {
-            // Nothing goes before the Home tab.
+            // Nothing goes before the Home tab and the pinned tabs.
             Some(i) => {
                 // New tabs opened from a grouped tab join that group.
                 tab.group = self.tabs[i].group;
-                i + 1
+                (i + 1).max(self.pinned_end())
             }
             None => self.tabs.len(),
         };
@@ -586,11 +495,12 @@ impl Tabs {
             return;
         }
         let src = self.active();
-        let (loc, mode, key, order) = (
+        let (loc, mode, key, order, columns) = (
             src.location().clone(),
             src.view_mode,
             src.sort_key,
             src.sort_order,
+            (src.columns.clone(), src.group_by),
         );
         let active = self.active;
         let id = self.open(loc, Some(active), false, settings);
@@ -598,6 +508,7 @@ impl Tabs {
             t.view_mode = mode;
             t.sort_key = key;
             t.sort_order = order;
+            (t.columns, t.group_by) = columns;
         }
         self.panes = Some([active, id]);
         self.focus = 0;
@@ -626,10 +537,11 @@ impl Tabs {
         self.panes = (p[0] != p[1]).then_some(p);
     }
 
-    /// Close every tab but `keep` (and the Home tab).
+    /// Close every tab but `keep` (and the Home tab and the pinned tabs).
     pub fn close_others(&mut self, keep: TabId) {
         let home = self.home();
-        self.tabs.retain(|t| t.id == keep || t.id == home);
+        self.tabs
+            .retain(|t| t.id == keep || t.id == home || t.pinned);
         self.active = keep;
         self.drop_empty_groups();
     }
@@ -641,17 +553,29 @@ impl Tabs {
         if self.is_home(id) {
             return;
         }
-        let (loc, mode, key, order) = (
+        let (loc, mode, key, order, pinned, columns) = (
             src.location().clone(),
             src.view_mode,
             src.sort_key,
             src.sort_order,
+            src.pinned,
+            (src.columns.clone(), src.group_by),
         );
         let new_id = self.open(loc, Some(id), true, settings);
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == new_id) {
             t.view_mode = mode;
             t.sort_key = key;
             t.sort_order = order;
+            (t.columns, t.group_by) = columns;
+        }
+        // A pinned tab's copy is pinned too, right after it.
+        if pinned {
+            if let Some(from) = self.index_of(new_id) {
+                let mut t = self.tabs.remove(from);
+                t.pinned = true;
+                let at = self.index_of(id).map_or(1, |i| i + 1);
+                self.tabs.insert(at, t);
+            }
         }
     }
 
@@ -670,118 +594,20 @@ impl Tabs {
             return;
         };
         let tab = self.tabs.remove(from);
-        // The Home tab stays first.
-        let target = target.clamp(1, self.tabs.len());
+        // The Home tab stays first, then come the pinned tabs.
+        let target = self.clamp_target(tab.pinned, target);
         // Dropping a tab between tabs of a group makes it join that group.
         let neighbour_group = self
             .tabs
             .get(target)
             .and_then(|t| t.group)
-            .filter(|g| target > 0 && self.tabs[target - 1].group == Some(*g));
+            .filter(|g| target > 0 && self.tabs[target - 1].group == Some(*g))
+            .filter(|_| !tab.pinned);
         self.tabs.insert(target, tab);
         if neighbour_group.is_some() {
             self.tabs[target].group = neighbour_group;
         }
         self.drop_empty_groups();
-    }
-
-    pub fn new_group(&mut self, tab: TabId) -> GroupId {
-        let gid = self.alloc_id();
-        let color = (self.groups.len() + 1) % GROUP_COLORS.len();
-        self.groups.push(TabGroup {
-            id: gid,
-            name: String::new(),
-            color,
-            collapsed: false,
-        });
-        self.add_to_group(tab, gid);
-        // (The Home tab can't join one.)
-        self.drop_empty_groups();
-        gid
-    }
-
-    /// Add a tab to a group, moving it next to the group's other tabs.
-    pub fn add_to_group(&mut self, tab: TabId, gid: GroupId) {
-        let Some(from) = self.index_of(tab).filter(|&i| i > 0) else {
-            return;
-        };
-        let mut t = self.tabs.remove(from);
-        t.group = Some(gid);
-        let insert_at = self
-            .tabs
-            .iter()
-            .rposition(|x| x.group == Some(gid))
-            .map(|i| i + 1)
-            .unwrap_or(from.min(self.tabs.len()))
-            .max(1);
-        self.tabs.insert(insert_at, t);
-        self.drop_empty_groups();
-    }
-
-    pub fn remove_from_group(&mut self, tab: TabId) {
-        let Some(from) = self.index_of(tab) else {
-            return;
-        };
-        let Some(gid) = self.tabs[from].group else {
-            return;
-        };
-        let mut t = self.tabs.remove(from);
-        t.group = None;
-        // Place it right after the group.
-        let insert_at = self
-            .tabs
-            .iter()
-            .rposition(|x| x.group == Some(gid))
-            .map(|i| i + 1)
-            .unwrap_or(from.min(self.tabs.len()));
-        self.tabs.insert(insert_at, t);
-        self.drop_empty_groups();
-    }
-
-    pub fn ungroup(&mut self, gid: GroupId) {
-        for t in &mut self.tabs {
-            if t.group == Some(gid) {
-                t.group = None;
-            }
-        }
-        self.groups.retain(|g| g.id != gid);
-    }
-
-    pub fn close_group(&mut self, gid: GroupId) {
-        let ids: Vec<TabId> = self
-            .tabs
-            .iter()
-            .filter(|t| t.group == Some(gid))
-            .map(|t| t.id)
-            .collect();
-        for id in ids {
-            self.close(id);
-        }
-        self.groups.retain(|g| g.id != gid);
-    }
-
-    pub fn toggle_group(&mut self, gid: GroupId) {
-        let collapsed = match self.group_mut(gid) {
-            Some(g) => {
-                g.collapsed = !g.collapsed;
-                g.collapsed
-            }
-            None => return,
-        };
-        // If the active tab disappears into the collapsed group, switch to a visible tab.
-        if collapsed && self.active().group == Some(gid) {
-            if let Some(t) = self.tabs.iter().find(|t| t.group != Some(gid)) {
-                self.active = t.id;
-            } else if let Some(g) = self.group_mut(gid) {
-                g.collapsed = false;
-            }
-        }
-    }
-
-    fn drop_empty_groups(&mut self) {
-        let tabs = &self.tabs;
-        self.groups
-            .retain(|g| tabs.iter().any(|t| t.group == Some(g.id)));
     }
 
     /// Mark every tab showing `dir` (or every tab, if `None`) as needing a reload.
@@ -791,261 +617,13 @@ impl Tabs {
         for t in &mut self.tabs {
             let hit = match (dir, t.location()) {
                 (None, _) => true,
-                (Some(d), Location::Folder(p)) => p == d,
-                (_, Location::RecycleBin | Location::Tagged(_)) => true,
+                (Some(d), Location::Folder(p)) => p == d || (t.flat.is_some() && d.starts_with(p)),
+                (_, Location::RecycleBin | Location::Tagged(_) | Location::Library { .. }) => true,
                 _ => false,
             };
             if hit {
                 t.stale = true;
             }
         }
-    }
-
-    // ---- session persistence ------------------------------------------------
-
-    pub fn to_session(&self) -> Session {
-        Session {
-            tabs: self
-                .tabs
-                .iter()
-                .map(|t| SessionTab {
-                    location: match t.location() {
-                        // Search results aren't worth restoring; reopen the folder instead.
-                        Location::Search { root: Some(r), .. } => Location::Folder(r.clone()),
-                        Location::Search { root: None, .. } => Location::Home,
-                        other => other.clone(),
-                    },
-                    group: t.group,
-                })
-                .collect(),
-            groups: self.groups.clone(),
-            active: self.index_of(self.active).unwrap_or(0),
-        }
-    }
-
-    pub fn from_session(session: Session, settings: &Settings) -> Option<Self> {
-        if session.tabs.is_empty() {
-            return None;
-        }
-        // Sessions from before the Home tab was fixed may not start with it.
-        let mut session = session;
-        let starts_home = session
-            .tabs
-            .first()
-            .is_some_and(|t| t.location == Location::Home && t.group.is_none());
-        if !starts_home {
-            session.tabs.insert(
-                0,
-                SessionTab {
-                    location: Location::Home,
-                    group: None,
-                },
-            );
-            session.active += 1;
-        }
-        let mut tabs = Tabs {
-            tabs: Vec::new(),
-            groups: session.groups,
-            active: 0,
-            panes: None,
-            focus: 0,
-            next_id: 1,
-        };
-        tabs.next_id = tabs.groups.iter().map(|g| g.id + 1).max().unwrap_or(1);
-        for st in session.tabs {
-            let loc = match st.location {
-                Location::Folder(p) if !ox_core::network::is_dir(&p) => Location::Home,
-                other => other,
-            };
-            let id = tabs.alloc_id();
-            let mut tab = Tab::new(id, loc, settings);
-            tab.group = st.group.filter(|g| tabs.groups.iter().any(|x| x.id == *g));
-            tabs.tabs.push(tab);
-        }
-        tabs.drop_empty_groups();
-        let active = session.active.min(tabs.tabs.len() - 1);
-        tabs.active = tabs.tabs[active].id;
-        Some(tabs)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Session {
-    pub tabs: Vec<SessionTab>,
-    pub groups: Vec<TabGroup>,
-    pub active: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionTab {
-    pub location: Location,
-    pub group: Option<GroupId>,
-}
-
-impl Session {
-    pub fn path() -> PathBuf {
-        ox_core::config_dir().join("session.toml")
-    }
-
-    pub fn load() -> Option<Self> {
-        ox_core::settings::load_toml(&Self::path())
-    }
-
-    pub fn save(&self) -> io::Result<()> {
-        ox_core::settings::save_toml(&Self::path(), self)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn tabs() -> (Tabs, Settings) {
-        let s = Settings::default();
-        let mut t = Tabs::new(Location::Home, &s);
-        t.open(Location::Folder("/a".into()), None, false, &s);
-        t.open(Location::Folder("/b".into()), None, false, &s);
-        t.open(Location::Folder("/c".into()), None, false, &s);
-        (t, s)
-    }
-
-    #[test]
-    fn split_view_follows_the_focused_pane() {
-        let (mut t, s) = tabs();
-        t.activate(2);
-        t.toggle_split(&s);
-        let [left, right] = t.panes.unwrap();
-        assert_eq!(left, 2);
-        assert_eq!(t.active, 2);
-        assert_eq!(t.split_partner(), Some(right));
-        assert_eq!(
-            t.get(right).unwrap().location(),
-            &Location::Folder("/a".into())
-        );
-
-        // Activating another tab replaces the focused pane only.
-        t.switch_pane();
-        t.fix_panes();
-        assert_eq!(t.active, right);
-        t.activate(4);
-        t.fix_panes();
-        assert_eq!(t.panes, Some([2, 4]));
-
-        // Closing a pane's tab ends the split; toggling twice turns it off.
-        t.close(2);
-        t.fix_panes();
-        assert_eq!(t.panes, None);
-        t.toggle_split(&s);
-        t.toggle_split(&s);
-        assert_eq!(t.panes, None);
-    }
-
-    fn order(t: &Tabs) -> Vec<TabId> {
-        t.tabs.iter().map(|t| t.id).collect()
-    }
-
-    #[test]
-    fn grouping_keeps_tabs_together() {
-        let (mut t, _) = tabs();
-        assert_eq!(order(&t), vec![1, 2, 3, 4]);
-        let g = t.new_group(4);
-        t.add_to_group(2, g);
-        // Tab 2 moved next to tab 4.
-        assert_eq!(order(&t), vec![1, 3, 4, 2]);
-        t.remove_from_group(4);
-        assert_eq!(order(&t), vec![1, 3, 2, 4]);
-        t.remove_from_group(2);
-        assert!(t.groups.is_empty(), "empty group is removed");
-    }
-
-    #[test]
-    fn closing_and_collapsing() {
-        let (mut t, _) = tabs();
-        t.activate(3);
-        let g = t.new_group(3);
-        t.toggle_group(g);
-        assert_ne!(t.active, 3, "active tab leaves a collapsed group");
-        t.activate(3);
-        assert!(
-            !t.group(g).unwrap().collapsed,
-            "activating expands the group"
-        );
-        t.close_group(g);
-        assert_eq!(order(&t), vec![1, 2, 4]);
-        for id in [1, 2, 4] {
-            t.close(id);
-        }
-        assert_eq!(order(&t), vec![1], "the Home tab stays");
-        assert_eq!(*t.active().location(), Location::Home);
-    }
-
-    #[test]
-    fn the_home_tab_stays_first() {
-        let (mut t, s) = tabs();
-        assert_eq!(t.home(), 1);
-        // It can't be moved, grouped, duplicated or closed, and nothing
-        // moves in front of it.
-        t.move_tab(1, 3);
-        t.move_tab(4, 0);
-        assert_eq!(order(&t), vec![1, 4, 2, 3]);
-        let g = t.new_group(1);
-        assert!(t.group(g).is_none() && t.tabs[0].group.is_none());
-        t.duplicate(1, &s);
-        t.close(1);
-        assert_eq!(t.tabs.len(), 4);
-        // Tabs opened from it go after it; "close others" keeps it.
-        let id = t.open(Location::Folder("/d".into()), Some(1), true, &s);
-        assert_eq!(t.index_of(id), Some(1));
-        t.close_others(id);
-        assert_eq!(order(&t), vec![1, id]);
-        // Starting in a folder gives the Home tab and the folder's tab.
-        let t = Tabs::new(Location::Folder("/x".into()), &s);
-        assert_eq!(t.tabs.len(), 2);
-        assert_eq!(*t.tabs[0].location(), Location::Home);
-        assert_eq!(t.active, t.tabs[1].id);
-    }
-
-    #[test]
-    fn history() {
-        let s = Settings::default();
-        let mut tab = Tab::new(1, Location::Home, &s);
-        tab.navigate(Location::Folder("/x".into()));
-        tab.navigate(Location::Folder("/x/y".into()));
-        tab.back();
-        assert_eq!(*tab.location(), Location::Folder("/x".into()));
-        assert_eq!(tab.view.select_after_load, Some(PathBuf::from("/x/y")));
-        tab.forward();
-        tab.up();
-        assert_eq!(*tab.location(), Location::Folder("/x".into()));
-        assert!(!tab.can_go_forward());
-    }
-
-    #[test]
-    fn session_roundtrip() {
-        let (mut t, s) = tabs();
-        let g = t.new_group(2);
-        t.group_mut(g).unwrap().name = "Work".into();
-        let text = toml::to_string(&t.to_session()).unwrap();
-        let session: Session = toml::from_str(&text).unwrap();
-        let restored = Tabs::from_session(session, &s).unwrap();
-        assert_eq!(restored.tabs.len(), 4);
-        assert_eq!(restored.groups[0].name, "Work");
-        assert_eq!(
-            restored.tabs.iter().filter(|t| t.group.is_some()).count(),
-            1
-        );
-
-        // An older session without the Home tab in front gets one.
-        let old = Session {
-            tabs: vec![SessionTab {
-                location: Location::Help,
-                group: None,
-            }],
-            groups: Vec::new(),
-            active: 0,
-        };
-        let restored = Tabs::from_session(old, &s).unwrap();
-        assert_eq!(*restored.tabs[0].location(), Location::Home);
-        assert_eq!(*restored.active().location(), Location::Help);
     }
 }

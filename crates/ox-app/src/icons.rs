@@ -11,12 +11,12 @@ use egui::{
     Shape, Stroke, TextureHandle, TextureId, TextureOptions,
 };
 use ox_core::entry::{FileEntry, FileKind};
-use ox_core::shell::{IconKey, Shell};
+use ox_core::shell::{IconKey, IconSize, Shell};
 
 /// Shell icons uploaded as textures, keyed like the Shell caches them.
 pub struct IconCache {
     pub shell: Shell,
-    textures: RefCell<HashMap<IconKey, Option<TextureHandle>>>,
+    textures: RefCell<HashMap<(IconKey, IconSize), Option<TextureHandle>>>,
 }
 
 impl IconCache {
@@ -30,7 +30,7 @@ impl IconCache {
 
     /// Upload icons that finished loading. Call once per frame.
     pub fn poll(&self, ctx: &Context) {
-        for (key, image) in self.shell.poll_icons() {
+        for (key, size, image) in self.shell.poll_icons() {
             let texture = image.map(|img| {
                 let size = img.size as usize;
                 let color = ColorImage::from_rgba_unmultiplied([size, size], &img.rgba);
@@ -38,25 +38,44 @@ impl IconCache {
                     mipmap_mode: Some(egui::TextureFilter::Linear),
                     ..TextureOptions::LINEAR
                 };
-                ctx.load_texture(format!("icon:{key:?}"), color, options)
+                ctx.load_texture(format!("icon:{key:?}:{size:?}"), color, options)
             });
-            self.textures.borrow_mut().insert(key, texture);
+            self.textures.borrow_mut().insert((key, size), texture);
         }
     }
 
     /// Texture for an entry, if its Shell icon is loaded. Requests it otherwise.
     /// `by_name` looks the icon up by file name only (Recycle Bin entries).
     pub fn texture(&self, e: &FileEntry, by_name: bool) -> Option<TextureId> {
+        self.texture_sized(e, by_name, 0.0)
+    }
+
+    /// Like [`IconCache::texture`], sharp at `pixels` on screen: big icons
+    /// use the Shell's 256 px ones where there are any (the 48 px icon is
+    /// shown until they load, and for types without one).
+    pub fn texture_sized(&self, e: &FileEntry, by_name: bool, pixels: f32) -> Option<TextureId> {
         let key = if by_name {
             IconKey::for_path(Path::new(&e.name), e.is_dir)
         } else {
             IconKey::for_path(&e.path, e.is_dir)
         };
+        // Online-only cloud files: reading their own icon would download them.
+        let online = e.cloud == Some(ox_core::cloud::CloudStatus::OnlineOnly);
         let key = match key {
-            IconKey::Path(_) if by_name => IconKey::Extension(e.extension()),
+            IconKey::Path(_) if by_name || (online && !e.is_dir) => {
+                IconKey::Extension(e.extension())
+            }
             k => k,
         };
-        if let Some(t) = self.textures.borrow().get(&key) {
+        let textures = self.textures.borrow();
+        if pixels > 64.0 {
+            match textures.get(&(key.clone(), IconSize::Jumbo)) {
+                Some(Some(t)) => return Some(t.id()),
+                Some(None) => {}
+                None => self.shell.request_icon_sized(&key, IconSize::Jumbo),
+            }
+        }
+        if let Some(t) = textures.get(&(key.clone(), IconSize::Large)) {
             return t.as_ref().map(TextureHandle::id);
         }
         self.shell.request_icon(&key);
@@ -116,16 +135,26 @@ pub fn paint_entry(
     }
     if e.is_symlink {
         let r = rect.width() * 0.18;
-        let c = rect.left_bottom() + vec2(r, -r);
-        p.circle_filled(c, r, Color32::WHITE);
-        p.text(
-            c,
-            Align2::CENTER_CENTER,
-            "↗",
-            FontId::proportional(r * 1.6),
-            Color32::from_rgb(0x2f, 0x6f, 0xe0),
-        );
+        paint_link_badge(p, rect.left_bottom() + vec2(r, -r), r);
     }
+}
+
+/// The arrow badge of a symbolic link or junction, a circle of radius `r`
+/// around `c`.
+pub fn paint_link_badge(p: &Painter, c: Pos2, r: f32) {
+    let blue = Color32::from_rgb(0x2f, 0x6f, 0xe0);
+    p.circle(
+        c,
+        r,
+        Color32::WHITE,
+        Stroke::new(1.0, blue.gamma_multiply(0.5)),
+    );
+    // An arrow to the top right, drawn so it doesn't depend on a font.
+    let s = Stroke::new((r * 0.22).max(1.2), blue);
+    let (a, b) = (c + vec2(-r * 0.45, r * 0.45), c + vec2(r * 0.45, -r * 0.45));
+    p.line_segment([a, b], s);
+    p.line_segment([b, b + vec2(-r * 0.6, 0.0)], s);
+    p.line_segment([b, b + vec2(0.0, r * 0.6)], s);
 }
 
 fn fade(c: Color32, faded: bool) -> Color32 {

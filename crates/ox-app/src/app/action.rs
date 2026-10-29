@@ -73,6 +73,8 @@ pub enum Action {
     OpenTerminal(PathBuf),
     Reveal(PathBuf),
     Properties(Vec<PathBuf>),
+    /// Cloud files: *Always keep on this device*, *Free up space*, or neither.
+    KeepOnDevice(Vec<PathBuf>, ox_core::cloud::Pin),
     /// Make items read-only or not, hidden or not (`None` leaves it).
     SetAttributes(Vec<PathBuf>, Option<bool>, Option<bool>),
     Search(Option<PathBuf>, String),
@@ -82,6 +84,10 @@ pub enum Action {
     RemoveSavedSearch(usize),
     RebuildIndex,
     SelectAll,
+    /// Select by pattern, invert, same type.
+    Select(super::SelectAction),
+    /// Open Quick Look on the selected item, or close it.
+    QuickLook,
     ForgetRecent(PathBuf),
     ClearRecent,
     SettingsChanged,
@@ -101,13 +107,31 @@ pub enum Action {
     MoveToBin(Vec<PathBuf>),
     /// Compare folders (the split view's panes).
     Compare(super::CompareAction),
+    /// Turn the flat view (all files of the sub-folders in one list) on or off.
+    ToggleFlatView,
+    /// Go to the folder an item is in and select it there.
+    ShowInFolder(PathBuf),
+    /// Open the dialog for a new symbolic link, junction or hard link in this folder.
+    NewLink(PathBuf, ox_core::links::LinkKind),
+    /// Go to where a link points (its target's folder, with the target selected).
+    ShowLinkTarget(PathBuf),
+    /// Named sessions: save, open, rename and delete sets of tabs.
+    Session(super::SessionAction),
+    /// How the file view looks (columns, …).
+    View(super::ViewAction),
 }
 
 pub enum TabAction {
     New,
+    /// Open a new window showing what the active tab shows (Ctrl+N).
+    NewWindow,
+    /// Open a tab in a new window (at this screen position) and close it here.
+    ToNewWindow(TabId, Option<[f32; 2]>),
     Close(TabId),
     Activate(TabId),
     Duplicate(TabId),
+    /// Pin (`true`) or unpin a tab.
+    Pin(TabId, bool),
     CloseOthers(TabId),
     NewGroup(TabId),
     AddToGroup(TabId, GroupId),

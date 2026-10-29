@@ -326,6 +326,11 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
                     keep = false;
                 }
             }
+            Dialog::NewLink(d) => keep = super::link_dialog::show(ui, d, app),
+            Dialog::SessionName { old, text, focus } => {
+                keep =
+                    super::sessions::name_dialog(ui, &app.sessions, old, text, focus, &mut actions);
+            }
             Dialog::RenameGroup { id, text, focus } => {
                 ui.heading(tr("Name this group"));
                 ui.add_space(6.0);
@@ -351,6 +356,14 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
                         keep = false;
                     }
                 });
+            }
+            Dialog::SelectPattern {
+                text,
+                select,
+                focus,
+            } => {
+                let view = &app.tabs.active().view;
+                keep = super::select_pattern::show(ui, text, select, focus, view, &mut actions);
             }
         }
     });

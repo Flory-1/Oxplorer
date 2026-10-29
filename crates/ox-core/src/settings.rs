@@ -65,6 +65,8 @@ pub struct Appearance {
     pub system_icons: bool,
     /// Pictures and videos show a preview in the grid view.
     pub thumbnails: bool,
+    /// Icon size of the grid view in points (Ctrl+mouse wheel, see `grid_zoom`).
+    pub grid_size: u32,
     /// Mica or Acrylic behind the sidebar and header (Windows 11).
     pub backdrop: Backdrop,
     /// The tabs take the place of the window's title bar (Windows).
@@ -85,6 +87,7 @@ impl Default for Appearance {
             compact_rows: false,
             system_icons: true,
             thumbnails: true,
+            grid_size: crate::grid_zoom::DEFAULT,
             backdrop: Backdrop::Off,
             tabs_in_title_bar: true,
             language: Language::System,
@@ -103,6 +106,8 @@ pub struct Browsing {
     pub default_view: ViewMode,
     pub default_sort: SortKey,
     pub default_order: SortOrder,
+    /// How folders without a view of their own group their items.
+    pub default_group: crate::grouping::GroupBy,
     /// Open items with a single click instead of a double click.
     pub single_click_open: bool,
     pub confirm_delete: bool,
@@ -121,6 +126,10 @@ pub struct Browsing {
     pub open_archives: bool,
     /// Show the Git column and branch inside repositories.
     pub git_status: bool,
+    /// Each folder keeps the view it was last shown with (see `folder_views`).
+    pub remember_folder_views: bool,
+    /// Columns of the details view.
+    pub columns: crate::columns::ColumnLayout,
 }
 
 impl Default for Browsing {
@@ -132,6 +141,7 @@ impl Default for Browsing {
             default_view: ViewMode::Details,
             default_sort: SortKey::Name,
             default_order: SortOrder::Ascending,
+            default_group: Default::default(),
             single_click_open: false,
             confirm_delete: true,
             delete_to_trash: true,
@@ -142,6 +152,8 @@ impl Default for Browsing {
             folder_sizes: true,
             open_archives: true,
             git_status: true,
+            remember_folder_views: true,
+            columns: Default::default(),
         }
     }
 }
@@ -314,6 +326,8 @@ pub struct Sidebar {
     pub show_drives: bool,
     pub show_recent: bool,
     pub recent_count: usize,
+    /// The Gallery and the Windows libraries (Documents, Music, …).
+    pub show_libraries: bool,
 }
 
 impl Default for Sidebar {
@@ -324,6 +338,7 @@ impl Default for Sidebar {
             show_drives: true,
             show_recent: true,
             recent_count: 8,
+            show_libraries: true,
         }
     }
 }
@@ -448,7 +463,9 @@ impl Settings {
 
     /// Load settings, falling back to defaults if the file is missing or broken.
     pub fn load() -> Self {
-        load_toml(&Self::path()).unwrap_or_default()
+        let mut s: Self = load_toml(&Self::path()).unwrap_or_default();
+        s.browsing.columns.normalize();
+        s
     }
 
     pub fn save(&self) -> io::Result<()> {
@@ -493,5 +510,16 @@ mod tests {
         let partial: Settings = load_toml(&path).unwrap();
         assert!(partial.browsing.show_hidden);
         assert_eq!(partial.transfer, Transfer::default());
+    }
+
+    #[test]
+    fn columns_round_trip() {
+        use crate::columns::ColumnId;
+        let mut s = Settings::default();
+        s.browsing.columns.toggle(ColumnId::Dimensions);
+        s.browsing.columns.set_width(ColumnId::Size, 120.0);
+        let text = toml::to_string_pretty(&s).unwrap();
+        let back: Settings = toml::from_str(&text).unwrap();
+        assert_eq!(back.browsing.columns, s.browsing.columns);
     }
 }

@@ -75,6 +75,7 @@ fn share_entry(server: &str, share: &str) -> FileEntry {
         created: None,
         hidden: false,
         readonly: false,
+        cloud: None,
     }
 }
 

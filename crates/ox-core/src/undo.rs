@@ -1,5 +1,5 @@
-//! Undo and redo for file operations: renames, moves, copies, new folders
-//! and files, and deletes to the Recycle Bin.
+//! Undo and redo for file operations: renames, moves, copies, new folders,
+//! files and links, and deletes to the Recycle Bin.
 //!
 //! Each operation is recorded as an [`Op`] that describes what was done.
 //! [`reverse`] first checks that the files are still as the operation left
@@ -16,6 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::entry::display_name;
 use crate::i18n::t;
+use crate::links::{self, LinkKind};
 use crate::recycle::{self, TrashItem};
 use crate::{fsops, rename};
 
@@ -30,6 +31,7 @@ pub enum Kind {
     Copy,
     NewFolder,
     NewFile,
+    NewLink,
     Delete,
 }
 
@@ -41,6 +43,7 @@ impl Kind {
             Self::Copy => "Copy",
             Self::NewFolder => "New folder",
             Self::NewFile => "New file",
+            Self::NewLink => "New link",
             Self::Delete => "Move to Recycle Bin",
         })
     }
@@ -119,6 +122,18 @@ pub enum Op {
     /// Items moved to the Recycle Bin at or after `since` (Unix seconds).
     /// Undone by restoring them.
     Trashed { paths: Vec<PathBuf>, since: i64 },
+    /// New links. Undone by removing the links (never their targets).
+    Linked(Vec<Link>),
+    /// Links that were removed. Undone by making them again.
+    Unlinked(Vec<Link>),
+}
+
+/// A symbolic link, junction or hard link at `path` to `target`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Link {
+    pub path: PathBuf,
+    pub target: PathBuf,
+    pub kind: LinkKind,
 }
 
 impl Op {
@@ -131,6 +146,9 @@ impl Op {
             Self::Placed(items) => items.iter().map(|p| p.path.as_path()).collect(),
             Self::NewFolder(p) | Self::RemovedFolder(p) => vec![p.as_path()],
             Self::Trashed { paths, .. } => paths.iter().map(PathBuf::as_path).collect(),
+            Self::Linked(links) | Self::Unlinked(links) => {
+                links.iter().map(|l| l.path.as_path()).collect()
+            }
         }
     }
 
@@ -385,6 +403,33 @@ pub fn reverse(op: &Op, bin: &dyn Bin) -> Result<Outcome, String> {
                 .map(|p| Placed::now(p.clone()).map_err(|_| missing(p)))
                 .collect::<Result<_, _>>()?;
             Ok(Outcome::Done(Op::Placed(items)))
+        }
+        Op::Linked(items) => {
+            for l in items {
+                if !fsops::exists(&l.path) {
+                    return Err(missing(&l.path));
+                }
+                // Only what is still the same link is removed.
+                if !links::is_link(&l.path, l.kind, &l.target) {
+                    return Err(crate::trf!(
+                        "\"{name}\" has changed since then.",
+                        name = display_name(&l.path)
+                    ));
+                }
+            }
+            for l in items {
+                links::remove(&l.path, l.kind).map_err(|e| e.to_string())?;
+            }
+            Ok(Outcome::Done(Op::Unlinked(items.clone())))
+        }
+        Op::Unlinked(items) => {
+            if let Some(l) = items.iter().find(|l| fsops::exists(&l.path)) {
+                return Err(taken(&l.path));
+            }
+            for l in items {
+                links::create(l.kind, &l.path, &l.target)?;
+            }
+            Ok(Outcome::Done(Op::Linked(items.clone())))
         }
     }
 }

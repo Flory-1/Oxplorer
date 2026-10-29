@@ -10,6 +10,9 @@ use crate::app::{Action, OxApp, TabAction};
 use crate::shortcuts::{self, Command};
 use crate::tabs::Location;
 
+mod tabs;
+mod views;
+
 #[derive(Default)]
 pub struct PaletteState {
     pub query: String,
@@ -65,6 +68,26 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         "",
         act(|| Action::Navigate(Location::RecycleBin)),
     );
+    if cfg!(windows) {
+        cmd(
+            "🎞",
+            tr("Open Gallery"),
+            "",
+            act(|| Action::Navigate(Location::Gallery)),
+        );
+    }
+    for lib in &app.libraries {
+        let loc = Location::Library {
+            name: lib.name.clone(),
+            file: lib.file.clone(),
+        };
+        cmd(
+            "📚",
+            &ox_core::trf!("Open library: {name}", name = lib.name),
+            "",
+            act(move || Action::Navigate(loc)),
+        );
+    }
     cmd(
         "⚙",
         tr("Open Settings"),
@@ -171,6 +194,15 @@ fn entries(app: &OxApp) -> Vec<Entry> {
                 act(move || Action::NewFromItem(dir.clone(), i)),
             );
         }
+        use ox_core::links::LinkKind;
+        for (kind, label) in [
+            (LinkKind::Symbolic, tr("New symbolic link…")),
+            (LinkKind::Junction, tr("New junction…")),
+            (LinkKind::Hard, tr("New hard link…")),
+        ] {
+            let dir = f.clone();
+            cmd("🔗", label, "", act(move || Action::NewLink(dir, kind)));
+        }
         cmd(
             "📥",
             tr("Paste"),
@@ -243,6 +275,40 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             &shortcuts::label(Command::SelectAll),
             act(|| Action::SelectAll),
         );
+        if !selection.is_empty() && !tab.location().is_bin() {
+            cmd(
+                "👁",
+                tr("Quick Look"),
+                &shortcuts::label(Command::QuickLook),
+                act(|| Action::QuickLook),
+            );
+        }
+        use crate::app::SelectAction as S;
+        for (label, command, action) in [
+            (
+                tr("Select by pattern…"),
+                Command::SelectPattern,
+                S::PatternDialog(true),
+            ),
+            (
+                tr("Deselect by pattern…"),
+                Command::DeselectPattern,
+                S::PatternDialog(false),
+            ),
+            (tr("Invert selection"), Command::InvertSelection, S::Invert),
+            (
+                tr("Select all of the same type"),
+                Command::SelectSameType,
+                S::SameType,
+            ),
+        ] {
+            cmd(
+                "☑",
+                label,
+                &shortcuts::label(command),
+                act(move || Action::Select(action)),
+            );
+        }
     }
     if !selection.is_empty() && !tab.location().is_bin() && !tab.location().is_read_only() {
         let (s1, s2, s3) = (selection.clone(), selection.clone(), selection.clone());
@@ -276,6 +342,27 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             &shortcuts::label(Command::Properties),
             act(move || Action::Properties(s3)),
         );
+        if tab
+            .view
+            .selected_entries()
+            .iter()
+            .any(|e| e.cloud.is_some())
+        {
+            use ox_core::cloud::Pin;
+            let (k1, k2) = (selection.clone(), selection.clone());
+            cmd(
+                "📌",
+                tr("Always keep selection on this device"),
+                "",
+                act(move || Action::KeepOnDevice(k1, Pin::Always)),
+            );
+            cmd(
+                "☁",
+                tr("Free up space used by the selection"),
+                "",
+                act(move || Action::KeepOnDevice(k2, Pin::Online)),
+            );
+        }
         let zip = selection.clone();
         cmd(
             "📦",
@@ -397,6 +484,14 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         "",
         setting(|a| a.settings.browsing.show_status_bar ^= true),
     );
+    if app.tabs.active().can_flat() {
+        cmd(
+            "🗃",
+            tr("Toggle flat view (all files in sub-folders)"),
+            &shortcuts::label(Command::FlatView),
+            act(|| Action::ToggleFlatView),
+        );
+    }
     cmd(
         "☰",
         tr("Details view"),
@@ -408,6 +503,18 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         tr("Grid view"),
         "",
         Box::new(|a: &mut OxApp| a.tabs.active_mut().view_mode = ViewMode::Grid),
+    );
+    cmd(
+        "▦",
+        tr("Larger icons"),
+        "",
+        Box::new(|a: &mut OxApp| super::files::zoom(a, 1)),
+    );
+    cmd(
+        "▦",
+        tr("Smaller icons"),
+        "",
+        Box::new(|a: &mut OxApp| super::files::zoom(a, -1)),
     );
     for (theme, name) in [
         (Theme::Dark, tr("dark")),
@@ -446,6 +553,9 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         "",
         act(|| Action::ClearRecent),
     );
+    views::entries(app, &mut v);
+
+    tabs::entries(app, &mut v);
 
     // Places
     let mut place = |icon, label: String, path: std::path::PathBuf| {
@@ -489,6 +599,7 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
     let Some(mut state) = app.ui.palette.take() else {
         return;
     };
+    app.sessions.refresh();
     let all = entries(app);
     // Best matches first; ties keep the natural order.
     let mut ranked: Vec<(i32, usize)> = all

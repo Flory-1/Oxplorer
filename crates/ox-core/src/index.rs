@@ -219,6 +219,7 @@ impl FileIndex {
             created: None,
             hidden: e.flags & F_HIDDEN != 0,
             readonly: false,
+            cloud: None,
         }
     }
 

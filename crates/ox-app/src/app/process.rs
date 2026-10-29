@@ -112,6 +112,11 @@ impl OxApp {
                     return;
                 }
                 let m = self.ctx.input(|i| i.modifiers);
+                if (m.ctrl || m.command) && m.shift {
+                    // Ctrl+Shift links, like in Explorer.
+                    self.link_dropped(sources, dest);
+                    return;
+                }
                 let kind = if m.ctrl || m.command {
                     TransferKind::Copy
                 } else if m.shift
@@ -420,6 +425,7 @@ impl OxApp {
                 }
             }
             Action::Properties(paths) => self.open_properties(paths),
+            Action::KeepOnDevice(paths, pin) => self.keep_on_device(paths, pin),
             Action::SetAttributes(paths, readonly, hidden) => {
                 self.set_attributes(&paths, readonly, hidden)
             }
@@ -465,6 +471,8 @@ impl OxApp {
                 self.index_force = true;
             }
             Action::SelectAll => self.tabs.active_mut().view.select_all(),
+            Action::Select(a) => self.process_select(a),
+            Action::QuickLook => self.toggle_quick_look(),
             Action::ForgetRecent(p) => {
                 self.quick.forget(&p);
                 self.save_quick();
@@ -474,7 +482,7 @@ impl OxApp {
                 self.save_quick();
             }
             Action::SettingsChanged => {
-                if let Err(e) = self.settings.save() {
+                if let Err(e) = self.save_settings() {
                     self.toast(ox_core::trf!("Couldn't save settings: {e}", e = e));
                 }
                 // Hidden-file setting etc. affect listings.
@@ -482,6 +490,12 @@ impl OxApp {
             }
             Action::Tab(t) => self.process_tab(t),
             Action::Compare(a) => self.process_compare(a),
+            Action::ToggleFlatView => self.toggle_flat_view(),
+            Action::ShowInFolder(path) => self.show_in_folder(path),
+            Action::NewLink(dir, kind) => self.new_link_dialog(dir, kind),
+            Action::ShowLinkTarget(link) => self.show_link_target(link),
+            Action::Session(a) => self.process_session(a),
+            Action::View(a) => self.process_view(a),
             Action::Toast(t) => self.toast(t),
             Action::RestoreFromBin(paths) => {
                 let items = self.tabs.active().view.bin.select(&paths);
@@ -533,11 +547,15 @@ impl OxApp {
             TabAction::New => {
                 self.tabs.open(Location::Home, None, true, s);
             }
+            TabAction::NewWindow => self.new_window(),
+            TabAction::ToNewWindow(id, pos) => self.move_to_new_window(id, pos),
             TabAction::Close(id) => self.tabs.close(id),
             TabAction::Activate(id) => self.tabs.activate(id),
             TabAction::ToggleSplit => self.tabs.toggle_split(s),
             TabAction::SwitchPane => self.tabs.switch_pane(),
             TabAction::Duplicate(id) => self.tabs.duplicate(id, s),
+            TabAction::Pin(id, true) => self.tabs.pin(id),
+            TabAction::Pin(id, false) => self.tabs.unpin(id),
             TabAction::CloseOthers(id) => self.tabs.close_others(id),
             TabAction::NewGroup(id) => {
                 let gid = self.tabs.new_group(id);

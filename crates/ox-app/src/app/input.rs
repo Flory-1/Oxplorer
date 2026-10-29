@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Keys typed within this time add to the name being typed.
+const TYPE_AHEAD: Duration = Duration::from_millis(900);
+
 impl OxApp {
     /// Clipboard shortcuts are disabled in eframe so that Ctrl+V works even when
     /// the clipboard holds files instead of text. Text fields still need them,
@@ -59,10 +62,20 @@ impl OxApp {
         let in_bin = self.tabs.active().location().is_bin();
         let read_only = self.tabs.active().location().is_read_only();
         let has_sel = !selection.is_empty();
+        let quick_look = self.quick_look.is_some();
+        if quick_look {
+            self.quick_look_keys(ctx);
+        }
+        // Space while typing a name to jump to belongs to the name.
+        let typing = !self.ui.type_ahead.is_empty() && self.ui.type_ahead_at.elapsed() < TYPE_AHEAD;
 
         // Which commands make sense here; only their keys are taken.
         let available = |c: C| match c {
-            C::SelectAll => shows_files,
+            C::SelectAll
+            | C::SelectPattern
+            | C::DeselectPattern
+            | C::InvertSelection
+            | C::SelectSameType => shows_files,
             // The Recycle Bin purges on Delete; archives are read-only.
             C::Delete | C::DeletePermanently => shows_files && has_sel && !read_only,
             C::Copy | C::CopyPath => shows_files && has_sel && !in_bin,
@@ -70,7 +83,8 @@ impl OxApp {
             C::ShellMenu => {
                 shows_files && has_sel && !in_bin && !read_only && ox_core::shell::supported()
             }
-            C::Paste | C::NewFolder => shows_files && folder.is_some(),
+            C::Paste | C::NewFolder | C::FlatView => shows_files && folder.is_some(),
+            C::QuickLook => quick_look || (shows_files && has_sel && !in_bin && !typing),
             C::OpenInEditor => {
                 shows_files && !in_bin && !read_only && (has_sel || folder.is_some())
             }
@@ -93,6 +107,7 @@ impl OxApp {
         for c in pressed {
             match c {
                 C::NewTab => actions.push(Action::Tab(TabAction::New)),
+                C::NewWindow => actions.push(Action::Tab(TabAction::NewWindow)),
                 C::CloseTab => actions.push(Action::Tab(TabAction::Close(self.tabs.active))),
                 C::NextTab => actions.push(Action::Tab(TabAction::Cycle(1))),
                 C::PrevTab => actions.push(Action::Tab(TabAction::Cycle(-1))),
@@ -113,9 +128,17 @@ impl OxApp {
                     self.settings.browsing.show_preview = !self.settings.browsing.show_preview;
                     actions.push(Action::SettingsChanged);
                 }
+                C::FlatView => actions.push(Action::ToggleFlatView),
                 C::Settings => actions.push(Action::OpenInNewTab(Location::Settings, true)),
                 C::Help => actions.push(Action::OpenInNewTab(Location::Help, true)),
+                C::QuickLook => actions.push(Action::QuickLook),
                 C::SelectAll => actions.push(Action::SelectAll),
+                C::SelectPattern => actions.push(Action::Select(SelectAction::PatternDialog(true))),
+                C::DeselectPattern => {
+                    actions.push(Action::Select(SelectAction::PatternDialog(false)));
+                }
+                C::InvertSelection => actions.push(Action::Select(SelectAction::Invert)),
+                C::SelectSameType => actions.push(Action::Select(SelectAction::SameType)),
                 C::Copy => actions.push(Action::CopyItems(selection.clone())),
                 C::Cut => actions.push(Action::CutItems(selection.clone())),
                 C::CopyPath => actions.push(Action::CopyPathText(selection.clone())),
@@ -163,11 +186,9 @@ impl OxApp {
             .data(|d| d.get_temp::<usize>(egui::Id::unique(("grid_columns", tab.id))))
             .unwrap_or(1)
             .max(1);
-        let step = if tab.view_mode == ox_core::settings::ViewMode::Grid {
-            grid_cols
-        } else {
-            1
-        };
+        let grid = tab.view_mode == ox_core::settings::ViewMode::Grid;
+        let step = if grid { grid_cols } else { 1 };
+        let groups = &tab.view.groups;
         ctx.input_mut(|i| {
             let cur = tab.view.cursor;
             extend = i.modifiers.shift;
@@ -182,7 +203,13 @@ impl OxApp {
                 if delta != 0
                     && (i.consume_key(Modifiers::NONE, key) || i.consume_key(Modifiers::SHIFT, key))
                 {
+                    let rows = if key == Key::ArrowDown { 1 } else { -1 };
+                    let by_rows =
+                        grid && !groups.is_empty() && matches!(key, Key::ArrowDown | Key::ArrowUp);
                     target = Some(match cur {
+                        Some(c) if by_rows => {
+                            ox_core::grouping::grid_step(groups, grid_cols, c, rows)
+                        }
                         Some(c) => (c as isize + delta).clamp(0, n as isize - 1) as usize,
                         None => 0,
                     });
@@ -209,8 +236,10 @@ impl OxApp {
             }
         });
 
-        if !typed.trim().is_empty() {
-            if self.ui.type_ahead_at.elapsed() > Duration::from_millis(900) {
+        let typing = self.ui.type_ahead_at.elapsed() < TYPE_AHEAD && !self.ui.type_ahead.is_empty();
+        // A space only counts inside a name ("my f…"), not on its own.
+        if !typed.trim().is_empty() || (typing && !typed.is_empty()) {
+            if self.ui.type_ahead_at.elapsed() > TYPE_AHEAD {
                 self.ui.type_ahead.clear();
             }
             self.ui.type_ahead.push_str(&typed.to_lowercase());

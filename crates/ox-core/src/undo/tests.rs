@@ -255,6 +255,60 @@ fn new_folder_is_removed_only_while_empty() {
 }
 
 #[test]
+fn new_links_are_removed_but_never_their_targets() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = FakeBin::new(tmp.path());
+    let target = tmp.path().join("data.txt");
+    fs::write(&target, "keep").unwrap();
+    let link = tmp.path().join("again.txt");
+    crate::links::create(LinkKind::Hard, &link, &target).unwrap();
+    let l = Link {
+        path: link.clone(),
+        target: target.clone(),
+        kind: LinkKind::Hard,
+    };
+    let mut h = History::default();
+    h.record(Entry::new(Kind::NewLink, Op::Linked(vec![l])));
+    undo_redo(&mut h, false, &bin).unwrap();
+    assert!(!link.exists());
+    assert_eq!(fs::read_to_string(&target).unwrap(), "keep");
+    assert_eq!(bin.len(), 0);
+    undo_redo(&mut h, true, &bin).unwrap();
+    assert_eq!(fs::read_to_string(&link).unwrap(), "keep");
+
+    // Replaced by an ordinary file: left alone.
+    fs::remove_file(&link).unwrap();
+    fs::write(&link, "other").unwrap();
+    let err = undo_redo(&mut h, false, &bin).unwrap_err();
+    assert!(err.contains("changed"), "{err}");
+    assert!(link.exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn undoing_a_junction_keeps_the_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = FakeBin::new(tmp.path());
+    let target = tmp.path().join("real");
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("inside.txt"), "x").unwrap();
+    let link = tmp.path().join("jump");
+    crate::links::create(LinkKind::Junction, &link, &target).unwrap();
+    let mut h = History::default();
+    let l = Link {
+        path: link.clone(),
+        target: target.clone(),
+        kind: LinkKind::Junction,
+    };
+    h.record(Entry::new(Kind::NewLink, Op::Linked(vec![l])));
+    undo_redo(&mut h, false, &bin).unwrap();
+    assert!(!crate::fsops::exists(&link));
+    assert!(target.join("inside.txt").exists());
+    undo_redo(&mut h, true, &bin).unwrap();
+    assert!(link.join("inside.txt").exists());
+}
+
+#[test]
 fn delete_is_undone_by_restoring() {
     let tmp = tempfile::tempdir().unwrap();
     let bin = FakeBin::new(tmp.path());

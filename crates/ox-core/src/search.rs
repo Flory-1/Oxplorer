@@ -407,7 +407,7 @@ fn contains_ascii_ci(hay: &str, needle: &str) -> bool {
 }
 
 /// Iterative `*`/`?` matcher with backtracking (linear in practice).
-fn wildcard(pattern: &[char], name: &[char]) -> bool {
+pub(crate) fn wildcard(pattern: &[char], name: &[char]) -> bool {
     let (mut p, mut n) = (0, 0);
     let (mut star, mut mark) = (None, 0);
     while n < name.len() {
@@ -486,11 +486,9 @@ fn file_contains(path: &Path, pattern: &regex::bytes::Regex) -> bool {
     let Ok(file) = fs::File::open(path) else {
         return false;
     };
-    if file
-        .metadata()
-        .map(|m| m.len() > CONTENT_LIMIT)
-        .unwrap_or(true)
-    {
+    // Online-only cloud files aren't read: that would download them all.
+    let skip = |m: fs::Metadata| m.len() > CONTENT_LIMIT || crate::cloud::online(&m);
+    if file.metadata().map(skip).unwrap_or(true) {
         return false;
     }
     CONTENT_BUF.with(|buf| {

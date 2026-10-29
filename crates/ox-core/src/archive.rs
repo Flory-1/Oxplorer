@@ -281,6 +281,7 @@ pub fn list(archive: &Path, inner: &Path) -> io::Result<Vec<FileEntry>> {
             created: None,
             hidden: false,
             readonly: true,
+            cloud: None,
         });
         if !deeper {
             item.is_dir = e.is_dir;

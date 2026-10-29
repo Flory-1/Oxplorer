@@ -73,6 +73,9 @@ impl OxApp {
             if changed {
                 tab.refresh_visible(folders_first, case);
             }
+            if let Some(again) = tab.poll_flat(folders_first, case) {
+                self.ctx.request_repaint_after(again);
+            }
         }
     }
 
@@ -85,6 +88,14 @@ impl OxApp {
                 Notice::Copy(text, toast) => {
                     self.ctx.copy_text(text);
                     self.toast(toast);
+                }
+                Notice::Changed(folders, toast) => {
+                    for f in &folders {
+                        self.mark_changed(Some(f));
+                    }
+                    if let Some(text) = toast {
+                        self.toast(text);
+                    }
                 }
             }
         }
@@ -103,17 +114,27 @@ impl OxApp {
     pub(super) fn poll_watcher(&mut self) {
         let panes = [Some(self.tabs.active), self.tabs.split_partner()];
         for (i, id) in panes.into_iter().enumerate() {
-            let folder = id
-                .and_then(|id| self.tabs.get(id))
+            let tab = id.and_then(|id| self.tabs.get(id));
+            // A flat view watches the sub-folders too, unless it hit the
+            // limit (a huge tree would keep re-listing itself).
+            let flat = tab.and_then(|t| t.flat.as_ref());
+            let walking = flat.is_some_and(|f| f.walking());
+            let folder = tab
                 .and_then(|t| t.location().folder().map(Path::to_path_buf))
-                .filter(|_| self.settings.browsing.auto_refresh);
-            self.watchers[i].watch(folder.as_deref());
+                .filter(|_| self.settings.browsing.auto_refresh)
+                .filter(|_| !flat.is_some_and(|f| f.truncated));
+            self.watchers[i].watch_tree(folder.as_deref(), flat.is_some());
             if self.watchers[i].take_dirty() && self.refresh_at[i].is_none() {
                 // Debounce bursts of file system events.
-                self.refresh_at[i] = Some(Instant::now() + Duration::from_millis(250));
+                let wait = if flat.is_some() { 1000 } else { 250 };
+                self.refresh_at[i] = Some(Instant::now() + Duration::from_millis(wait));
             }
             if let Some(at) = self.refresh_at[i] {
-                if Instant::now() >= at {
+                if walking && Instant::now() >= at {
+                    // Let the flat view finish listing before it starts over.
+                    self.refresh_at[i] = Some(Instant::now() + Duration::from_millis(500));
+                    self.ctx.request_repaint_after(Duration::from_millis(500));
+                } else if Instant::now() >= at {
                     self.refresh_at[i] = None;
                     if let Some(folder) = &folder {
                         self.folder_sizes.invalidate(folder);
@@ -185,7 +206,7 @@ impl OxApp {
 
     /// Save the tag store and reload tag views.
     pub fn tags_changed(&mut self) {
-        if let Err(e) = self.tags.save() {
+        if let Err(e) = self.save_tags() {
             self.toast(ox_core::trf!("Could not save tags: {e}", e = e));
         }
         for t in &mut self.tabs.tabs {

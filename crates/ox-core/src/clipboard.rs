@@ -49,6 +49,11 @@ impl FileClipboard {
         (!self.items.is_empty()).then(|| (self.items.clone(), mode))
     }
 
+    /// Are items cut (waiting to be moved by a paste)?
+    pub fn has_cut(&self) -> bool {
+        self.mode == Some(ClipMode::Cut) && !self.items.is_empty()
+    }
+
     /// Is `path` currently cut (shown dimmed in the file view)?
     pub fn is_cut(&self, path: &std::path::Path) -> bool {
         self.mode == Some(ClipMode::Cut) && self.items.iter().any(|p| p == path)

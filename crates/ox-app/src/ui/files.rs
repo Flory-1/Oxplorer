@@ -1,8 +1,23 @@
 //! The file view: details list and grid, with selection, drag & drop and context menus.
 
+mod cells;
+mod column_header;
+mod details;
+mod flat;
+mod grid;
+mod grouped;
+mod item;
+mod zoom;
+pub(crate) use cells::header_label;
+pub(crate) use column_header::{column_context, column_menu, folder_view_menu};
+use details::details;
+use grid::grid;
+pub(crate) use grouped::group_by_menu;
+use item::{item_context_menu, item_interact, item_tooltip};
 use ox_core::i18n::t as tr;
 use std::collections::HashSet;
 use std::path::PathBuf;
+pub use zoom::{status_controls, zoom};
 
 use egui::text::{LayoutJob, TextFormat};
 use egui::{
@@ -19,26 +34,6 @@ use crate::icons;
 use crate::shortcuts::{self, Command};
 use crate::tabs::{FolderView, Location};
 
-const DATE_W: f32 = 140.0;
-const TYPE_W: f32 = 150.0;
-const SIZE_W: f32 = 90.0;
-const FOLDER_W: f32 = 260.0;
-const GIT_W: f32 = 44.0;
-const TILE: egui::Vec2 = egui::Vec2::new(108.0, 104.0);
-const MIN_NAME_W: f32 = 180.0;
-
-/// Widths of the details columns (0 = hidden). Narrow views (e.g. a split
-/// pane) drop Type first, then shrink or drop Folder, then drop Date.
-#[derive(Clone, Copy)]
-struct Columns {
-    name: f32,
-    folder: f32,
-    git: f32,
-    date: f32,
-    kind: f32,
-    size: f32,
-}
-
 fn git_color(state: ox_core::git::GitState, v: &egui::Visuals) -> Color32 {
     use ox_core::git::GitState::*;
     match state {
@@ -51,42 +46,19 @@ fn git_color(state: ox_core::git::GitState, v: &egui::Visuals) -> Color32 {
     }
 }
 
-impl Columns {
-    fn fit(width: f32, with_folder: bool, with_git: bool) -> Self {
-        let avail = width - 16.0;
-        let mut c = Columns {
-            name: 0.0,
-            folder: if with_folder { FOLDER_W } else { 0.0 },
-            git: if with_git { GIT_W } else { 0.0 },
-            date: DATE_W,
-            kind: TYPE_W,
-            size: SIZE_W,
-        };
-        let rest = |c: &Columns| avail - (c.folder + c.git + c.date + c.kind + c.size);
-        if rest(&c) < MIN_NAME_W {
-            c.kind = 0.0;
-        }
-        if rest(&c) < MIN_NAME_W && c.folder > 0.0 {
-            let w = c.folder - (MIN_NAME_W - rest(&c));
-            c.folder = if w >= 120.0 { w } else { 0.0 };
-        }
-        if rest(&c) < MIN_NAME_W {
-            c.date = 0.0;
-        }
-        c.name = rest(&c).max(MIN_NAME_W.min(avail - c.size)).max(60.0);
-        c
-    }
-}
-
 /// Everything the rows need besides the tab itself.
 struct Ctx<'a> {
     show_ext: bool,
     date_format: &'a str,
     single_click: bool,
     row_h: f32,
+    /// Icon size of the grid view (see `ox_core::grid_zoom`).
+    grid_size: u32,
     accent: Color32,
     selection_fill: Color32,
     is_search: bool,
+    /// Flat view: files from all sub-folders, with a Folder column.
+    flat: bool,
     is_bin: bool,
     /// Inside an archive: items can be opened and copied (extracted) only.
     read_only: bool,
@@ -95,6 +67,8 @@ struct Ctx<'a> {
     icons: Option<&'a crate::icons::IconCache>,
     /// Picture and video previews in the grid, or `None` when they are off.
     thumbs: Option<&'a crate::thumbs::Thumbnails>,
+    /// Values of the extra columns, or `None` where files can't be read.
+    props: Option<&'a crate::column_values::ColumnValues>,
     /// Trash items behind the entries when showing the Recycle Bin.
     bin: &'a BinListing,
     tags: &'a ox_core::tags::TagStore,
@@ -104,7 +78,7 @@ struct Ctx<'a> {
     compare: Option<&'a std::collections::HashMap<PathBuf, ox_core::compare::Mark>>,
     /// Folder sizes for the Size column (`None` when they are off).
     sizes: Option<&'a ox_core::dirsize::FolderSizes>,
-    /// Root of the current search; result folders are shown relative to it.
+    /// Root of the current search or flat view; folders are shown relative to it.
     search_root: Option<PathBuf>,
     folder: Option<PathBuf>,
     cut: HashSet<PathBuf>,
@@ -121,30 +95,32 @@ struct Ctx<'a> {
 }
 
 pub fn show(app: &mut OxApp, ui: &mut Ui) {
+    zoom::wheel(app, ui, ui.available_rect_before_wrap());
     let dark = ui.visuals().dark_mode;
     let folder = app.current_folder();
     // Borrowed by the rows while the tab is mutably borrowed; put back at the end.
     let bin = std::mem::take(&mut app.tabs.active_mut().view.bin);
     let git = app.tabs.active().view.git.clone();
-    let tab_view_paths: Vec<PathBuf> = app
-        .tabs
-        .active()
-        .view
-        .entries
-        .iter()
-        .map(|e| e.path.clone())
-        .collect();
+    // Only when something is cut: a flat view may hold 200 000 entries.
+    let tab_view_paths: Vec<PathBuf> = if app.clipboard.has_cut() {
+        let entries = &app.tabs.active().view.entries;
+        entries.iter().map(|e| e.path.clone()).collect()
+    } else {
+        Vec::new()
+    };
     let cx = Ctx {
         show_ext: app.settings.browsing.show_extensions,
         date_format: &app.settings.browsing.date_format.clone(),
         single_click: app.settings.browsing.single_click_open,
         row_h: crate::theme::row_height(&app.settings),
+        grid_size: app.settings.appearance.grid_size,
         accent: crate::theme::accent(&app.settings),
         selection_fill: crate::theme::selection_fill(&app.settings, dark),
         is_search: matches!(
             app.tabs.active().location(),
             Location::Search { .. } | Location::Tagged(_)
-        ),
+        ) || app.tabs.active().location().is_collection(),
+        flat: app.tabs.active().is_flat(),
         tags: &app.tags,
         git: git.as_deref(),
         compare: (app.compare.as_ref()).and_then(|c| c.marks_for(app.tabs.active)),
@@ -156,12 +132,16 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             && !app.tabs.active().location().is_bin()
             && !app.tabs.active().location().is_read_only())
         .then_some(&app.thumbs),
+        props: (!app.tabs.active().location().is_bin()
+            && !app.tabs.active().location().is_read_only())
+        .then_some(&app.column_values),
         bin: &bin,
         sizes: (app.settings.browsing.folder_sizes
             && matches!(app.tabs.active().location(), Location::Folder(_)))
         .then_some(&app.folder_sizes),
         search_root: match app.tabs.active().location() {
             Location::Search { root, .. } => root.clone(),
+            Location::Folder(p) if app.tabs.active().is_flat() => Some(p.clone()),
             _ => None,
         },
         cut: tab_view_paths
@@ -179,6 +159,8 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     };
     let folders_first = app.settings.browsing.folders_first;
     let case = app.settings.search.case_sensitive;
+    let layout = app.columns_of(app.tabs.active()).clone();
+    let col_cx = column_context(app.tabs.active());
     let mut actions = Vec::new();
     let tab = app.tabs.active_mut();
 
@@ -196,11 +178,17 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     if let Location::Search { root, query } = tab.location().clone() {
         filter_chips(ui, &root, &query, &mut actions);
     }
+    if let Some(state) = &tab.flat {
+        flat::bar(ui, state, tab.view.entries.len(), &mut actions);
+    }
 
     // Background (empty space) interactions. Rows are added later and sit on top.
     let bg_rect = ui.available_rect_before_wrap();
     let bg = ui.interact(bg_rect, Id::unique(("files_bg", tab.id)), Sense::click());
 
+    if tab.view.needs_grouping {
+        tab.regroup(cx.tags);
+    }
     let mut sort_clicked = None;
     match tab.view_mode {
         ViewMode::Details => details(
@@ -208,10 +196,11 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             &mut tab.view,
             tab.id,
             &cx,
+            &layout,
+            col_cx,
             &mut actions,
             &mut sort_clicked,
-            tab.sort_key,
-            tab.sort_order,
+            (tab.sort_key, tab.sort_order),
         ),
         ViewMode::Grid => grid(ui, &mut tab.view, tab.id, &cx, &mut actions),
     }
@@ -225,7 +214,8 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     }
 
     if tab.view.visible.is_empty() {
-        let searching = tab.search.as_ref().is_some_and(|s| s.done.is_none());
+        let searching = tab.search.as_ref().is_some_and(|s| s.done.is_none())
+            || tab.flat.as_ref().is_some_and(|f| f.walking());
         if tab.view.loading.is_some() || searching {
             ui.put(
                 Rect::from_center_size(bg_rect.center(), vec2(40.0, 40.0)),
@@ -240,10 +230,25 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                     v1 = cx.tags.label(*c)
                 ),
             );
+        } else if *tab.location() == Location::Gallery {
+            centered_message(
+                ui,
+                "🎞",
+                tr("No pictures or videos in the Pictures library."),
+            );
+        } else if let Location::Library { name, .. } = tab.location() {
+            let text = ox_core::trf!("The library \"{name}\" is empty.", name = name);
+            centered_message(ui, "📚", &text);
         } else if cx.is_search {
             centered_message(ui, "🔍", tr("No results."));
         } else if cx.is_bin && tab.filter.is_empty() {
             centered_message(ui, "🗑", tr("The Recycle Bin is empty."));
+        } else if cx.flat && tab.filter.is_empty() {
+            centered_message(
+                ui,
+                "🗃",
+                tr("There are no files in this folder or its sub-folders."),
+            );
         } else if !tab.filter.is_empty() {
             centered_message(
                 ui,
@@ -320,7 +325,12 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 &mut actions,
             )
         });
-        if super::drop_target(&mut actions, &bg, folder) {
+        // In a flat view, items dropped onto the empty space from the flat
+        // view itself would all land in the top folder: not that.
+        let own_items = cx.flat
+            && egui::DragAndDrop::payload::<DragItems>(ui.ctx())
+                .is_some_and(|d| d.0.iter().all(|p| p.starts_with(folder)));
+        if !own_items && super::drop_target(&mut actions, &bg, folder) {
             ui.painter().rect_stroke(
                 bg_rect.shrink(2.0),
                 CornerRadius::same(6),
@@ -408,105 +418,6 @@ fn centered_message(ui: &mut Ui, icon: &str, text: &str) {
         v.weak_text_color(),
     );
 }
-
-#[allow(clippy::too_many_arguments)]
-fn details(
-    ui: &mut Ui,
-    view: &mut FolderView,
-    tab_id: u64,
-    cx: &Ctx<'_>,
-    actions: &mut Vec<Action>,
-    sort_clicked: &mut Option<SortKey>,
-    sort_key: SortKey,
-    sort_order: ox_core::entry::SortOrder,
-) {
-    let width = ui.available_width();
-    let with_folder = cx.is_search || cx.is_bin;
-    let columns = Columns::fit(width, with_folder, cx.git.is_some());
-
-    // Column header
-    let (header, _) = ui.allocate_exact_size(vec2(width, 28.0), Sense::hover());
-    let v = ui.visuals().clone();
-    ui.painter().line_segment(
-        [header.left_bottom(), header.right_bottom()],
-        v.widgets.noninteractive.bg_stroke,
-    );
-    let mut x = header.left() + 8.0;
-    let mut cols: Vec<(&str, f32, Option<SortKey>)> =
-        vec![(tr("Name"), columns.name, Some(SortKey::Name))];
-    if columns.folder > 0.0 {
-        let label = if cx.is_bin {
-            tr("Original location")
-        } else {
-            tr("Folder")
-        };
-        cols.push((label, columns.folder, None));
-    }
-    let date_label = if cx.is_bin {
-        tr("Date deleted")
-    } else {
-        tr("Date modified")
-    };
-    cols.extend([
-        (tr("Git"), columns.git, None),
-        (date_label, columns.date, Some(SortKey::Modified)),
-        (tr("Type"), columns.kind, Some(SortKey::Type)),
-        (tr("Size"), columns.size, Some(SortKey::Size)),
-    ]);
-    for (label, w, key) in cols.into_iter().filter(|c| c.1 > 0.0) {
-        let rect = Rect::from_min_size(egui::pos2(x, header.top()), vec2(w, header.height()));
-        let resp = ui.interact(rect, Id::unique(("col", tab_id, label)), Sense::click());
-        if resp.hovered() && key.is_some() {
-            ui.painter()
-                .rect_filled(rect, CornerRadius::same(4), v.widgets.hovered.weak_bg_fill);
-        }
-        let arrow = match (key == Some(sort_key), sort_order) {
-            (true, ox_core::entry::SortOrder::Ascending) => " ⏶",
-            (true, ox_core::entry::SortOrder::Descending) => " ⏷",
-            _ => "",
-        };
-        ui.painter().text(
-            rect.left_center() + vec2(6.0, 0.0),
-            Align2::LEFT_CENTER,
-            format!("{label}{arrow}"),
-            FontId::proportional(12.5),
-            v.weak_text_color(),
-        );
-        if resp.clicked() {
-            *sort_clicked = key;
-        }
-        x += w;
-    }
-
-    let n = view.visible.len();
-    let row_h = cx.row_h;
-    let mut area = egui::ScrollArea::vertical()
-        .id_salt(("details", tab_id))
-        .auto_shrink([false, false]);
-    if let Some(target) = view.scroll_to.take() {
-        area = scroll_into_view(ui, area, ("details", tab_id), target as f32 * row_h, row_h);
-    }
-    ui.spacing_mut().item_spacing.y = 0.0;
-    let out = area.show_rows(ui, row_h, n, |ui, range| {
-        for i in range {
-            let (rect, resp) = ui.allocate_exact_size(vec2(width, row_h), Sense::click_and_drag());
-            let Some(entry) = view.visible_entry(i).cloned() else {
-                continue;
-            };
-            let selected = view.selection.contains(&entry.path);
-            let drop_hover = item_interact(view, i, &entry, &resp, cx, actions);
-            paint_row(ui, rect, &entry, selected, drop_hover, &resp, cx, columns);
-            item_context_menu(&resp, view, &entry, cx, actions);
-        }
-    });
-    remember_scroll(
-        ui,
-        ("details", tab_id),
-        out.state.clamped_offset().y,
-        out.inner_rect.height(),
-    );
-}
-
 /// Scroll so that the item at `y` is visible, using last frame's offset.
 fn scroll_into_view(
     ui: &Ui,
@@ -529,432 +440,4 @@ fn scroll_into_view(
 
 fn remember_scroll(ui: &Ui, key: (&str, u64), offset: f32, height: f32) {
     ui.data_mut(|d| d.insert_temp(Id::unique(key), (offset, height)));
-}
-
-#[allow(clippy::too_many_arguments)]
-fn paint_row(
-    ui: &Ui,
-    rect: Rect,
-    e: &FileEntry,
-    selected: bool,
-    drop_hover: bool,
-    resp: &Response,
-    cx: &Ctx<'_>,
-    columns: Columns,
-) {
-    let name_w = columns.name;
-    let v = ui.visuals();
-    if selected {
-        ui.painter()
-            .rect_filled(rect, CornerRadius::same(4), cx.selection_fill);
-    } else if resp.hovered() {
-        ui.painter()
-            .rect_filled(rect, CornerRadius::same(4), v.widgets.hovered.weak_bg_fill);
-    }
-    if drop_hover {
-        ui.painter().rect_stroke(
-            rect,
-            CornerRadius::same(4),
-            Stroke::new(1.5, cx.accent),
-            egui::StrokeKind::Inside,
-        );
-    }
-    super::compare::paint_mark(ui, rect, cx.compare, &e.path);
-    let dim = cx.cut.contains(&e.path) || e.hidden;
-    let fade = |c: Color32| if dim { c.gamma_multiply(0.5) } else { c };
-    let text = fade(v.text_color());
-    let weak = fade(v.weak_text_color());
-    let y = rect.center().y;
-    let mut x = rect.left() + 8.0;
-
-    let p = ui.painter().with_clip_rect(Rect::from_min_max(
-        rect.min,
-        egui::pos2(x + name_w - 8.0, rect.max.y),
-    ));
-    let icon_size = (cx.row_h - 8.0).min(20.0);
-    let texture = cx
-        .icons
-        .and_then(|c| c.texture(e, cx.is_bin || cx.read_only));
-    icons::paint_entry(&p, icons::icon_rect(x + 2.0, y, icon_size), e, dim, texture);
-    let name = if e.is_symlink {
-        format!("{} ↗", e.display_name(cx.show_ext))
-    } else {
-        e.display_name(cx.show_ext).to_owned()
-    };
-    let name_rect = p.text(
-        egui::pos2(x + 28.0, y),
-        Align2::LEFT_CENTER,
-        name,
-        FontId::proportional(13.5),
-        text,
-    );
-    for (i, &tag) in cx.tags.tags(&e.path).iter().enumerate() {
-        let c = egui::pos2(name_rect.right() + 10.0 + i as f32 * 10.0, y);
-        p.circle_filled(c, 4.0, fade(super::tag_color(tag)));
-    }
-    x += name_w;
-
-    let col = |x: f32, w: f32, s: String, align_right: bool| {
-        let p = ui.painter().with_clip_rect(Rect::from_min_max(
-            egui::pos2(x, rect.top()),
-            egui::pos2(x + w - 6.0, rect.bottom()),
-        ));
-        if align_right {
-            p.text(
-                egui::pos2(x + w - 14.0, y),
-                Align2::RIGHT_CENTER,
-                s,
-                FontId::proportional(12.5),
-                weak,
-            );
-        } else {
-            p.text(
-                egui::pos2(x + 6.0, y),
-                Align2::LEFT_CENTER,
-                s,
-                FontId::proportional(12.5),
-                weak,
-            );
-        }
-    };
-    if cx.is_bin && columns.folder > 0.0 {
-        let original = cx
-            .bin
-            .get(&e.path)
-            .map(|i| i.original_parent.display().to_string())
-            .unwrap_or_default();
-        col(x, columns.folder, original, false);
-        x += columns.folder;
-    } else if cx.is_search && columns.folder > 0.0 {
-        let parent = e.path.parent().unwrap_or(&e.path);
-        let parent = match &cx.search_root {
-            Some(root) => {
-                let name = ox_core::entry::display_name(root);
-                match parent.strip_prefix(root) {
-                    Ok(rel) if rel.as_os_str().is_empty() => name,
-                    Ok(rel) => format!("{name}{}{}", std::path::MAIN_SEPARATOR, rel.display()),
-                    Err(_) => parent.display().to_string(),
-                }
-            }
-            None => parent.display().to_string(),
-        };
-        col(x, columns.folder, parent, false);
-        x += columns.folder;
-    }
-    if let (true, Some(git)) = (columns.git > 0.0, cx.git) {
-        if let Some(state) = git.state(&e.path) {
-            ui.painter().text(
-                egui::pos2(x + 14.0, y),
-                Align2::LEFT_CENTER,
-                state.letter(),
-                FontId::monospace(12.5),
-                fade(git_color(state, v)),
-            );
-        }
-        x += columns.git;
-    }
-    if columns.date > 0.0 {
-        col(
-            x,
-            columns.date,
-            e.modified
-                .map(|t| format::time(t, cx.date_format))
-                .unwrap_or_default(),
-            false,
-        );
-        x += columns.date;
-    }
-    if columns.kind > 0.0 {
-        col(x, columns.kind, e.type_label(), false);
-        x += columns.kind;
-    }
-    let size = match (e.is_dir, cx.sizes) {
-        (false, _) => format::size(e.size),
-        (true, Some(sizes)) if !e.is_symlink => match sizes.get(&e.path) {
-            Some(s) => format::size(s.bytes),
-            None => "…".into(),
-        },
-        (true, _) => String::new(),
-    };
-    col(x, columns.size, size, true);
-}
-
-fn grid(ui: &mut Ui, view: &mut FolderView, tab_id: u64, cx: &Ctx<'_>, actions: &mut Vec<Action>) {
-    let width = ui.available_width();
-    let gap = 6.0;
-    let cols = (((width - 12.0) / (TILE.x + gap)).floor() as usize).max(1);
-    ui.data_mut(|d| d.insert_temp(Id::unique(("grid_columns", tab_id)), cols));
-    let n = view.visible.len();
-    let rows = n.div_ceil(cols);
-    let row_h = TILE.y + gap;
-    let mut area = egui::ScrollArea::vertical()
-        .id_salt(("grid", tab_id))
-        .auto_shrink([false, false]);
-    if let Some(target) = view.scroll_to.take() {
-        area = scroll_into_view(
-            ui,
-            area,
-            ("grid", tab_id),
-            (target / cols) as f32 * row_h,
-            row_h,
-        );
-    }
-    ui.spacing_mut().item_spacing.y = 0.0;
-    let out = area.show_rows(ui, row_h, rows, |ui, range| {
-        for row in range {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = gap;
-                ui.add_space(6.0);
-                for col in 0..cols {
-                    let i = row * cols + col;
-                    if i >= n {
-                        break;
-                    }
-                    let (rect, resp) =
-                        ui.allocate_exact_size(vec2(TILE.x, row_h), Sense::click_and_drag());
-                    let rect = Rect::from_min_size(rect.min, TILE);
-                    let Some(entry) = view.visible_entry(i).cloned() else {
-                        continue;
-                    };
-                    let selected = view.selection.contains(&entry.path);
-                    let drop_hover = item_interact(view, i, &entry, &resp, cx, actions);
-                    paint_tile(ui, rect, &entry, selected, drop_hover, &resp, cx);
-                    item_context_menu(&resp, view, &entry, cx, actions);
-                }
-            });
-        }
-    });
-    remember_scroll(
-        ui,
-        ("grid", tab_id),
-        out.state.clamped_offset().y,
-        out.inner_rect.height(),
-    );
-}
-
-fn paint_tile(
-    ui: &Ui,
-    rect: Rect,
-    e: &FileEntry,
-    selected: bool,
-    drop_hover: bool,
-    resp: &Response,
-    cx: &Ctx<'_>,
-) {
-    let v = ui.visuals();
-    if selected {
-        ui.painter()
-            .rect_filled(rect, CornerRadius::same(8), cx.selection_fill);
-    } else if resp.hovered() {
-        ui.painter()
-            .rect_filled(rect, CornerRadius::same(8), v.widgets.hovered.weak_bg_fill);
-    }
-    if drop_hover {
-        ui.painter().rect_stroke(
-            rect,
-            CornerRadius::same(8),
-            Stroke::new(1.5, cx.accent),
-            egui::StrokeKind::Inside,
-        );
-    }
-    super::compare::paint_mark(ui, rect, cx.compare, &e.path);
-    let dim = cx.cut.contains(&e.path) || e.hidden;
-    let fade = |c: Color32| if dim { c.gamma_multiply(0.5) } else { c };
-    let icon_rect = Rect::from_center_size(
-        egui::pos2(rect.center().x, rect.top() + 32.0),
-        vec2(48.0, 48.0),
-    );
-    let thumb = cx
-        .thumbs
-        .filter(|_| crate::thumbs::wanted(e))
-        .and_then(|t| t.get(e));
-    if let Some((tex, size)) = thumb {
-        let area = Rect::from_center_size(
-            egui::pos2(rect.center().x, rect.top() + 31.0),
-            vec2(rect.width() - 16.0, 52.0),
-        );
-        let r = crate::thumbs::fit(area, size);
-        let tint = if dim {
-            Color32::from_white_alpha(110)
-        } else {
-            Color32::WHITE
-        };
-        let uv = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-        ui.painter().image(tex, r, uv, tint);
-        ui.painter().rect_stroke(
-            r,
-            CornerRadius::ZERO,
-            Stroke::new(1.0, v.widgets.noninteractive.bg_stroke.color),
-            egui::StrokeKind::Outside,
-        );
-        if e.kind() == ox_core::entry::FileKind::Video {
-            // Play badge so videos stand out from pictures.
-            let c = r.left_bottom() + vec2(9.0, -9.0);
-            ui.painter()
-                .circle_filled(c, 7.0, Color32::from_black_alpha(160));
-            ui.painter().text(
-                c + vec2(0.5, 0.0),
-                egui::Align2::CENTER_CENTER,
-                "▶",
-                FontId::proportional(8.0),
-                Color32::WHITE,
-            );
-        }
-    } else {
-        let texture = cx
-            .icons
-            .and_then(|c| c.texture(e, cx.is_bin || cx.read_only));
-        icons::paint_entry(ui.painter(), icon_rect, e, dim, texture);
-    }
-    // Tag dots in the top-right corner of the icon.
-    for (i, &tag) in cx.tags.tags(&e.path).iter().enumerate() {
-        let c = egui::pos2(
-            icon_rect.right() - 2.0 - i as f32 * 9.0,
-            icon_rect.top() + 6.0,
-        );
-        ui.painter().circle(
-            c,
-            4.5,
-            fade(super::tag_color(tag)),
-            Stroke::new(1.5, v.panel_fill),
-        );
-    }
-    let mut job = LayoutJob::single_section(
-        e.display_name(cx.show_ext).to_owned(),
-        TextFormat::simple(FontId::proportional(12.5), fade(v.text_color())),
-    );
-    job.wrap.max_width = rect.width() - 10.0;
-    job.wrap.max_rows = 2;
-    job.wrap.overflow_character = Some('…');
-    job.halign = egui::Align::Center;
-    let galley = ui.painter().layout_job(job);
-    ui.painter().galley(
-        egui::pos2(rect.center().x, rect.top() + 62.0),
-        galley,
-        v.text_color(),
-    );
-}
-
-/// Selection, opening and drag & drop for one item. Returns true while files hover over it.
-fn item_interact(
-    view: &mut FolderView,
-    i: usize,
-    e: &FileEntry,
-    resp: &Response,
-    cx: &Ctx<'_>,
-    actions: &mut Vec<Action>,
-) -> bool {
-    let m = cx.modifiers;
-    if cx.is_bin {
-        // Deleted items can only be selected, restored or purged.
-        if resp.clicked() {
-            if m.command {
-                view.toggle(i);
-            } else if m.shift {
-                view.select_range(i, false);
-            } else {
-                view.select_only(i);
-            }
-        }
-        if resp.secondary_clicked() && !view.selection.contains(&e.path) {
-            view.select_only(i);
-        }
-        return false;
-    }
-    if resp.clicked() {
-        if m.command {
-            view.toggle(i);
-        } else if m.shift {
-            view.select_range(i, false);
-        } else {
-            view.select_only(i);
-            if cx.single_click {
-                actions.push(Action::Open(e.path.clone()));
-            }
-        }
-    }
-    if resp.double_clicked() && !cx.single_click {
-        actions.push(Action::Open(e.path.clone()));
-    }
-    if resp.secondary_clicked() && !view.selection.contains(&e.path) {
-        view.select_only(i);
-    }
-    if resp.middle_clicked() && e.is_dir {
-        actions.push(Action::OpenInNewTab(
-            Location::Folder(e.path.clone()),
-            false,
-        ));
-    }
-    if resp.drag_started() {
-        if !view.selection.contains(&e.path) {
-            view.select_only(i);
-        }
-        resp.dnd_set_drag_payload(DragItems(view.selected_paths()));
-    }
-    if e.is_dir {
-        super::drop_target(actions, resp, &e.path)
-    } else {
-        false
-    }
-}
-
-fn item_context_menu(
-    resp: &Response,
-    view: &FolderView,
-    e: &FileEntry,
-    cx: &Ctx<'_>,
-    actions: &mut Vec<Action>,
-) {
-    resp.context_menu(|ui| {
-        let selection = view.selected_paths();
-        if cx.is_bin {
-            if ui.button(tr("♻ Restore")).clicked() {
-                actions.push(Action::RestoreFromBin(selection.clone()));
-            }
-            if ui
-                .add(
-                    egui::Button::new(tr("⛔ Delete permanently"))
-                        .shortcut_text(shortcuts::label(Command::Delete)),
-                )
-                .clicked()
-            {
-                actions.push(Action::PurgeFromBin(selection.clone()));
-            }
-            ui.separator();
-            if ui.button(tr("🔗 Copy original location")).clicked() {
-                let originals = selection
-                    .iter()
-                    .filter_map(|p| cx.bin.get(p))
-                    .map(|i| i.original_path())
-                    .collect();
-                actions.push(Action::CopyPathText(originals));
-            }
-            if let Some(parent) = cx.bin.get(&e.path).map(|i| i.original_parent.clone()) {
-                if ui.button(tr("📁 Open original folder")).clicked() {
-                    actions.push(Action::Navigate(Location::Folder(parent)));
-                }
-            }
-            return;
-        }
-        let single_dir = (selection.len() == 1 && e.is_dir).then_some(e.path.as_path());
-        if cx.is_search {
-            if let Some(parent) = e.path.parent() {
-                if ui.button(tr("📁 Open file location")).clicked() {
-                    actions.push(Action::Navigate(Location::Folder(parent.to_path_buf())));
-                }
-            }
-        }
-        let target = MenuTarget {
-            selection: &selection,
-            read_only: cx.read_only,
-            tags: cx.tags,
-            single_dir,
-            pinned: cx.favorites.contains(&e.path),
-            can_paste: cx.can_paste || e.is_dir,
-            destinations: &cx.destinations,
-            shell: ox_core::shell::supported(),
-            dev: cx.dev,
-        };
-        super::item_menu(ui, &target, actions);
-    });
 }

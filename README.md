@@ -40,7 +40,17 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 ### Browsing
 
 - **Details and grid views** with sortable columns and natural sort order (`file2` before `file10`)
-- Multi-select with Ctrl/Shift, Ctrl+A, arrow keys, Home/End, and **type-to-jump**
+- **Choose your columns**: show, hide, move and resize them, with extra ones such as dimensions,
+  length, date taken, authors, file version and attributes
+- **Each folder remembers its view**: sort order, view mode, columns and grouping (e.g.
+  *Downloads* by date, *Pictures* as a grid)
+- **Group by** type, date, size or tag, with groups you can fold away
+- **Grid zoom** with Ctrl+mouse wheel or a slider, from small icons to large thumbnails
+- **Quick Look**: Space shows the selected file large over the window; the arrow keys go
+  through the folder
+- **Flat view** (Ctrl+Shift+F): every file of a folder and its sub-folders in one list
+- Multi-select with Ctrl/Shift, Ctrl+A, arrow keys, Home/End, and **type-to-jump**;
+  **select by pattern** (`*.jpg; *.png`), invert the selection or select all of the same type
 - Back, forward and up (the mouse side buttons work too) and a **breadcrumb address bar**:
   click a `›` to jump into a sub-folder, or click the empty part to type a path
   (`%USERPROFILE%` and `~` are expanded)
@@ -59,19 +69,26 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
   permanently or empty the bin, and drop files onto it to delete them
 - **Undo and redo** (Ctrl+Z / Ctrl+Y) for renames, moves, copies, new items and deletes to the
   Recycle Bin; Oxplorer checks first that nothing changed since
+- **Links**: create symbolic links, junctions and hard links from ➕ New or by dragging with
+  Ctrl+Shift; links show where they point
 
 ### Tabs, split view and quick access
 
 - **Tabs** in the title bar: drag to reorder, middle-click to close, drop files onto a tab
   to open it
 - Chrome-style **tab groups** with names and colours; click a group's chip to collapse it
+- **Pinned tabs** stay small and in front, and **named sessions** save a set of tabs and
+  groups to open again later
+- **More windows**: Ctrl+N, or drag a tab out of the window into one of its own
 - **Split view** (Ctrl+\\): two folders side by side. F6 or a click switches the pane, and
   you can drag files between the panes.
 - **Compare folders** (Ctrl+Shift+D) in the split view: what only one side has, what's newer
   and what differs is marked, and missing or newer files are copied over in one go
 - **Home tab**, always the first tab: favorites, drives with usage bars, and recent folders and
   files. What you open from it opens in a new tab.
-- **Sidebar** with Favorites, This PC, Network, Recent, Tags and Saved searches
+- **Sidebar** with Favorites, This PC, Network, Recent, Tags, Saved searches and **Libraries**:
+  Windows' libraries with all their folders in one view, and a **Gallery** of every picture and
+  video, newest first
 - **Command palette** (Ctrl+Shift+P): type a few letters to run any command or jump to a
   favorite, drive, recent folder, tag or saved search
 - Your tabs and groups can be restored at startup, and the window opens where you left it
@@ -148,6 +165,9 @@ Copying and moving never opens the Windows copy dialog. Oxplorer's own engine
 - **Show more options** (Shift+F10) opens the real Explorer context menu, so entries from
   7-Zip, VS Code and other tools are there. Properties and *Open with* use the Windows dialogs.
 - **Drag files out** of Oxplorer into other programs
+- **OneDrive and Dropbox**: online only, on this device or always kept, as a badge and a Status
+  column, with *Always keep on this device* and *Free up space*. Online-only files aren't
+  downloaded just to show a thumbnail or preview.
 - **Network locations**: type `\\server` to see its shares, browse them like any folder, mapped
   drives under *This PC*, and *Map network drive…*
 - **Mica or Acrylic** window backdrop on Windows 11, rounded corners, dark or light title bar
@@ -225,6 +245,7 @@ palette always show the keys in use.
 | Keys | Action |
 |---|---|
 | Ctrl+T / Ctrl+W | New tab / close tab |
+| Ctrl+N | New window |
 | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous tab |
 | Alt+← / Alt+→ / Alt+↑ or Backspace | Back / forward / up |
 | Ctrl+L or Alt+D | Edit address |
@@ -236,6 +257,9 @@ palette always show the keys in use.
 | Del / Shift+Del | Delete / delete permanently |
 | Ctrl+Shift+N | New folder |
 | Ctrl+A | Select all |
+| Ctrl+Shift+A / Ctrl+Shift+I | Select by pattern / invert selection |
+| Space | Quick Look |
+| Ctrl+Shift+F | Flat view |
 | Alt+Enter | Properties |
 | Shift+F10 | Windows context menu ("Show more options") |
 | F5 or Ctrl+R | Refresh |

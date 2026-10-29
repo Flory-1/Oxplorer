@@ -86,9 +86,13 @@ ICONS = {
     "🖥": "monitor",
     "🖳": "square-terminal",
     "🗗": "external-link",
+    "☁": "cloud",
+    "📚": "library-big",
+    "🎞": "images",
     # Views and panels
     "☰": "list",
     "▦": "layout-grid",
+    "🗃": "folder-tree",
     "◧": "panel-left",
     "◨": "panel-right",
     "◫": "columns-2",
@@ -126,6 +130,12 @@ ICONS = {
     "✨": "sparkles",
     "📜": "scroll-text",
     "🌿": "git-branch",
+    # Pinned tabs, named sessions and windows
+    "📌": "pin",
+    "📍": "pin-off",
+    "💾": "save",
+    "🗂": "layers",
+    "🗔": "app-window",
 }
 
 UNITS = 1000

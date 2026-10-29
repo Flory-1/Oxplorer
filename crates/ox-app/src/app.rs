@@ -5,18 +5,31 @@
 //! borrow checker happy and makes every user command go through one place.
 
 mod action;
+mod cloud;
 mod compare;
+mod flat;
 mod input;
+mod instances;
+mod library;
+mod links;
 mod poll;
 mod process;
 mod properties;
+mod quick_look;
+mod select;
+mod sessions;
 mod transfer_watch;
 mod undo;
+mod view;
 mod window;
 pub use action::{Action, TabAction};
 pub use compare::{CompareAction, CompareState};
+pub use instances::Start;
 pub use properties::Properties;
+pub use select::SelectAction;
+pub use sessions::{SavedSessions, SessionAction};
 pub use transfer_watch::TransferWatch;
+pub use view::{ColumnEdit, ViewAction};
 
 use ox_core::i18n::t as tr;
 use std::collections::HashSet;
@@ -69,6 +82,19 @@ pub enum Dialog {
     RenameGroup {
         id: GroupId,
         text: String,
+        focus: bool,
+    },
+    NewLink(Box<crate::ui::link_dialog::LinkDialog>),
+    /// Name for saving the open tabs as a session, or (`old`) a new name for one.
+    SessionName {
+        old: Option<String>,
+        text: String,
+        focus: bool,
+    },
+    /// Select (`select`) or deselect the items matching typed patterns.
+    SelectPattern {
+        text: String,
+        select: bool,
         focus: bool,
     },
 }
@@ -137,8 +163,15 @@ pub struct OxApp {
     applied_settings: Option<Settings>,
     pub icons: crate::icons::IconCache,
     pub thumbs: crate::thumbs::Thumbnails,
+    /// Values of the extra details columns, read in the background.
+    pub column_values: crate::column_values::ColumnValues,
+    /// The view each folder was last shown with.
+    pub folder_views: ox_core::folder_views::FolderViews,
+    folder_views_saved: Instant,
     pub index: IndexService,
     pub preview: crate::ui::preview::PreviewState,
+    /// Quick Look, while it is open (Space).
+    pub quick_look: Option<crate::ui::quick_look::QuickLook>,
     pub folder_sizes: FolderSizes,
     /// Keyboard shortcuts in effect (defaults + the user's changes).
     pub keymap: crate::shortcuts::Keymap,
@@ -185,6 +218,19 @@ pub struct OxApp {
     notices: (Sender<Notice>, Receiver<Notice>),
     /// What Ctrl+Z / Ctrl+Y can undo and redo.
     pub undo: undo::UndoState,
+    /// Named sessions (sets of tabs saved to open again).
+    pub sessions: SavedSessions,
+    /// This window among other Oxplorer windows (files they share).
+    instance: instances::Instance,
+    /// When the panes were last checked for syncing cloud files.
+    cloud_check: Option<Instant>,
+    /// The Windows libraries (for the sidebar and drops into a library).
+    pub libraries: Vec<ox_core::library::Library>,
+    /// Reading them in the background, and when they were last read.
+    libraries_rx: Option<Receiver<Vec<ox_core::library::Library>>>,
+    libraries_at: Option<Instant>,
+    /// Running Gallery walks: the tab and the flag that stops it.
+    gallery_walks: Vec<(TabId, Arc<AtomicBool>)>,
 }
 
 /// What background work started by an action reports back.
@@ -194,28 +240,36 @@ pub enum Notice {
     OpenUrl(String),
     /// Put text on the clipboard and say so.
     Copy(String, String),
+    /// These folders changed: list them again, and show the text if any.
+    Changed(Vec<PathBuf>, Option<String>),
 }
 
 impl OxApp {
     /// `see_through`: the window was created transparent (for Mica/Acrylic).
-    pub fn new(cc: &eframe::CreationContext<'_>, open: Option<PathBuf>, see_through: bool) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, start: Start, see_through: bool) -> Self {
         let ctx = cc.egui_ctx.clone();
         // Images in the Markdown preview (local files).
         egui_extras::install_image_loaders(&ctx);
         install_icon_font(&ctx);
-        let settings = Settings::load();
+        let mut instance = instances::Instance::new(start.session_lock);
+        let settings = instance.settings.load().unwrap_or_default();
         // Before anything is named (e.g. the default favorites on first start).
         ox_core::i18n::set_language(settings.appearance.language);
-        let quick = QuickAccess::load();
+        let quick = instance.quick.load().unwrap_or_default();
 
         let engine = TransferEngine::new(settings.transfer.engine_config());
         let repaint = ctx.clone();
         engine.set_notifier(move || repaint.request_repaint());
 
+        // Tabs handed over by another window, else the start page (only
+        // one window restores the saved session).
+        let handed = start.tabs.and_then(|s| Tabs::from_session(s, &settings));
         let mut tabs = match settings.startup.start_page {
-            StartPage::RestoreSession => {
+            _ if handed.is_some() => handed,
+            StartPage::RestoreSession if instance.owns_session() => {
                 Session::load().and_then(|s| Tabs::from_session(s, &settings))
             }
+            StartPage::RestoreSession => None,
             StartPage::Folder => settings
                 .startup
                 .start_folder
@@ -225,7 +279,7 @@ impl OxApp {
             StartPage::Home => None,
         }
         .unwrap_or_else(|| Tabs::new(Location::Home, &settings));
-        if let Some(path) = open {
+        if let Some(path) = start.open {
             tabs.open(Location::Folder(path), None, true, &settings);
         }
 
@@ -278,6 +332,9 @@ impl OxApp {
             applied_settings: None,
             icons: crate::icons::IconCache::new(&cc.egui_ctx),
             thumbs: crate::thumbs::Thumbnails::new(&cc.egui_ctx),
+            column_values: crate::column_values::ColumnValues::new(&cc.egui_ctx),
+            folder_views: ox_core::folder_views::FolderViews::load(),
+            folder_views_saved: Instant::now(),
             index: {
                 let repaint = cc.egui_ctx.clone();
                 IndexService::start(ox_core::index::default_cache_path(), move || {
@@ -285,11 +342,16 @@ impl OxApp {
                 })
             },
             preview: Default::default(),
+            quick_look: None,
             folder_sizes: {
                 let repaint = cc.egui_ctx.clone();
                 FolderSizes::new(move || repaint.request_repaint())
             },
-            tags: TagStore::load(),
+            tags: {
+                let mut tags = TagStore::from_file(instance.tags.load().unwrap_or_default());
+                tags.prune();
+                tags
+            },
             compare: None,
             keymap: Default::default(),
             themes: ox_core::themes::load_all(),
@@ -310,6 +372,13 @@ impl OxApp {
             index_force: false,
             index_settings: None,
             undo: Default::default(),
+            sessions: Default::default(),
+            instance,
+            cloud_check: None,
+            libraries: Vec::new(),
+            libraries_rx: None,
+            libraries_at: None,
+            gallery_walks: Vec::new(),
         }
     }
 
@@ -324,12 +393,14 @@ impl OxApp {
         });
     }
 
+    /// The folder of the active tab; for a library, its save folder (where
+    /// pasted, new and dropped files go).
     pub fn current_folder(&self) -> Option<PathBuf> {
-        self.tabs
-            .active()
-            .location()
-            .folder()
-            .map(Path::to_path_buf)
+        let location = self.tabs.active().location();
+        if let Location::Library { file, .. } = location {
+            return self.library_save_folder(file);
+        }
+        location.folder().map(Path::to_path_buf)
     }
 
     pub fn drives(&mut self) -> &[Drive] {
@@ -359,10 +430,13 @@ impl OxApp {
             self.applied_settings = Some(self.settings.clone());
         }
         self.remap_text_clipboard_keys(ctx);
+        self.poll_shared_files();
         self.icons.poll(ctx);
         self.thumbs.poll(ctx);
+        self.column_values.poll();
         self.manage_index();
         self.tabs.fix_panes();
+        self.sync_folder_views();
         self.load_active_tab();
         if let Some(other) = self.tabs.split_partner() {
             // Load the other pane's tab too (`load_active_tab` works on the active one).
@@ -375,6 +449,8 @@ impl OxApp {
         self.poll_compare();
         self.poll_folder_sizes();
         self.poll_git();
+        self.poll_cloud();
+        self.poll_libraries();
         self.poll_watcher();
         self.poll_jobs();
         self.poll_undo();
@@ -383,6 +459,7 @@ impl OxApp {
         self.poll_notices();
         self.poll_dropped_files(ctx);
         self.follow_folder_in_terminal();
+        self.sync_groups();
         if self.ui.show_terminal && self.ui.terminal_focused {
             // The terminal gets every key except its own toggle.
             let toggle = ctx.input_mut(|i| {
@@ -430,6 +507,13 @@ impl OxApp {
         }
         tab.stale = false;
         match tab.location().clone() {
+            Location::Folder(path) if tab.is_flat() => {
+                let opts = ox_core::flat::FlatOptions {
+                    show_hidden,
+                    ..Default::default()
+                };
+                tab.start_flat(path, opts, move || ctx.request_repaint());
+            }
             Location::Folder(path) => {
                 let (tx, rx) = crossbeam_channel::bounded(1);
                 std::thread::spawn(move || {
@@ -481,6 +565,33 @@ impl OxApp {
                     ctx.request_repaint();
                 });
                 tab.view.loading = Some(rx);
+            }
+            Location::Library { file, .. } => {
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                std::thread::spawn(move || {
+                    let _ = tx.send(Listing::library(&file, show_hidden));
+                    ctx.request_repaint();
+                });
+                tab.view.loading = Some(rx);
+            }
+            Location::Gallery => {
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                let cancel = Arc::new(AtomicBool::new(false));
+                let flag = cancel.clone();
+                std::thread::spawn(move || {
+                    let _ = tx.send(Ok(Listing::gallery(show_hidden, &flag)));
+                    ctx.request_repaint();
+                });
+                tab.view.loading = Some(rx);
+                // A walk started earlier for this tab isn't needed any more.
+                self.gallery_walks.retain(|(id, old)| {
+                    let same = *id == tab.id;
+                    if same {
+                        old.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    !same
+                });
+                self.gallery_walks.push((tab.id, cancel));
             }
             Location::Home | Location::Settings | Location::Help => {}
         }
@@ -708,18 +819,6 @@ impl OxApp {
         self.process(Action::Rename(created));
     }
 
-    pub fn save_quick(&mut self) {
-        if let Err(e) = self.quick.save() {
-            log::warn!("could not save quick access: {e}");
-        }
-    }
-
-    fn save_session(&self) {
-        if let Err(e) = self.tabs.to_session().save() {
-            log::warn!("could not save session: {e}");
-        }
-    }
-
     /// Short status text for the transfers button.
     pub fn transfer_summary(&self) -> Option<String> {
         let jobs = self.engine.jobs();
@@ -791,9 +890,11 @@ impl eframe::App for OxApp {
         ui::show(self, ui);
         self.publish_title_bar(&ctx);
         self.drag_out_of_window(&ctx);
+        self.drag_tab_out(&ctx);
         self.process_actions();
         if ctx.input(|i| i.viewport().close_requested()) {
             self.save_session();
+            self.save_folder_views();
             self.save_quick();
         }
     }

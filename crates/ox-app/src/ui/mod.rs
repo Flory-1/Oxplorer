@@ -1,17 +1,25 @@
 //! All drawing code. Each submodule draws one area of the window.
 
+pub mod cloud;
 mod compare;
 mod dialogs;
 mod files;
 pub mod header;
 pub(crate) mod help_page;
 mod home;
+pub(crate) mod link_dialog;
+mod links;
+mod menus;
 pub(crate) mod palette;
 pub(crate) mod preview;
+pub(crate) mod quick_look;
+mod select_pattern;
+mod sessions;
 mod settings_page;
 mod sidebar;
 mod transfers;
 
+pub use menus::*;
 use ox_core::i18n::t as tr;
 use std::path::{Path, PathBuf};
 
@@ -125,6 +133,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     if preview_shown && app.settings.preview.as_window {
         preview_window(app, ui.ctx());
     }
+    quick_look::show(app, ui.ctx());
     dialogs::show(app, ui.ctx());
     palette::show(app, ui.ctx());
     toasts(app, ui.ctx());
@@ -242,7 +251,9 @@ fn content(app: &mut OxApp, ui: &mut Ui) {
         | Location::Search { .. }
         | Location::RecycleBin
         | Location::Tagged(_)
-        | Location::Archive { .. } => files::show(app, ui),
+        | Location::Archive { .. }
+        | Location::Library { .. }
+        | Location::Gallery => files::show(app, ui),
     }
 }
 
@@ -346,7 +357,7 @@ fn status_bar(app: &mut OxApp, ui: &mut Ui) {
         ui.set_min_height(text.max(ui.spacing().interact_size.y));
         let tab = app.tabs.active();
         if tab.location().shows_files() {
-            let total = tab.view.visible.len();
+            let total = tab.view.shown_count();
             ui.label(ox_core::i18n::count(total as u64, "item"));
             let selected = tab.view.selected_entries();
             if !selected.is_empty() {
@@ -361,6 +372,12 @@ fn status_bar(app: &mut OxApp, ui: &mut Ui) {
                     ));
                 } else {
                     ui.label(ox_core::trf!("{v1} selected", v1 = selected.len()));
+                }
+                if let [one] = selected.as_slice() {
+                    if let Some(link) = links::describe(ui.ctx(), one) {
+                        ui.separator();
+                        ui.label(RichText::new(link).weak());
+                    }
                 }
             }
             if let Some(s) = &tab.search {
@@ -399,6 +416,7 @@ fn status_bar(app: &mut OxApp, ui: &mut Ui) {
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            files::status_controls(app, ui);
             if let Some(summary) = app.transfer_summary() {
                 if ui.link(summary).clicked() {
                     app.ui.show_transfers = true;
@@ -494,484 +512,4 @@ pub fn drop_target(actions: &mut Vec<Action>, response: &Response, dest: &Path) 
         actions.push(Action::Drop(items.0.clone(), dest.to_path_buf()));
     }
     hovering
-}
-
-/// Context information for the item context menu.
-pub struct MenuTarget<'a> {
-    pub selection: &'a [PathBuf],
-    /// Items inside an archive: only open, copy (extract) and copy path.
-    pub read_only: bool,
-    pub tags: &'a TagStore,
-    pub single_dir: Option<&'a Path>,
-    pub pinned: bool,
-    pub can_paste: bool,
-    pub destinations: &'a [(String, PathBuf)],
-    /// The Windows Shell is available ("Open with", "Show more options").
-    pub shell: bool,
-    /// Show the developer entries (Settings → Developer).
-    pub dev: bool,
-}
-
-/// Folders offered in "Copy to" / "Move to": favorites and other open tabs.
-pub fn quick_destinations(app: &OxApp) -> Vec<(String, PathBuf)> {
-    let mut out: Vec<(String, PathBuf)> = app
-        .quick
-        .favorites
-        .iter()
-        .map(|f| (format!("⭐ {}", f.label()), f.path.clone()))
-        .collect();
-    for t in &app.tabs.tabs {
-        if let Some(f) = t.location().folder() {
-            if !out.iter().any(|(_, p)| p == f) {
-                out.push((format!("📑 {}", display_name(f)), f.to_path_buf()));
-            }
-        }
-    }
-    out
-}
-
-pub fn tag_color(c: TagColor) -> Color32 {
-    let [r, g, b] = c.rgb();
-    Color32::from_rgb(r, g, b)
-}
-
-/// Tick a colour to tag the selection, again to remove the tag.
-pub fn tag_menu(ui: &mut Ui, tags: &TagStore, sel: &[PathBuf], actions: &mut Vec<Action>) {
-    for color in TagColor::ALL {
-        let all = sel.iter().all(|p| tags.has(p, color));
-        let label = RichText::new(format!("●  {}", tags.label(color))).color(tag_color(color));
-        if ui.add(egui::Button::selectable(all, label)).clicked() {
-            actions.push(Action::ToggleTag(sel.to_vec(), color));
-        }
-    }
-    if sel.iter().any(|p| !tags.tags(p).is_empty()) {
-        ui.separator();
-        if ui.button(tr("✖ Remove all tags")).clicked() {
-            actions.push(Action::ClearTags(sel.to_vec()));
-        }
-    }
-}
-
-/// Menu for items inside an archive: open, extract, copy path.
-fn archive_item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
-    let sel = t.selection.to_vec();
-    if ui.button(tr("📂 Open")).clicked() {
-        for p in &sel {
-            actions.push(Action::Open(p.clone()));
-        }
-    }
-    if ui
-        .add(egui::Button::new(tr("📋 Copy")).shortcut_text(shortcuts::label(Command::Copy)))
-        .clicked()
-    {
-        actions.push(Action::CopyItems(sel.clone()));
-    }
-    ui.separator();
-    let next_to = sel
-        .first()
-        .and_then(|p| ox_core::archive::split_virtual(p))
-        .and_then(|(arc, _)| arc.parent().map(Path::to_path_buf));
-    if let Some(dir) = next_to {
-        if ui.button(tr("📦 Extract next to the archive")).clicked() {
-            actions.push(Action::Transfer(TransferKind::Copy, sel.clone(), dir));
-        }
-    }
-    if !t.destinations.is_empty() {
-        ui.menu_button(tr("📦 Extract to"), |ui| {
-            for (label, dest) in t.destinations {
-                if ui.button(label).clicked() {
-                    actions.push(Action::Transfer(
-                        TransferKind::Copy,
-                        sel.clone(),
-                        dest.clone(),
-                    ));
-                }
-            }
-        });
-    }
-    ui.separator();
-    if ui
-        .add(
-            egui::Button::new(tr("🔗 Copy path"))
-                .shortcut_text(shortcuts::label(Command::CopyPath)),
-        )
-        .clicked()
-    {
-        actions.push(Action::CopyPathText(sel.clone()));
-    }
-}
-
-pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
-    if t.read_only {
-        archive_item_menu(ui, t, actions);
-        return;
-    }
-    let sel = t.selection.to_vec();
-    if let Some(dir) = t.single_dir {
-        if ui.button(tr("📂 Open")).clicked() {
-            actions.push(Action::Open(dir.to_path_buf()));
-        }
-        if ui.button(tr("📑 Open in new tab")).clicked() {
-            actions.push(Action::OpenInNewTab(
-                Location::Folder(dir.to_path_buf()),
-                false,
-            ));
-        }
-    } else if ui.button(tr("📂 Open")).clicked() {
-        for p in &sel {
-            actions.push(Action::Open(p.clone()));
-        }
-    }
-    if t.shell
-        && t.single_dir.is_none()
-        && sel.len() == 1
-        && ui.button(tr("🗗 Open with…")).clicked()
-    {
-        actions.push(Action::OpenWith(sel[0].clone()));
-    }
-    ui.separator();
-    if ui
-        .add(egui::Button::new(tr("✂ Cut")).shortcut_text(shortcuts::label(Command::Cut)))
-        .clicked()
-    {
-        actions.push(Action::CutItems(sel.clone()));
-    }
-    if ui
-        .add(egui::Button::new(tr("📋 Copy")).shortcut_text(shortcuts::label(Command::Copy)))
-        .clicked()
-    {
-        actions.push(Action::CopyItems(sel.clone()));
-    }
-    if let Some(dir) = t.single_dir {
-        if ui
-            .add_enabled(t.can_paste, egui::Button::new(tr("📥 Paste into folder")))
-            .clicked()
-        {
-            actions.push(Action::Paste(dir.to_path_buf()));
-        }
-    }
-    if !t.destinations.is_empty() {
-        ui.menu_button(tr("➡ Copy to"), |ui| {
-            for (label, dest) in t.destinations {
-                if ui.button(label).clicked() {
-                    actions.push(Action::Transfer(
-                        TransferKind::Copy,
-                        sel.clone(),
-                        dest.clone(),
-                    ));
-                }
-            }
-        });
-        ui.menu_button(tr("➡ Move to"), |ui| {
-            for (label, dest) in t.destinations {
-                if ui.button(label).clicked() {
-                    actions.push(Action::Transfer(
-                        TransferKind::Move,
-                        sel.clone(),
-                        dest.clone(),
-                    ));
-                }
-            }
-        });
-    }
-    ui.separator();
-    if sel.len() == 1
-        && ui
-            .add(egui::Button::new(tr("✏ Rename")).shortcut_text(shortcuts::label(Command::Rename)))
-            .clicked()
-    {
-        actions.push(Action::Rename(sel[0].clone()));
-    }
-    if sel.len() > 1
-        && ui
-            .add(
-                egui::Button::new(ox_core::trf!("✏ Rename {v1} items…", v1 = sel.len()))
-                    .shortcut_text(shortcuts::label(Command::Rename)),
-            )
-            .clicked()
-    {
-        actions.push(Action::BulkRename(sel.clone()));
-    }
-    if ui
-        .add(egui::Button::new(tr("🗑 Delete")).shortcut_text(shortcuts::label(Command::Delete)))
-        .clicked()
-    {
-        actions.push(Action::Delete(sel.clone(), false));
-    }
-    if ui
-        .add(
-            egui::Button::new(tr("⛔ Delete permanently"))
-                .shortcut_text(shortcuts::label(Command::DeletePermanently)),
-        )
-        .clicked()
-    {
-        actions.push(Action::Delete(sel.clone(), true));
-    }
-    ui.separator();
-    ui.menu_button(tr("🏷 Tags"), |ui| tag_menu(ui, t.tags, &sel, actions));
-    if sel.len() == 1 && ox_core::archive::is_archive(&sel[0]) {
-        let name = ox_core::archive::base_name(&sel[0]);
-        if ui
-            .button(ox_core::trf!("📦 Extract to \"{name}\"", name = name))
-            .clicked()
-        {
-            actions.push(Action::ExtractArchive {
-                archive: sel[0].clone(),
-                own_folder: true,
-            });
-        }
-        if ui.button(tr("📦 Extract here")).clicked() {
-            actions.push(Action::ExtractArchive {
-                archive: sel[0].clone(),
-                own_folder: false,
-            });
-        }
-    }
-    if ui.button(tr("📦 Compress to ZIP")).clicked() {
-        actions.push(Action::Compress(sel.clone()));
-    }
-    let theme_file = sel.len() == 1
-        && sel[0]
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("toml"))
-        && ox_core::themes::read(&sel[0]).is_ok();
-    if theme_file && ui.button(tr("🎨 Use as theme")).clicked() {
-        actions.push(Action::InstallTheme(sel[0].clone()));
-    }
-    if let Some(dir) = t.single_dir {
-        if t.pinned {
-            if ui.button(tr("☆ Unpin from Favorites")).clicked() {
-                actions.push(Action::Unpin(dir.to_path_buf()));
-            }
-        } else if ui.button(tr("⭐ Pin to Favorites")).clicked() {
-            actions.push(Action::Pin(dir.to_path_buf()));
-        }
-        if ui.button(tr("🖳 Open in Terminal")).clicked() {
-            actions.push(Action::OpenTerminal(dir.to_path_buf()));
-        }
-    }
-    if ui
-        .add(
-            egui::Button::new(tr("🔗 Copy path"))
-                .shortcut_text(shortcuts::label(Command::CopyPath)),
-        )
-        .clicked()
-    {
-        actions.push(Action::CopyPathText(sel.clone()));
-    }
-    if sel.len() == 1 && ui.button(tr("🖥 Show in Windows Explorer")).clicked() {
-        actions.push(Action::Reveal(sel[0].clone()));
-    }
-    if t.dev {
-        ui.separator();
-        dev_menu(ui, &sel, actions);
-    }
-    ui.separator();
-    if ui
-        .add(
-            egui::Button::new(tr("ℹ Properties"))
-                .shortcut_text(shortcuts::label(Command::Properties)),
-        )
-        .clicked()
-    {
-        actions.push(Action::Properties(sel.clone()));
-    }
-    if t.shell {
-        ui.separator();
-        if ui
-            .add(
-                egui::Button::new(tr("⋯ Show more options"))
-                    .shortcut_text(shortcuts::label(Command::ShellMenu)),
-            )
-            .on_hover_text(tr(
-                "The Windows Explorer menu, with entries from other apps",
-            ))
-            .clicked()
-        {
-            actions.push(Action::ShellMenu(sel));
-        }
-    }
-}
-
-/// Developer entries (Settings → Developer): open in the editor, copy the
-/// path in other forms and, in Git repositories, Git actions.
-fn dev_menu(ui: &mut Ui, paths: &[PathBuf], actions: &mut Vec<Action>) {
-    use ox_core::pathfmt::PathFormat;
-    if ui
-        .add(
-            egui::Button::new(tr("📝 Open in editor"))
-                .shortcut_text(shortcuts::label(Command::OpenInEditor)),
-        )
-        .clicked()
-    {
-        actions.push(Action::OpenInEditor(paths.to_vec()));
-    }
-    let repo = paths.first().and_then(|p| ox_core::git::repo_root(p));
-    ui.menu_button(tr("🔗 Copy path as"), |ui| {
-        for fmt in PathFormat::ALL {
-            if fmt == PathFormat::GitRelative && repo.is_none() {
-                continue;
-            }
-            if ui.button(fmt.label()).clicked() {
-                actions.push(Action::CopyPathAs(paths.to_vec(), fmt));
-            }
-        }
-    });
-    if let (Some(root), [path]) = (repo, paths) {
-        ui.menu_button(tr("🌿 Git"), |ui| {
-            if ui.button(tr("🌐 Open on GitHub / GitLab")).clicked() {
-                actions.push(Action::OpenGitRemote(path.clone()));
-            }
-            if ui.button(tr("📋 Copy branch name")).clicked() {
-                actions.push(Action::CopyGitBranch(root.clone()));
-            }
-        });
-    }
-}
-
-/// The entries of the "New" menus: Folder, Text document and the user's own
-/// (Settings → New menu).
-pub fn new_menu(ui: &mut Ui, folder: &Path, new_items: &[NewItem], actions: &mut Vec<Action>) {
-    if ui
-        .add(egui::Button::new(tr("📁 Folder")).shortcut_text(shortcuts::label(Command::NewFolder)))
-        .clicked()
-    {
-        actions.push(Action::NewFolder(folder.to_path_buf()));
-    }
-    if ui.button(tr("📄 Text document")).clicked() {
-        actions.push(Action::NewFile(folder.to_path_buf()));
-    }
-    if !new_items.is_empty() {
-        ui.separator();
-    }
-    for (i, item) in new_items.iter().enumerate() {
-        let text = format!("📄 {}", ox_core::i18n::t_any(&item.label));
-        if ui.button(text).on_hover_text(&item.file_name).clicked() {
-            actions.push(Action::NewFromItem(folder.to_path_buf(), i));
-        }
-    }
-}
-
-/// Context menu for the empty area of a folder.
-#[allow(clippy::too_many_arguments)]
-pub fn background_menu(
-    ui: &mut Ui,
-    folder: &Path,
-    can_paste: bool,
-    transfers_running: bool,
-    pinned: bool,
-    new_items: &[NewItem],
-    dev: bool,
-    actions: &mut Vec<Action>,
-) {
-    ui.menu_button(tr("➕ New"), |ui| new_menu(ui, folder, new_items, actions));
-    if ui
-        .add_enabled(
-            can_paste,
-            egui::Button::new(tr("📥 Paste")).shortcut_text(shortcuts::label(Command::Paste)),
-        )
-        .clicked()
-    {
-        actions.push(Action::Paste(folder.to_path_buf()));
-    }
-    if transfers_running
-        && ui
-            .add_enabled(
-                can_paste,
-                egui::Button::new(tr("📥 Paste after current transfers")),
-            )
-            .on_hover_text(tr("Starts when the running transfers are done."))
-            .clicked()
-    {
-        actions.push(Action::PasteAfterCurrent(folder.to_path_buf()));
-    }
-    if ui
-        .add(egui::Button::new(tr("🔄 Refresh")).shortcut_text(shortcuts::label(Command::Refresh)))
-        .clicked()
-    {
-        actions.push(Action::Refresh);
-    }
-    if ui
-        .add(
-            egui::Button::new(tr("☑ Select all"))
-                .shortcut_text(shortcuts::label(Command::SelectAll)),
-        )
-        .clicked()
-    {
-        actions.push(Action::SelectAll);
-    }
-    ui.separator();
-    if pinned {
-        if ui.button(tr("☆ Unpin from Favorites")).clicked() {
-            actions.push(Action::Unpin(folder.to_path_buf()));
-        }
-    } else if ui.button(tr("⭐ Pin to Favorites")).clicked() {
-        actions.push(Action::Pin(folder.to_path_buf()));
-    }
-    if ui.button(tr("🖳 Open in Terminal")).clicked() {
-        actions.push(Action::OpenTerminal(folder.to_path_buf()));
-    }
-    if ui.button(tr("🖥 Open in Windows Explorer")).clicked() {
-        actions.push(Action::Reveal(folder.to_path_buf()));
-    }
-    if dev {
-        ui.separator();
-        dev_menu(ui, &[folder.to_path_buf()], actions);
-    }
-    ui.separator();
-    if ui.button(tr("ℹ Properties")).clicked() {
-        actions.push(Action::Properties(vec![folder.to_path_buf()]));
-    }
-}
-
-/// Context menu for a folder link (sidebar, home page cards).
-pub fn folder_link_menu(ui: &mut Ui, path: &Path, pinned: bool, actions: &mut Vec<Action>) {
-    if ui.button(tr("📂 Open")).clicked() {
-        actions.push(Action::Navigate(Location::Folder(path.to_path_buf())));
-    }
-    if ui.button(tr("📑 Open in new tab")).clicked() {
-        actions.push(Action::OpenInNewTab(
-            Location::Folder(path.to_path_buf()),
-            false,
-        ));
-    }
-    ui.separator();
-    if pinned {
-        if ui.button(tr("☆ Unpin from Favorites")).clicked() {
-            actions.push(Action::Unpin(path.to_path_buf()));
-        }
-        if ui.button(tr("⬆ Move up")).clicked() {
-            actions.push(Action::MoveFavorite(path.to_path_buf(), -1));
-        }
-        if ui.button(tr("⬇ Move down")).clicked() {
-            actions.push(Action::MoveFavorite(path.to_path_buf(), 1));
-        }
-    } else if ui.button(tr("⭐ Pin to Favorites")).clicked() {
-        actions.push(Action::Pin(path.to_path_buf()));
-    }
-    ui.separator();
-    if ui.button(tr("📥 Paste into folder")).clicked() {
-        actions.push(Action::Paste(path.to_path_buf()));
-    }
-    if ui.button(tr("🖳 Open in Terminal")).clicked() {
-        actions.push(Action::OpenTerminal(path.to_path_buf()));
-    }
-    if ui.button(tr("🔗 Copy path")).clicked() {
-        actions.push(Action::CopyPathText(vec![path.to_path_buf()]));
-    }
-    if ui.button(tr("ℹ Properties")).clicked() {
-        actions.push(Action::Properties(vec![path.to_path_buf()]));
-    }
-}
-
-/// Middle-click opens a folder link in a background tab.
-pub fn open_link(actions: &mut Vec<Action>, response: &Response, path: &Path) {
-    if response.clicked() {
-        actions.push(Action::Navigate(Location::Folder(path.to_path_buf())));
-    } else if response.middle_clicked() {
-        actions.push(Action::OpenInNewTab(
-            Location::Folder(path.to_path_buf()),
-            false,
-        ));
-    }
 }
