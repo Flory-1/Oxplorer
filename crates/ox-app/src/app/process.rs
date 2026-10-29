@@ -468,6 +468,7 @@ impl OxApp {
                 self.tabs.mark_stale(None);
             }
             Action::Tab(t) => self.process_tab(t),
+            Action::Compare(a) => self.process_compare(a),
             Action::Toast(t) => self.toast(t),
             Action::RestoreFromBin(paths) => {
                 let items = self.tabs.active().view.bin.select(&paths);

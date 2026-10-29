@@ -100,6 +100,8 @@ struct Ctx<'a> {
     tags: &'a ox_core::tags::TagStore,
     /// Git status when the folder is in a repository.
     git: Option<&'a ox_core::git::RepoStatus>,
+    /// Compare folders: how the items compare with the other pane's.
+    compare: Option<&'a std::collections::HashMap<PathBuf, ox_core::compare::Mark>>,
     /// Folder sizes for the Size column (`None` when they are off).
     sizes: Option<&'a ox_core::dirsize::FolderSizes>,
     /// Root of the current search; result folders are shown relative to it.
@@ -143,6 +145,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         ),
         tags: &app.tags,
         git: git.as_deref(),
+        compare: (app.compare.as_ref()).and_then(|c| c.marks_for(app.tabs.active)),
         is_bin: app.tabs.active().location().is_bin(),
         read_only: app.tabs.active().location().is_read_only(),
         icons: app.settings.appearance.system_icons.then_some(&app.icons),
@@ -552,6 +555,7 @@ fn paint_row(
             egui::StrokeKind::Inside,
         );
     }
+    super::compare::paint_mark(ui, rect, cx.compare, &e.path);
     let dim = cx.cut.contains(&e.path) || e.hidden;
     let fade = |c: Color32| if dim { c.gamma_multiply(0.5) } else { c };
     let text = fade(v.text_color());
@@ -749,6 +753,7 @@ fn paint_tile(
             egui::StrokeKind::Inside,
         );
     }
+    super::compare::paint_mark(ui, rect, cx.compare, &e.path);
     let dim = cx.cut.contains(&e.path) || e.hidden;
     let fade = |c: Color32| if dim { c.gamma_multiply(0.5) } else { c };
     let icon_rect = Rect::from_center_size(

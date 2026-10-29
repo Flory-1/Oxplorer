@@ -5,12 +5,14 @@
 //! borrow checker happy and makes every user command go through one place.
 
 mod action;
+mod compare;
 mod input;
 mod poll;
 mod process;
 mod properties;
 mod window;
 pub use action::{Action, TabAction};
+pub use compare::{CompareAction, CompareState};
 pub use properties::Properties;
 
 use ox_core::i18n::t as tr;
@@ -154,6 +156,8 @@ pub struct OxApp {
     /// Folder the terminal was last sent to (for "follow the folder").
     terminal_dir: Option<PathBuf>,
     pub tags: TagStore,
+    /// Compare folders: the comparison of the split view's panes.
+    pub compare: Option<CompareState>,
     /// (tabs, listing versions, cache epoch) the folder sizes were requested for.
     sizes_key: Option<(Vec<(TabId, u64)>, u64)>,
     /// `folder_sizes.version()` last copied into the listing.
@@ -279,6 +283,7 @@ impl OxApp {
                 FolderSizes::new(move || repaint.request_repaint())
             },
             tags: TagStore::load(),
+            compare: None,
             keymap: Default::default(),
             themes: ox_core::themes::load_all(),
             themes_changed: false,
@@ -359,6 +364,7 @@ impl OxApp {
             self.tabs.active = focused;
         }
         self.poll_tabs();
+        self.poll_compare();
         self.poll_folder_sizes();
         self.poll_git();
         self.poll_watcher();
@@ -379,6 +385,7 @@ impl OxApp {
                 self.push(Action::ToggleTerminal);
             }
         } else if self.dialog.is_none()
+            && !self.compare.as_ref().is_some_and(|c| c.confirm.is_some())
             && !ctx.text_edit_focused()
             // Not while a new shortcut is being recorded in the settings.
             && self.ui.recording.is_none()

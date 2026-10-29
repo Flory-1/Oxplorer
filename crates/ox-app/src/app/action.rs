@@ -97,6 +97,8 @@ pub enum Action {
     PurgeConfirmed(Vec<TrashItem>, bool),
     /// Move items to the Recycle Bin without asking (e.g. dropped onto it).
     MoveToBin(Vec<PathBuf>),
+    /// Compare folders (the split view's panes).
+    Compare(super::CompareAction),
 }
 
 pub enum TabAction {
