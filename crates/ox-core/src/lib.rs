@@ -16,6 +16,7 @@ pub mod format;
 pub mod fsops;
 pub mod fuzzy;
 pub mod git;
+pub mod grid_zoom;
 pub mod i18n;
 mod i18n_de;
 pub mod index;

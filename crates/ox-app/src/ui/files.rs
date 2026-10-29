@@ -4,12 +4,14 @@ mod details;
 mod flat;
 mod grid;
 mod item;
+mod zoom;
 use details::details;
 use grid::grid;
 use item::{item_context_menu, item_interact, item_tooltip};
 use ox_core::i18n::t as tr;
 use std::collections::HashSet;
 use std::path::PathBuf;
+pub use zoom::{status_controls, zoom};
 
 use egui::text::{LayoutJob, TextFormat};
 use egui::{
@@ -31,7 +33,6 @@ const TYPE_W: f32 = 150.0;
 const SIZE_W: f32 = 90.0;
 const FOLDER_W: f32 = 260.0;
 const GIT_W: f32 = 44.0;
-const TILE: egui::Vec2 = egui::Vec2::new(108.0, 104.0);
 const MIN_NAME_W: f32 = 180.0;
 
 /// Widths of the details columns (0 = hidden). Narrow views (e.g. a split
@@ -91,6 +92,8 @@ struct Ctx<'a> {
     date_format: &'a str,
     single_click: bool,
     row_h: f32,
+    /// Icon size of the grid view (see `ox_core::grid_zoom`).
+    grid_size: u32,
     accent: Color32,
     selection_fill: Color32,
     is_search: bool,
@@ -130,6 +133,7 @@ struct Ctx<'a> {
 }
 
 pub fn show(app: &mut OxApp, ui: &mut Ui) {
+    zoom::wheel(app, ui, ui.available_rect_before_wrap());
     let dark = ui.visuals().dark_mode;
     let folder = app.current_folder();
     // Borrowed by the rows while the tab is mutably borrowed; put back at the end.
@@ -147,6 +151,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         date_format: &app.settings.browsing.date_format.clone(),
         single_click: app.settings.browsing.single_click_open,
         row_h: crate::theme::row_height(&app.settings),
+        grid_size: app.settings.appearance.grid_size,
         accent: crate::theme::accent(&app.settings),
         selection_fill: crate::theme::selection_fill(&app.settings, dark),
         is_search: matches!(

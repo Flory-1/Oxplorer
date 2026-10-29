@@ -3,7 +3,10 @@
 //! thumbnail handler); elsewhere pictures are decoded with the `image` crate.
 //!
 //! A few background threads load them, newest request first, so the tiles
-//! on screen are served before ones that were scrolled past.
+//! on screen are served before ones that were scrolled past. They come in a
+//! few resolutions (`ox_core::grid_zoom::THUMB_BUCKETS`): a tile asks for
+//! the one matching its size, and a smaller one is shown while a larger one
+//! loads.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -15,24 +18,29 @@ use crossbeam_channel::{Receiver, Sender};
 use egui::{ColorImage, Context, TextureHandle, TextureOptions, Vec2};
 use ox_core::entry::{FileEntry, FileKind};
 
-/// Long side of a thumbnail in pixels (sharp on 2× screens).
-const SIZE: u32 = 128;
 const WORKERS: usize = 2;
 /// Requests beyond this are dropped, oldest first (long scrolled past).
 const MAX_QUEUED: usize = 256;
-/// Textures kept; the oldest are freed first.
+/// Textures kept, and their pixels at most; the oldest are freed first.
 const MAX_LOADED: usize = 600;
+const MAX_PIXELS: usize = 24 * 1024 * 1024;
 /// Don't decode huge pictures without the Shell's cached thumbnails.
 const MAX_DECODE_BYTES: u64 = 64 * 1024 * 1024;
 
 struct Job {
     path: PathBuf,
     modified: Option<SystemTime>,
+    /// Long side in pixels (a bucket).
+    size: u32,
 }
 
+/// A loaded thumbnail: its texture, the file's date and the bucket.
+struct Loaded(TextureHandle, Option<SystemTime>, u32);
+
 enum Slot {
-    Loading,
-    Ready(TextureHandle, Option<SystemTime>),
+    /// Being loaded; the smaller one meanwhile, if any.
+    Loading(Option<Loaded>),
+    Ready(Loaded),
     Failed(Option<SystemTime>),
 }
 
@@ -45,6 +53,7 @@ struct Queue {
 struct Done {
     path: PathBuf,
     modified: Option<SystemTime>,
+    size: u32,
     image: Option<ColorImage>,
     dropped: bool,
 }
@@ -54,7 +63,8 @@ pub struct Thumbnails {
     done_tx: Sender<Done>,
     done: Receiver<Done>,
     slots: RefCell<HashMap<PathBuf, Slot>>,
-    loaded: RefCell<VecDeque<PathBuf>>,
+    /// Loaded paths, oldest first, with the texture's pixels.
+    loaded: RefCell<VecDeque<(PathBuf, usize)>>,
 }
 
 /// Files that can have a thumbnail.
@@ -105,8 +115,15 @@ impl Thumbnails {
         let mut slots = self.slots.borrow_mut();
         let mut loaded = self.loaded.borrow_mut();
         for done in self.done.try_iter() {
+            let old = match slots.remove(&done.path) {
+                Some(Slot::Loading(old)) => old,
+                _ => None,
+            };
             if done.dropped {
-                slots.remove(&done.path);
+                // Keep showing the smaller one; it is asked for again when seen.
+                if let Some(old) = old {
+                    slots.insert(done.path, Slot::Ready(old));
+                }
                 continue;
             }
             let slot = match done.image {
@@ -115,53 +132,73 @@ impl Thumbnails {
                         mipmap_mode: Some(egui::TextureFilter::Linear),
                         ..TextureOptions::LINEAR
                     };
-                    let name = format!("thumb:{}", done.path.display());
-                    loaded.push_back(done.path.clone());
-                    Slot::Ready(ctx.load_texture(name, image, options), done.modified)
+                    let name = format!("thumb:{}:{}", done.size, done.path.display());
+                    let pixels = image.pixels.len();
+                    loaded.retain(|(p, _)| *p != done.path);
+                    loaded.push_back((done.path.clone(), pixels));
+                    let tex = ctx.load_texture(name, image, options);
+                    Slot::Ready(Loaded(tex, done.modified, done.size))
                 }
-                None => Slot::Failed(done.modified),
+                // A larger one failed: keep the smaller one, and don't ask again.
+                None => match old {
+                    Some(Loaded(tex, modified, _)) if modified == done.modified => {
+                        Slot::Ready(Loaded(tex, modified, u32::MAX))
+                    }
+                    _ => Slot::Failed(done.modified),
+                },
             };
             slots.insert(done.path, slot);
         }
-        while loaded.len() > MAX_LOADED {
-            if let Some(old) = loaded.pop_front() {
+        let mut total: usize = loaded.iter().map(|(_, n)| n).sum();
+        while loaded.len() > MAX_LOADED || (total > MAX_PIXELS && loaded.len() > 1) {
+            if let Some((old, n)) = loaded.pop_front() {
                 slots.remove(&old);
+                total -= n;
             }
         }
     }
 
-    /// The thumbnail of `e` and its size in pixels, if loaded. Asks for it
-    /// otherwise (again when the file changed).
-    pub fn get(&self, e: &FileEntry) -> Option<(egui::TextureId, Vec2)> {
-        if let Some(slot) = self.slots.borrow().get(&e.path) {
-            match slot {
-                Slot::Loading => return None,
-                Slot::Ready(tex, modified) if *modified == e.modified => {
-                    return Some((tex.id(), tex.size_vec2()));
-                }
-                Slot::Failed(modified) if *modified == e.modified => return None,
-                _ => {}
+    /// The thumbnail of `e` and its size in pixels, if loaded, for a box
+    /// whose long side is `pixels` on screen. Asks for it otherwise (again
+    /// when the file changed, or in a larger size when the box grew).
+    pub fn get(&self, e: &FileEntry, pixels: f32) -> Option<(egui::TextureId, Vec2)> {
+        let size = ox_core::grid_zoom::thumb_bucket(pixels);
+        let shown = |l: &Loaded| (l.0.id(), l.0.size_vec2());
+        let mut slots = self.slots.borrow_mut();
+        let old = match slots.get(&e.path) {
+            Some(Slot::Loading(old)) => {
+                return old.as_ref().filter(|l| l.1 == e.modified).map(shown);
             }
-        }
-        self.slots
-            .borrow_mut()
-            .insert(e.path.clone(), Slot::Loading);
+            Some(Slot::Ready(l)) if l.1 == e.modified && l.2 >= size => return Some(shown(l)),
+            Some(Slot::Failed(modified)) if *modified == e.modified => return None,
+            // Too small: shown while the larger one loads.
+            Some(Slot::Ready(l)) if l.1 == e.modified => match slots.remove(&e.path) {
+                Some(Slot::Ready(l)) => Some(l),
+                _ => None,
+            },
+            _ => None,
+        };
+        let current = old.as_ref().map(shown);
+        slots.insert(e.path.clone(), Slot::Loading(old));
+        drop(slots);
         let mut jobs = self.queue.jobs.lock().unwrap_or_else(|p| p.into_inner());
         jobs.push(Job {
             path: e.path.clone(),
             modified: e.modified,
+            size,
         });
         if jobs.len() > MAX_QUEUED {
             let old = jobs.remove(0);
             let _ = self.done_tx.send(Done {
                 path: old.path,
                 modified: old.modified,
+                size: old.size,
                 image: None,
                 dropped: true,
             });
         }
         self.queue.ready.notify_one();
-        None
+        current
     }
 }
 
@@ -176,10 +213,11 @@ fn worker(queue: &Queue, tx: &Sender<Done>, ctx: &Context) {
                 jobs = queue.ready.wait(jobs).unwrap_or_else(|p| p.into_inner());
             }
         };
-        let image = load(&job.path);
+        let image = load(&job.path, job.size);
         let done = Done {
             path: job.path,
             modified: job.modified,
+            size: job.size,
             image,
             dropped: false,
         };
@@ -190,8 +228,8 @@ fn worker(queue: &Queue, tx: &Sender<Done>, ctx: &Context) {
     }
 }
 
-fn load(path: &Path) -> Option<ColorImage> {
-    if let Some(t) = ox_core::shell::thumbnail(path, SIZE) {
+fn load(path: &Path, size: u32) -> Option<ColorImage> {
+    if let Some(t) = ox_core::shell::thumbnail(path, size) {
         let size = [t.width as usize, t.height as usize];
         return Some(ColorImage::from_rgba_premultiplied(size, &t.rgba));
     }
@@ -206,7 +244,7 @@ fn load(path: &Path) -> Option<ColorImage> {
     if !decodable(&ext) || !small {
         return None;
     }
-    let img = image::open(path).ok()?.thumbnail(SIZE, SIZE).to_rgba8();
+    let img = image::open(path).ok()?.thumbnail(size, size).to_rgba8();
     let size = [img.width() as usize, img.height() as usize];
     Some(ColorImage::from_rgba_unmultiplied(size, img.as_raw()))
 }
@@ -248,8 +286,9 @@ mod tests {
         if ox_core::shell::supported() {
             return; // needs the Shell's thumbnail cache
         }
-        let img = load(&path).unwrap();
+        let img = load(&path, 128).unwrap();
         assert_eq!(img.size, [128, 64]);
-        assert!(load(&dir.path().join("missing.png")).is_none());
+        assert_eq!(load(&path, 256).unwrap().size, [256, 128]);
+        assert!(load(&dir.path().join("missing.png"), 128).is_none());
     }
 }

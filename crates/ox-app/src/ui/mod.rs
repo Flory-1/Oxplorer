@@ -410,6 +410,7 @@ fn status_bar(app: &mut OxApp, ui: &mut Ui) {
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            files::status_controls(app, ui);
             if let Some(summary) = app.transfer_summary() {
                 if ui.link(summary).clicked() {
                     app.ui.show_transfers = true;

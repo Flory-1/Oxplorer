@@ -65,6 +65,8 @@ pub struct Appearance {
     pub system_icons: bool,
     /// Pictures and videos show a preview in the grid view.
     pub thumbnails: bool,
+    /// Icon size of the grid view in points (Ctrl+mouse wheel, see `grid_zoom`).
+    pub grid_size: u32,
     /// Mica or Acrylic behind the sidebar and header (Windows 11).
     pub backdrop: Backdrop,
     /// The tabs take the place of the window's title bar (Windows).
@@ -85,6 +87,7 @@ impl Default for Appearance {
             compact_rows: false,
             system_icons: true,
             thumbnails: true,
+            grid_size: crate::grid_zoom::DEFAULT,
             backdrop: Backdrop::Off,
             tabs_in_title_bar: true,
             language: Language::System,
