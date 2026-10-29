@@ -154,7 +154,8 @@ impl<'de> Deserialize<'de> for ColumnId {
 /// Where the columns are shown.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ColumnContext {
-    /// Search results, the flat view or the Recycle Bin: the Folder column applies.
+    /// Search results, libraries, the Gallery, the flat view or the Recycle
+    /// Bin: the Folder column applies.
     pub folder: bool,
     /// Inside a Git repository: the Git column applies.
     pub git: bool,

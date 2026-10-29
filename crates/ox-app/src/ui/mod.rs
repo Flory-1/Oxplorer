@@ -251,7 +251,9 @@ fn content(app: &mut OxApp, ui: &mut Ui) {
         | Location::Search { .. }
         | Location::RecycleBin
         | Location::Tagged(_)
-        | Location::Archive { .. } => files::show(app, ui),
+        | Location::Archive { .. }
+        | Location::Library { .. }
+        | Location::Gallery => files::show(app, ui),
     }
 }
 

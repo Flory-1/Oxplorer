@@ -14,6 +14,7 @@ pub(crate) fn column_context(tab: &Tab) -> ColumnContext {
     ColumnContext {
         folder: matches!(loc, Location::Search { .. } | Location::Tagged(_))
             || loc.is_bin()
+            || loc.is_collection()
             || tab.is_flat(),
         git: tab.view.git.is_some(),
     }

@@ -25,6 +25,15 @@ pub enum Location {
         archive: PathBuf,
         inner: PathBuf,
     },
+    /// A Windows library (Documents, Music, …): the items of all its folders.
+    Library {
+        /// Its name when it was opened (for titles).
+        name: String,
+        /// The `.library-ms` file.
+        file: PathBuf,
+    },
+    /// Every picture and video of the Pictures library, newest first.
+    Gallery,
 }
 
 impl Location {
@@ -41,6 +50,8 @@ impl Location {
                 Some(name) => name.to_string_lossy().into_owned(),
                 None => entry::display_name(archive),
             },
+            Location::Library { name, .. } => name.clone(),
+            Location::Gallery => tr("Gallery").into(),
         }
     }
 
@@ -55,6 +66,8 @@ impl Location {
             Location::RecycleBin => "🗑",
             Location::Tagged(_) => "🏷",
             Location::Archive { .. } => "📦",
+            Location::Library { .. } => "📚",
+            Location::Gallery => "🎞",
         }
     }
 
@@ -74,7 +87,15 @@ impl Location {
                 | Location::RecycleBin
                 | Location::Tagged(_)
                 | Location::Archive { .. }
+                | Location::Library { .. }
+                | Location::Gallery
         )
+    }
+
+    /// Items from several folders (a library, the Gallery): shown with
+    /// their folder, like search results.
+    pub fn is_collection(&self) -> bool {
+        matches!(self, Location::Library { .. } | Location::Gallery)
     }
 
     pub fn is_bin(&self) -> bool {
@@ -121,6 +142,26 @@ impl Listing {
                 .iter()
                 .filter_map(|p| FileEntry::from_path(p).ok())
                 .collect(),
+            bin: BinListing::default(),
+        }
+    }
+
+    /// The items of all folders of a library.
+    pub fn library(file: &Path, show_hidden: bool) -> Result<Self, String> {
+        let lib = ox_core::library::load(file)
+            .ok_or_else(|| tr("This library no longer exists.").to_owned())?;
+        Ok(Self {
+            entries: ox_core::library::entries(&lib.folders, show_hidden),
+            bin: BinListing::default(),
+        })
+    }
+
+    /// The Gallery's pictures and videos (stops soon after `cancel` is set).
+    pub fn gallery(show_hidden: bool, cancel: &std::sync::atomic::AtomicBool) -> Self {
+        let roots = ox_core::library::pictures_folders();
+        let walk = ox_core::gallery::walk(&roots, show_hidden, ox_core::gallery::MAX_ITEMS, cancel);
+        Self {
+            entries: walk.entries,
             bin: BinListing::default(),
         }
     }

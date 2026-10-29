@@ -68,6 +68,26 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         "",
         act(|| Action::Navigate(Location::RecycleBin)),
     );
+    if cfg!(windows) {
+        cmd(
+            "🎞",
+            tr("Open Gallery"),
+            "",
+            act(|| Action::Navigate(Location::Gallery)),
+        );
+    }
+    for lib in &app.libraries {
+        let loc = Location::Library {
+            name: lib.name.clone(),
+            file: lib.file.clone(),
+        };
+        cmd(
+            "📚",
+            &ox_core::trf!("Open library: {name}", name = lib.name),
+            "",
+            act(move || Action::Navigate(loc)),
+        );
+    }
     cmd(
         "⚙",
         tr("Open Settings"),

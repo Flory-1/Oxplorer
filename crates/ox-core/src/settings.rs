@@ -326,6 +326,8 @@ pub struct Sidebar {
     pub show_drives: bool,
     pub show_recent: bool,
     pub recent_count: usize,
+    /// The Gallery and the Windows libraries (Documents, Music, …).
+    pub show_libraries: bool,
 }
 
 impl Default for Sidebar {
@@ -336,6 +338,7 @@ impl Default for Sidebar {
             show_drives: true,
             show_recent: true,
             recent_count: 8,
+            show_libraries: true,
         }
     }
 }

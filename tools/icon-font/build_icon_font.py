@@ -87,6 +87,8 @@ ICONS = {
     "🖳": "square-terminal",
     "🗗": "external-link",
     "☁": "cloud",
+    "📚": "library-big",
+    "🎞": "images",
     # Views and panels
     "☰": "list",
     "▦": "layout-grid",
