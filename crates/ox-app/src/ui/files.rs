@@ -109,6 +109,8 @@ struct Ctx<'a> {
     favorites: HashSet<PathBuf>,
     destinations: Vec<(String, PathBuf)>,
     can_paste: bool,
+    /// Transfers are running, so "Paste after current transfers" makes sense.
+    transfers_running: bool,
     /// The user's entries of the "New" menu.
     new_items: Vec<ox_core::settings::NewItem>,
     /// Developer entries in the menus.
@@ -166,6 +168,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         favorites: app.quick.favorites.iter().map(|f| f.path.clone()).collect(),
         destinations: super::quick_destinations(app),
         can_paste: folder.is_some(),
+        transfers_running: app.engine.has_active(),
         new_items: app.settings.new_items.0.clone(),
         dev: app.settings.developer.context_menus,
         folder,
@@ -307,6 +310,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 ui,
                 folder,
                 cx.can_paste,
+                cx.transfers_running,
                 pinned,
                 &cx.new_items,
                 cx.dev,

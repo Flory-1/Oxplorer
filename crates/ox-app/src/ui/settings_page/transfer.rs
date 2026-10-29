@@ -3,6 +3,7 @@
 use egui::{RichText, Ui};
 use ox_core::i18n::t as tr;
 use ox_core::settings::Settings;
+use ox_core::transfer::when_done::WhenDone;
 use ox_core::transfer::ConflictPolicy;
 
 use super::{row, toggle};
@@ -105,6 +106,26 @@ pub(super) fn transfer(ui: &mut Ui, s: &mut Settings) {
                 .show_ui(ui, |ui| {
                     for p in ConflictPolicy::ALL {
                         ui.selectable_value(&mut t.default_conflict, p, p.label());
+                    }
+                });
+        },
+    );
+    toggle(
+        ui,
+        &mut t.ask_on_error,
+        tr("Ask when a file fails"),
+        tr("The job waits: retry, skip, or skip all errors of the job. Off: errors are listed when the job ends."),
+    );
+    row(
+        ui,
+        tr("When all transfers are done"),
+        tr("Sleep waits 30 seconds, which you can cancel, and never follows a cancelled transfer."),
+        |ui| {
+            egui::ComboBox::from_id_salt("when_done")
+                .selected_text(t.when_done.label())
+                .show_ui(ui, |ui| {
+                    for w in WhenDone::ALL {
+                        ui.selectable_value(&mut t.when_done, w, w.label());
                     }
                 });
         },

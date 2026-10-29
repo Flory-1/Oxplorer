@@ -96,6 +96,11 @@ impl OxApp {
                 }
                 None => self.toast(tr("The clipboard doesn't contain any files.")),
             },
+            Action::PasteAfterCurrent(dest) => {
+                self.transfer_watch.run_after_next = true;
+                self.process(Action::Paste(dest));
+                self.transfer_watch.run_after_next = false;
+            }
             Action::Transfer(kind, sources, dest) => self.start_transfer(kind, sources, dest),
             Action::Drop(sources, dest) => {
                 // Dropping items onto their own folder (or a folder onto itself) is a no-op.

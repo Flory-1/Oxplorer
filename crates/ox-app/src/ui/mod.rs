@@ -125,6 +125,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     dialogs::show(app, ui.ctx());
     palette::show(app, ui.ctx());
     toasts(app, ui.ctx());
+    transfers::countdown(app, ui.ctx());
     drag_preview(ui.ctx());
 }
 
@@ -847,10 +848,12 @@ pub fn new_menu(ui: &mut Ui, folder: &Path, new_items: &[NewItem], actions: &mut
 }
 
 /// Context menu for the empty area of a folder.
+#[allow(clippy::too_many_arguments)]
 pub fn background_menu(
     ui: &mut Ui,
     folder: &Path,
     can_paste: bool,
+    transfers_running: bool,
     pinned: bool,
     new_items: &[NewItem],
     dev: bool,
@@ -865,6 +868,17 @@ pub fn background_menu(
         .clicked()
     {
         actions.push(Action::Paste(folder.to_path_buf()));
+    }
+    if transfers_running
+        && ui
+            .add_enabled(
+                can_paste,
+                egui::Button::new(tr("📥 Paste after current transfers")),
+            )
+            .on_hover_text(tr("Starts when the running transfers are done."))
+            .clicked()
+    {
+        actions.push(Action::PasteAfterCurrent(folder.to_path_buf()));
     }
     if ui
         .add(egui::Button::new(tr("🔄 Refresh")).shortcut_text(shortcuts::label(Command::Refresh)))
