@@ -24,6 +24,7 @@ mod select_pattern;
 mod sessions;
 mod settings_page;
 mod sidebar;
+pub(crate) mod text_compare;
 mod transfers;
 mod wsl;
 
@@ -143,6 +144,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         preview_window(app, ui.ctx());
     }
     quick_look::show(app, ui.ctx());
+    text_compare::show(app, ui.ctx());
     dialogs::show(app, ui.ctx());
     remote::show(app, ui.ctx());
     mirror::show(app, ui.ctx());

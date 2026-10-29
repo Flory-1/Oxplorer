@@ -105,7 +105,7 @@ fn rotating_turns_the_pixels_and_keeps_an_undoable_original() {
     let bin = TestBin::new(tmp.path());
     let p = picture(tmp.path(), "a.png", 4, 2);
     let s = go(
-        Task::Transform(Transform::RotateRight),
+        Task::Transform(Transform::RotateRight, JpegTurn::Lossless),
         std::slice::from_ref(&p),
         &bin,
     );
@@ -134,7 +134,11 @@ fn every_transform_moves_the_corner() {
         (Transform::FlipVertical, (4, 2), (0, 1)),
     ] {
         let p = picture(tmp.path(), "b.bmp", 4, 2);
-        let s = go(Task::Transform(tf), std::slice::from_ref(&p), &bin);
+        let s = go(
+            Task::Transform(tf, JpegTurn::Lossless),
+            std::slice::from_ref(&p),
+            &bin,
+        );
         assert!(s.failed.is_empty(), "{tf:?}: {:?}", s.failed);
         let img = open(&p);
         assert_eq!(img.dimensions(), size, "{tf:?}");
@@ -173,7 +177,7 @@ fn rotated_jpeg_is_upright_and_keeps_its_exif() {
     assert_eq!(preview(&p, &Convert::default()).unwrap().size, (20, 40));
 
     let s = go(
-        Task::Transform(Transform::RotateRight),
+        Task::Transform(Transform::RotateRight, JpegTurn::Reencode),
         std::slice::from_ref(&p),
         &bin,
     );
@@ -356,7 +360,7 @@ fn failures_are_collected_and_the_rest_is_done() {
     let bad = tmp.path().join("bad.png");
     fs::write(&bad, "not a picture").unwrap();
     let s = go(
-        Task::Transform(Transform::Rotate180),
+        Task::Transform(Transform::Rotate180, JpegTurn::Lossless),
         &[bad.clone(), good],
         &bin,
     );
@@ -384,7 +388,7 @@ fn animated_pictures_are_not_rotated() {
         .unwrap();
     }
     let s = go(
-        Task::Transform(Transform::RotateLeft),
+        Task::Transform(Transform::RotateLeft, JpegTurn::Lossless),
         std::slice::from_ref(&p),
         &bin,
     );
@@ -422,7 +426,12 @@ fn a_started_job_finishes_on_its_own() {
         .map(|i| picture(tmp.path(), &format!("{i}.png"), 8, 4))
         .collect();
     let bin = std::sync::Arc::new(TestBin::new(tmp.path()));
-    let job = start(Task::Transform(Transform::RotateRight), paths, bin, || {});
+    let job = start(
+        Task::Transform(Transform::RotateRight, JpegTurn::Lossless),
+        paths,
+        bin,
+        || {},
+    );
     let until = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while !job.is_finished() && std::time::Instant::now() < until {
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -443,7 +452,7 @@ fn replaced_files_keep_their_created_date() {
     let then = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
     super::job::set_created(&p, then).unwrap();
     go(
-        Task::Transform(Transform::FlipVertical),
+        Task::Transform(Transform::FlipVertical, JpegTurn::Lossless),
         std::slice::from_ref(&p),
         &bin,
     );

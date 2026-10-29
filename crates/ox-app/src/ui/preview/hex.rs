@@ -1,5 +1,6 @@
 //! The Hex tab: offset, 16 bytes in hex and as text per row. Only the rows
-//! on screen are read from the file, so any size scrolls smoothly.
+//! on screen are read from the file, so any size scrolls smoothly. Items
+//! inside archives are read into memory first (their start, if big).
 
 use super::*;
 use egui::text::{LayoutJob, TextFormat};
@@ -10,9 +11,12 @@ use ox_core::hexview::{self, HexFile, ROW};
 #[derive(Default)]
 pub(super) struct HexView {
     key: Option<(PathBuf, Option<SystemTime>)>,
-    /// The file can be shown (a local file that isn't online-only).
+    /// The file can be shown (a local file that isn't online-only, or an
+    /// item inside an archive).
     available: bool,
     file: Option<Result<HexFile, String>>,
+    /// An item inside an archive being read.
+    loading: Option<Receiver<Result<HexFile, String>>>,
     /// First row shown, and how far the wheel has scrolled past it (rows).
     top: u64,
     scrolled: f32,
@@ -28,12 +32,13 @@ impl HexView {
     pub(super) fn offer(&mut self, e: &FileEntry, tabs: &mut Vec<PreviewTab>) {
         let key = (e.path.clone(), e.modified);
         if self.key.as_ref() != Some(&key) {
-            // Inside archives the bytes aren't at hand; online-only files
-            // would be downloaded.
+            // Online-only files would be downloaded.
             let available = !e.is_dir
-                && ox_core::archive::split_virtual(&e.path).is_none()
-                && std::fs::metadata(&e.path)
-                    .is_ok_and(|m| m.is_file() && m.len() > 0 && !ox_core::cloud::online(&m));
+                && match ox_core::archive::split_virtual(&e.path) {
+                    Some((_, inner)) => !inner.as_os_str().is_empty() && e.size > 0,
+                    None => std::fs::metadata(&e.path)
+                        .is_ok_and(|m| m.is_file() && m.len() > 0 && !ox_core::cloud::online(&m)),
+                };
             *self = Self {
                 key: Some(key),
                 available,
@@ -93,9 +98,44 @@ impl Layout {
     }
 }
 
+/// Start reading the item `e` inside an archive, in the background.
+fn load_archived(ui: &Ui, e: &FileEntry) -> Receiver<Result<HexFile, String>> {
+    let (tx, rx) = crossbeam_channel::bounded(1);
+    let (path, size, repaint) = (e.path.clone(), e.size, ui.ctx().clone());
+    std::thread::spawn(move || {
+        let read = ox_core::archive::split_virtual(&path)
+            .ok_or_else(|| tr("Not found in the archive.").to_owned())
+            .and_then(|(arc, inner)| {
+                ox_core::archive::read_entry(&arc, &inner, hexview::MAX_IN_MEMORY)
+                    .map_err(|e| e.to_string())
+            });
+        let _ = tx.send(read.map(|bytes| HexFile::from_bytes(bytes, size)));
+        repaint.request_repaint();
+    });
+    rx
+}
+
 pub(super) fn show(ui: &mut Ui, hv: &mut HexView, e: &FileEntry, actions: &mut Vec<Action>) {
     if hv.file.is_none() {
-        hv.file = Some(HexFile::open(&e.path).map_err(|e| e.to_string()));
+        if ox_core::archive::split_virtual(&e.path).is_none() {
+            hv.file = Some(HexFile::open(&e.path).map_err(|e| e.to_string()));
+        } else {
+            let rx = hv.loading.get_or_insert_with(|| load_archived(ui, e));
+            match rx.try_recv() {
+                Ok(file) => {
+                    hv.file = Some(file);
+                    hv.loading = None;
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => {
+                    ui.spinner();
+                    return;
+                }
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    hv.file = Some(Err(tr("Can't read this item.").to_owned()));
+                    hv.loading = None;
+                }
+            }
+        }
     }
     let file = match hv.file.take() {
         Some(Ok(f)) => f,
@@ -138,6 +178,16 @@ fn toolbar(ui: &mut Ui, hv: &mut HexView, file: &mut HexFile, actions: &mut Vec<
         }
         if hv.goto_error {
             ui.colored_label(ui.visuals().error_fg_color, tr("Not in this file"));
+        }
+        if file.full_len() > file.len() {
+            ui.label(
+                RichText::new(ox_core::trf!(
+                    "Only the first {shown} of {total} are shown.",
+                    shown = format::size(file.len()),
+                    total = format::size(file.full_len())
+                ))
+                .weak(),
+            );
         }
         if let Some(sel) = hv.selection() {
             let n = sel.end() - sel.start() + 1;

@@ -196,6 +196,7 @@ pub struct OxApp {
     pub player: PlayerSession,
     /// Quick Look, while it is open (Space).
     pub quick_look: Option<crate::ui::quick_look::QuickLook>,
+    pub text_compare: Option<Box<crate::ui::text_compare::TextCompare>>,
     pub folder_sizes: FolderSizes,
     /// The trees scanned for disk usage views.
     pub disk_usage: DiskUsageScans,

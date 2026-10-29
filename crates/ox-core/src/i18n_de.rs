@@ -900,6 +900,7 @@ mod picture_tools;
 mod pictures;
 mod player_more;
 mod preview_docs;
+mod previews_more;
 mod remote;
 mod search_history;
 mod search_tags;
@@ -941,4 +942,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(help_tools::TABLE)
         .chain(mirror_undo::TABLE)
         .chain(views_more::TABLE)
+        .chain(previews_more::TABLE)
 }

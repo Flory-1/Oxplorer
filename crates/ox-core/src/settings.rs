@@ -386,6 +386,9 @@ pub struct Preview {
     /// Office documents, mails and other files Windows has a preview
     /// handler for, shown by that handler (the Document tab).
     pub documents: bool,
+    /// Rotating and flipping JPEGs re-encodes them upright, instead of only
+    /// changing their EXIF orientation.
+    pub reencode_rotated_jpegs: bool,
 }
 
 impl Default for Preview {
@@ -394,6 +397,7 @@ impl Default for Preview {
             as_window: false,
             stop_player_on_select: false,
             documents: true,
+            reencode_rotated_jpegs: false,
         }
     }
 }

@@ -1,5 +1,7 @@
 //! The preview's Hex tab: a file read page by page as it is scrolled
 //! (big files are never loaded whole), and the formatting of its rows.
+//! Items inside archives are shown from their bytes, read into memory up to
+//! [`MAX_IN_MEMORY`].
 
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
@@ -13,11 +15,22 @@ const PAGE: u64 = 16 * 1024;
 const PAGES_KEPT: usize = 32;
 /// At most this much is copied at once.
 pub const MAX_COPY: u64 = 1024 * 1024;
+/// At most this much of an item inside an archive is shown.
+pub const MAX_IN_MEMORY: u64 = 32 * 1024 * 1024;
+
+enum Source {
+    File(File),
+    /// The bytes themselves (an item inside an archive).
+    Memory(Vec<u8>),
+}
 
 /// A file, read on demand.
 pub struct HexFile {
-    file: File,
+    source: Source,
     len: u64,
+    /// How big the whole file is (more than `len` if only its start is
+    /// shown).
+    full_len: u64,
     /// Recently read pages (by number), the latest last.
     pages: Vec<(u64, Vec<u8>)>,
 }
@@ -27,10 +40,24 @@ impl HexFile {
         let file = File::open(path)?;
         let len = file.metadata()?.len();
         Ok(Self {
-            file,
+            source: Source::File(file),
             len,
+            full_len: len,
             pages: Vec::new(),
         })
+    }
+
+    /// The bytes of a file whose size is `full_len`: all of it, or its
+    /// start (cut to [`MAX_IN_MEMORY`]).
+    pub fn from_bytes(mut bytes: Vec<u8>, full_len: u64) -> Self {
+        bytes.truncate(MAX_IN_MEMORY as usize);
+        let len = bytes.len() as u64;
+        Self {
+            source: Source::Memory(bytes),
+            len,
+            full_len: full_len.max(len),
+            pages: Vec::new(),
+        }
     }
 
     pub fn len(&self) -> u64 {
@@ -41,19 +68,33 @@ impl HexFile {
         self.len == 0
     }
 
+    /// The size of the whole file: more than [`Self::len`] if only its
+    /// start is shown.
+    pub fn full_len(&self) -> u64 {
+        self.full_len
+    }
+
     /// Number of rows.
     pub fn rows(&self) -> u64 {
         self.len.div_ceil(ROW as u64)
     }
 
     fn page(&mut self, n: u64) -> io::Result<&[u8]> {
+        let file = match &mut self.source {
+            Source::Memory(bytes) => {
+                let from = (n * PAGE).min(bytes.len() as u64) as usize;
+                let to = (from + PAGE as usize).min(bytes.len());
+                return Ok(&bytes[from..to]);
+            }
+            Source::File(f) => f,
+        };
         if let Some(at) = self.pages.iter().position(|(p, _)| *p == n) {
             let page = self.pages.remove(at);
             self.pages.push(page);
         } else {
             let mut buf = Vec::with_capacity(PAGE as usize);
-            self.file.seek(SeekFrom::Start(n * PAGE))?;
-            (&mut self.file).take(PAGE).read_to_end(&mut buf)?;
+            file.seek(SeekFrom::Start(n * PAGE))?;
+            file.take(PAGE).read_to_end(&mut buf)?;
             if self.pages.len() >= PAGES_KEPT {
                 self.pages.remove(0);
             }
@@ -244,5 +285,29 @@ mod tests {
         // Everything, through the page cache.
         assert_eq!(f.read(0, u64::MAX).unwrap(), data);
         assert!(f.pages.len() <= PAGES_KEPT);
+        assert_eq!(f.full_len(), f.len());
+    }
+
+    #[test]
+    fn pages_through_bytes_in_memory() {
+        let data: Vec<u8> = (0..PAGE * 2 + 7).map(|i| (i % 253) as u8).collect();
+        let mut f = HexFile::from_bytes(data.clone(), data.len() as u64);
+        assert_eq!(f.len(), data.len() as u64);
+        assert_eq!(f.full_len(), f.len());
+        assert_eq!(f.row(0).unwrap(), &data[..16]);
+        let at = PAGE * 2 - 3;
+        assert_eq!(f.read(at, 8).unwrap(), &data[at as usize..at as usize + 8]);
+        let last = f.rows() - 1;
+        assert_eq!(f.row(last).unwrap(), &data[(last * 16) as usize..]);
+        assert!(f.read(data.len() as u64, 4).unwrap().is_empty());
+        assert_eq!(f.read(0, u64::MAX).unwrap(), data);
+        // Nothing is copied into the page cache.
+        assert!(f.pages.is_empty());
+        // Only the start of a bigger file.
+        let f = HexFile::from_bytes(vec![1; 40], 1000);
+        assert_eq!((f.len(), f.full_len(), f.rows()), (40, 1000, 3));
+        let f = HexFile::from_bytes(Vec::new(), 0);
+        assert!(f.is_empty());
+        assert_eq!(f.rows(), 0);
     }
 }
