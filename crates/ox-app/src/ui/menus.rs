@@ -117,6 +117,12 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         archive_item_menu(ui, t, actions);
         return;
     }
+    if t.selection
+        .first()
+        .is_some_and(|p| ox_core::remote::is_remote_path(p))
+    {
+        return super::remote::item_menu(ui, t, actions);
+    }
     let sel = t.selection.to_vec();
     if let Some(dir) = t.single_dir {
         if ui.button(tr("📂 Open")).clicked() {
@@ -403,6 +409,9 @@ pub fn background_menu(
     dev: bool,
     actions: &mut Vec<Action>,
 ) {
+    if ox_core::remote::is_remote_path(folder) {
+        return super::remote::background_menu(ui, folder, can_paste, actions);
+    }
     ui.menu_button(tr("➕ New"), |ui| new_menu(ui, folder, new_items, actions));
     if ui
         .add_enabled(

@@ -423,6 +423,21 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             });
         }
         [entry] if !in_bin => {
+            // On a server: a downloaded copy, or only the details.
+            let entry = &match app.remote_preview(entry) {
+                crate::app::RemotePreview::Local => entry.clone(),
+                crate::app::RemotePreview::Ready(copy) => copy,
+                crate::app::RemotePreview::Info(text) => {
+                    app.preview.clear();
+                    header(ui, entry);
+                    ui.separator();
+                    info_grid(ui, entry, None, Vec::new(), &date_fmt);
+                    if let Some(text) = text {
+                        ui.label(RichText::new(text).weak());
+                    }
+                    return;
+                }
+            };
             app.preview
                 .update(ui.ctx(), entry, app.settings.browsing.show_hidden);
             header(ui, entry);

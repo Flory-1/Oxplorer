@@ -1,6 +1,7 @@
 //! Left sidebar: Home, Favorites, Libraries, Drives and Recent folders.
 
 mod libraries;
+mod remote;
 
 use ox_core::i18n::t as tr;
 use std::path::Path;
@@ -162,6 +163,8 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                     });
                 }
             }
+
+            remote::show(app, ui, &current, accent, &mut actions);
 
             let servers = network_servers(app);
             if app.settings.sidebar.show_drives && !servers.is_empty() {

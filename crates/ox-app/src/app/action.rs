@@ -129,6 +129,8 @@ pub enum Action {
     DiskUsage(super::DiskUsageAction),
     /// The built-in player: play, next, play all, playlists, ...
     Player(super::PlayerAction),
+    /// Remote locations: connect, open, add/edit/remove places.
+    Remote(super::RemoteAction),
 }
 
 pub enum TabAction {

@@ -230,6 +230,42 @@ impl RemoteAddr {
     }
 }
 
+/// The address from the fields of the "remote location" dialog. The host
+/// field may hold a whole address (`https://cloud.example.com/dav`): its
+/// parts then fill in the others (a web address is WebDAV). An empty port
+/// is the protocol's default.
+pub fn addr_from_parts(
+    protocol: Protocol,
+    host: &str,
+    port: &str,
+    user: &str,
+    path: &str,
+) -> Result<RemoteAddr, &'static str> {
+    let host = host.trim();
+    if host.contains("://") {
+        let mut addr = RemoteAddr::parse(host).ok_or("The address isn't valid.")?;
+        if addr.user.is_empty() {
+            addr.user = user.trim().to_owned();
+        }
+        if addr.path.is_empty() {
+            addr.path = normalize_path(path.trim());
+        }
+        return Ok(addr);
+    }
+    if host.is_empty() || host.contains(['/', '\\', '@', ' ']) {
+        return Err("Enter the server's name or address.");
+    }
+    let mut addr = RemoteAddr::new(protocol, host.trim_matches(['[', ']']), user, path.trim());
+    let port = port.trim();
+    if !port.is_empty() {
+        addr.port = match port.parse::<u16>() {
+            Ok(p) if p > 0 => p,
+            _ => return Err("The port must be a number from 1 to 65535."),
+        };
+    }
+    Ok(addr)
+}
+
 /// The password typed into an address (`ftp://me:secret@host`), if any.
 pub fn password_in(text: &str) -> Option<String> {
     let (_, rest) = text.trim().split_once("://")?;
@@ -463,6 +499,35 @@ mod tests {
         let mut other = a.clone();
         other.user = "other".into();
         assert!(!a.same_server(&other));
+    }
+
+    #[test]
+    fn dialog_fields_make_an_address() {
+        let a = addr_from_parts(Protocol::Sftp, " nas.local ", "2222", "me", "srv/data").unwrap();
+        assert_eq!(a.to_url(), "sftp://me@nas.local:2222/srv/data");
+        let b = addr_from_parts(Protocol::Ftp, "h", "", "", "").unwrap();
+        assert_eq!((b.port, b.path.as_str()), (21, ""));
+        // A pasted web address is WebDAV, whatever was picked.
+        let c = addr_from_parts(
+            Protocol::Sftp,
+            "https://cloud.example.com/remote.php/dav",
+            "",
+            "me",
+            "",
+        )
+        .unwrap();
+        assert_eq!(c.protocol, Protocol::WebDavs);
+        assert_eq!(c.to_url(), "webdavs://me@cloud.example.com/remote.php/dav");
+        assert!(addr_from_parts(Protocol::Sftp, "", "", "", "").is_err());
+        assert!(addr_from_parts(Protocol::Sftp, "a b", "", "", "").is_err());
+        assert!(addr_from_parts(Protocol::Sftp, "h", "0", "", "").is_err());
+        assert!(addr_from_parts(Protocol::Sftp, "h", "x", "", "").is_err());
+        assert_eq!(
+            addr_from_parts(Protocol::Sftp, "[::1]", "", "", "")
+                .unwrap()
+                .host,
+            "::1"
+        );
     }
 
     #[test]

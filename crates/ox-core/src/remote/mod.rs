@@ -11,8 +11,6 @@ pub mod credentials;
 mod ftp;
 mod ftp_list;
 pub mod known_hosts;
-#[cfg(test)]
-pub(crate) mod memory;
 mod sftp;
 mod tls;
 pub mod url;
@@ -261,8 +259,6 @@ impl RemotePlaces {
 #[derive(Debug, Clone, Default)]
 pub struct ConnectOptions {
     pub auth: AuthMethod,
-    /// Look for a saved password in the Credential Manager.
-    pub remember_password: bool,
 }
 
 impl ConnectOptions {
@@ -270,7 +266,6 @@ impl ConnectOptions {
         match places.for_addr(addr) {
             Some(p) => Self {
                 auth: p.auth.clone(),
-                remember_password: p.remember_password,
             },
             None => Self::default(),
         }
@@ -308,7 +303,8 @@ impl Connections {
             return Ok(fs.clone());
         }
         let mut password = self.passwords.lock().unwrap().get(&key).cloned();
-        if password.is_none() && opts.remember_password {
+        if password.is_none() {
+            // Saved only when the user asked to remember it.
             password = credentials::load(addr);
         }
         let had_password = password.is_some();
@@ -482,6 +478,9 @@ pub fn sanitize(name: &str) -> String {
 }
 
 #[cfg(test)]
+pub(crate) mod memory;
+
+#[cfg(test)]
 mod tests {
     use super::memory::MemoryFs;
     use super::*;
@@ -545,7 +544,6 @@ mod tests {
         let places = RemotePlaces(vec![place]);
         let addr = RemoteAddr::parse("sftp://me@nas/other/folder").unwrap();
         let opts = ConnectOptions::for_addr(&places, &addr);
-        assert!(opts.remember_password);
         assert_eq!(opts.auth, AuthMethod::KeyFile("C:/k".into()));
         assert_eq!(places.0[0].title(), "srv");
         let other = RemoteAddr::parse("sftp://you@nas/").unwrap();

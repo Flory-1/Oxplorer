@@ -106,6 +106,9 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) -> Rect 
                     let text = app.ui.address_text.trim().trim_matches('"').to_owned();
                     let path = PathBuf::from(expand_env(&text));
                     if text.is_empty() {
+                    } else if ox_core::remote::url::is_remote_text(&text) {
+                        let typed = crate::app::RemoteAction::OpenTyped(text);
+                        actions.push(Action::Remote(typed));
                     } else if ox_core::network::is_dir(&path) {
                         actions.push(Action::Navigate(Location::Folder(path)));
                     } else if path.is_file() {
@@ -124,6 +127,7 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) -> Rect 
 
         app.ui.address_text = match &location {
             Location::Folder(p) => p.display().to_string(),
+            Location::Remote(a) => a.to_url(),
             _ => String::new(),
         };
         let tag_label = match &location {
@@ -140,6 +144,7 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) -> Rect 
                     ));
                 }
                 Location::Folder(p) => breadcrumbs(ui, p, actions),
+                Location::Remote(a) => crate::ui::remote::crumbs(ui, a, actions),
                 Location::Home => {
                     ui.label(ox_core::trf!("{v1}  Home", v1 = crate::icons::HOME));
                 }
@@ -409,9 +414,11 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
                 .unwrap_or(tr("This PC").into()),
         ),
         Location::RecycleBin => (None, tr("Recycle Bin").into()),
+        Location::Remote(a) => (None, a.title()),
         _ => (None, tr("This PC").into()),
     };
-    let in_bin = tab.location().is_bin();
+    // No search in the Recycle Bin or on a server.
+    let in_bin = tab.location().is_bin() || tab.location().is_remote();
     let dropdown = Dropdown::before(ui, id);
     ui.allocate_ui(vec2(width, 30.0), |ui| {
         let mut edit_resp = None;

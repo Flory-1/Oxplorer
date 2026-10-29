@@ -4,7 +4,7 @@ use super::*;
 
 pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
     let mut actions = Vec::new();
-    let folder = app.current_folder();
+    let folder = app.target_folder();
     let tab = app.tabs.active();
     let selection = tab.view.selected_paths();
     let shows_files = tab.location().shows_files();

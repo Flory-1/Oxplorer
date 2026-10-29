@@ -142,7 +142,8 @@ impl End<'_> {
 
     fn join(&self, dir: &Path, name: &str) -> PathBuf {
         match self {
-            End::Local => dir.join(name),
+            // Server names may hold characters Windows doesn't allow.
+            End::Local => dir.join(crate::remote::sanitize(name)),
             End::Remote(_) => match RemoteAddr::from_path(dir) {
                 Some(a) => a.join(name).to_path(),
                 None => dir.join(name),

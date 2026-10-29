@@ -17,6 +17,7 @@ pub(crate) mod palette;
 pub(crate) mod picture_tools;
 pub(crate) mod preview;
 pub(crate) mod quick_look;
+pub(crate) mod remote;
 mod select_pattern;
 mod sessions;
 mod settings_page;
@@ -140,6 +141,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     }
     quick_look::show(app, ui.ctx());
     dialogs::show(app, ui.ctx());
+    remote::show(app, ui.ctx());
     palette::show(app, ui.ctx());
     toasts(app, ui.ctx());
     transfers::countdown(app, ui.ctx());
@@ -261,7 +263,8 @@ fn content(app: &mut OxApp, ui: &mut Ui) {
         | Location::Tagged(_)
         | Location::Archive { .. }
         | Location::Library { .. }
-        | Location::Gallery => files::show(app, ui),
+        | Location::Gallery
+        | Location::Remote(_) => files::show(app, ui),
     }
 }
 
