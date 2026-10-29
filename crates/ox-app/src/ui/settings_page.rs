@@ -426,6 +426,16 @@ fn appearance(ui: &mut Ui, app: &mut OxApp) {
                 ui.selectable_value(&mut a.backdrop, Backdrop::Acrylic, tr("Acrylic"));
             },
         );
+    }
+    if ox_core::titlebar::supported() {
+        toggle(
+            ui,
+            &mut a.tabs_in_title_bar,
+            tr("Tabs in the title bar"),
+            tr("Like Windows 11: the tabs take the place of the title bar, with the minimize, maximize and close buttons next to them. Drag the free space beside the tabs to move the window. Off: Windows' title bar above the tabs."),
+        );
+    }
+    if ox_core::shell::supported() {
         toggle(
             ui,
             &mut a.system_icons,

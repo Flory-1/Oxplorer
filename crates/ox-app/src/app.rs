@@ -190,6 +190,13 @@ pub struct Toast {
 
 /// Transient UI state that doesn't belong to a tab.
 pub struct UiState {
+    /// The tabs are in the title bar (it was removed; see `ox_core::titlebar`).
+    pub title_bar: bool,
+    /// Where the title bar strip has things to click this frame, its height
+    /// and the maximize button (all in points).
+    pub title_hits: Vec<egui::Rect>,
+    pub title_height: f32,
+    pub max_button: Option<egui::Rect>,
     pub address_editing: bool,
     pub address_text: String,
     pub focus_address: bool,
@@ -247,8 +254,10 @@ pub struct OxApp {
     release_pointer: bool,
     /// The window is transparent, so a backdrop can show through it.
     see_through: bool,
-    /// Backdrop and dark title bar last given to the window.
-    window_style: Option<(Backdrop, bool)>,
+    /// Backdrop, dark mode and "no title bar" last given to the window.
+    window_style: Option<(Backdrop, bool, bool)>,
+    /// Whether the window's title bar was last removed (`Some(true)`) or given back.
+    title_bar_applied: Option<bool>,
     /// The terminal panel's shell, started the first time the panel opens.
     pub terminal: Option<crate::terminal::Terminal>,
     /// Folder the terminal was last sent to (for "follow the folder").
@@ -335,6 +344,10 @@ impl OxApp {
             dialog: None,
             toasts: Vec::new(),
             ui: UiState {
+                title_bar: false,
+                title_hits: Vec::new(),
+                title_height: 0.0,
+                max_button: None,
                 address_editing: false,
                 address_text: String::new(),
                 focus_address: false,
@@ -380,6 +393,7 @@ impl OxApp {
             release_pointer: false,
             see_through,
             window_style: None,
+            title_bar_applied: None,
             terminal: None,
             terminal_dir: None,
             sizes_key: None,
@@ -1989,19 +2003,80 @@ impl OxApp {
         }
     }
 
-    /// Give the window its Windows 11 look (backdrop, corners, title bar).
+    /// Give the window its Windows 11 look (backdrop, corners, title bar),
+    /// and put the tabs into the title bar or take them out again.
     fn style_window(&mut self, ctx: &Context, frame: &eframe::Frame) {
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-        let style = (self.backdrop(), ctx.global_style().visuals.dark_mode);
-        if !ox_core::shell::supported() || self.window_style == Some(style) {
+        let tabs_in_title = self.settings.appearance.tabs_in_title_bar;
+        let style = (
+            self.backdrop(),
+            ctx.global_style().visuals.dark_mode,
+            tabs_in_title,
+        );
+        if !ox_core::shell::supported()
+            || (self.window_style == Some(style) && self.title_bar_applied == Some(tabs_in_title))
+        {
             return;
         }
-        if let Ok(handle) = frame.window_handle() {
-            if let RawWindowHandle::Win32(h) = handle.as_raw() {
-                ox_core::shell::set_window_style(h.hwnd.get(), style.0, style.1);
-                self.window_style = Some(style);
-            }
+        let Ok(handle) = frame.window_handle() else {
+            return;
+        };
+        let RawWindowHandle::Win32(h) = handle.as_raw() else {
+            return;
+        };
+        let hwnd = h.hwnd.get();
+        if self.window_style != Some(style) {
+            ox_core::shell::set_window_style(hwnd, style.0, style.1, style.2);
+            self.window_style = Some(style);
         }
+        if self.title_bar_applied != Some(tabs_in_title) {
+            if tabs_in_title {
+                let repaint = ctx.clone();
+                self.ui.title_bar =
+                    ox_core::titlebar::enable(hwnd, move || repaint.request_repaint());
+            } else {
+                if self.title_bar_applied == Some(true) {
+                    ox_core::titlebar::disable(hwnd);
+                }
+                self.ui.title_bar = false;
+            }
+            self.title_bar_applied = Some(tabs_in_title);
+        }
+    }
+
+    /// Tell Windows where the title bar strip has things to click, where
+    /// the maximize button is and where it moves the window.
+    fn publish_title_bar(&self, ctx: &Context) {
+        if !self.ui.title_bar {
+            return;
+        }
+        let ppp = ctx.pixels_per_point();
+        let px = |r: egui::Rect| {
+            [
+                (r.min.x * ppp).floor() as i32,
+                (r.min.y * ppp).floor() as i32,
+                (r.max.x * ppp).ceil() as i32,
+                (r.max.y * ppp).ceil() as i32,
+            ]
+        };
+        let mut client: Vec<_> = self.ui.title_hits.iter().copied().map(px).collect();
+        // Menus, popups and windows over the strip take the clicks too.
+        ctx.memory(|m| {
+            for layer in m.areas().visible_layer_ids() {
+                let over = !matches!(
+                    layer.order,
+                    egui::Order::Background | egui::Order::Tooltip | egui::Order::Debug
+                ) && layer.id != crate::ui::header::caption_buttons_id();
+                if let Some(rect) = m.area_rect(layer.id).filter(|_| over) {
+                    client.push(px(rect));
+                }
+            }
+        });
+        ox_core::titlebar::set_layout(ox_core::titlebar::Layout {
+            height: (self.ui.title_height * ppp).ceil() as i32,
+            max_button: self.ui.max_button.map(px),
+            client,
+        });
     }
 
     /// Files dragged past the window's edge go on as a Windows drag & drop,
@@ -2064,6 +2139,7 @@ impl eframe::App for OxApp {
         self.pre_frame(&ctx);
         self.style_window(&ctx, frame);
         ui::show(self, ui);
+        self.publish_title_bar(&ctx);
         self.drag_out_of_window(&ctx);
         self.process_actions();
         if ctx.input(|i| i.viewport().close_requested()) {

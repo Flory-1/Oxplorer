@@ -51,6 +51,9 @@ What's new: [CHANGELOG.md](CHANGELOG.md). What's next: [ROADMAP.md](ROADMAP.md).
 - **Network locations**: type `\\server` to see its shares, browse `\\server\share` like any
   folder, mapped network drives under *This PC*, the servers you use under *Network*, and
   *Map network drive…* from a drive's right-click menu or the command palette
+- **Tabs in the title bar**, as in Windows 11's Explorer: no separate title bar above the tabs,
+  with Windows 11 style minimize, maximize and close buttons. The window keeps its frame, shadow,
+  snapping and the snap layouts on the maximize button (can be turned off in Settings → Appearance)
 - **Mica or Acrylic** window backdrop on Windows 11 (Settings → Appearance), rounded corners
   and a title bar that follows dark/light mode
 - **Open folders in Oxplorer** instead of Explorer (Settings → Startup): folders and drives

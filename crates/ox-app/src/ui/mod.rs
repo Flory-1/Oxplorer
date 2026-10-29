@@ -2,7 +2,7 @@
 
 mod dialogs;
 mod files;
-mod header;
+pub mod header;
 pub(crate) mod help_page;
 mod home;
 pub(crate) mod palette;
