@@ -12,6 +12,7 @@ mod home;
 pub(crate) mod link_dialog;
 mod links;
 mod menus;
+mod mini_player;
 pub(crate) mod palette;
 pub(crate) mod preview;
 pub(crate) mod quick_look;
@@ -57,6 +58,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             )
             .show(ui, |ui| status_bar(app, ui));
     }
+    mini_player::show(app, ui);
 
     if app.ui.show_transfers
         && (!app.engine.jobs().is_empty() || !app.engine.resumable().is_empty())

@@ -114,6 +114,11 @@ ICONS = {
     "⏩": "fast-forward",
     "⏪": "rewind",
     "🔁": "repeat",
+    "🔂": "repeat-1",
+    "🔀": "shuffle",
+    "⏮": "skip-back",
+    "⏭": "skip-forward",
+    "💬": "captions",
     "🔊": "volume-2",
     "🔇": "volume-x",
     # Settings, help and the rest

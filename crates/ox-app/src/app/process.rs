@@ -41,6 +41,9 @@ impl OxApp {
                 self.tabs.active_mut().stale = true;
                 self.drives_at = Instant::now() - Duration::from_secs(60);
             }
+            Action::Open(path) if player::opens_playlist(&path) => {
+                self.player_action(PlayerAction::Playlist(path));
+            }
             Action::Open(path) => {
                 let in_archive = archive::split_virtual(&path)
                     .filter(|(_, inner)| !inner.as_os_str().is_empty());
@@ -502,6 +505,7 @@ impl OxApp {
             Action::ToggleFlatView => self.toggle_flat_view(),
             Action::ShowInFolder(path) => self.show_in_folder(path),
             Action::DiskUsage(a) => self.disk_usage_action(a),
+            Action::Player(a) => self.player_action(a),
             Action::NewLink(dir, kind) => self.new_link_dialog(dir, kind),
             Action::ShowLinkTarget(link) => self.show_link_target(link),
             Action::Session(a) => self.process_session(a),

@@ -395,6 +395,8 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 .is_dir
                 .then(|| app.folder_sizes.get(&entry.path))
                 .flatten();
+            // The Player tab plays with the app's player (see `preview/player.rs`).
+            std::mem::swap(&mut app.preview.play, &mut app.player);
             tabbed(
                 ui,
                 &mut app.preview,
@@ -404,6 +406,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 &date_fmt,
                 &mut actions,
             );
+            std::mem::swap(&mut app.preview.play, &mut app.player);
         }
         [entry] => {
             app.preview.clear();

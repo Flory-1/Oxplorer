@@ -47,6 +47,9 @@ pub enum Command {
     ToggleTerminal,
     OpenInEditor,
     QuickLook,
+    PlayerPlayPause,
+    PlayerNext,
+    PlayerPrevious,
 }
 
 pub struct CommandInfo {
@@ -202,6 +205,24 @@ pub const COMMANDS: &[CommandInfo] = &[
         &["Ctrl+Shift+E"],
     ),
     info(Command::QuickLook, "quick_look", "Quick Look", &["Space"]),
+    info(
+        Command::PlayerPlayPause,
+        "player_play_pause",
+        "Player: play / pause",
+        &["Ctrl+Space"],
+    ),
+    info(
+        Command::PlayerNext,
+        "player_next",
+        "Player: next file",
+        &["Ctrl+Right"],
+    ),
+    info(
+        Command::PlayerPrevious,
+        "player_previous",
+        "Player: previous file",
+        &["Ctrl+Left"],
+    ),
 ];
 
 pub fn command_info(cmd: Command) -> &'static CommandInfo {
