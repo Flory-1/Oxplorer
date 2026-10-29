@@ -2,12 +2,22 @@
 //!
 //! Uses the `git` command line (`git status --porcelain -z`), so nothing is
 //! shown when Git isn't installed. On Windows it runs without a console
-//! window.
+//! window. The Git tab's changes, branches, diffs and the commands that
+//! change the repository are in the submodules.
+
+mod branches;
+mod changes;
+mod cmd;
+pub mod diff;
+mod ops;
+
+pub use branches::{branches, parse_branches, parse_track, Branch};
+pub use changes::{changes, parse_changes, Change, Changes, Group, Head};
+pub use ops::*;
 
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// State of one file or folder, most important first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -193,18 +203,9 @@ fn parse_branch(status: &mut RepoStatus, head: &str) {
 
 /// Run `git` with `args` in the repository at `root`; its output.
 fn run(root: &Path, args: &[&str]) -> io::Result<Vec<u8>> {
-    let mut cmd = Command::new("git");
-    cmd.arg("-C")
-        .arg(root)
-        .args(args)
-        .env("GIT_OPTIONAL_LOCKS", "0");
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-    let out = cmd.output()?;
+    let mut cmd = cmd::command(root);
+    cmd.args(args).env("GIT_OPTIONAL_LOCKS", "0");
+    let out = cmd::output(&mut cmd, cmd::READ_TIMEOUT)?;
     if !out.status.success() {
         return Err(io::Error::other(
             String::from_utf8_lossy(&out.stderr).trim().to_owned(),
@@ -507,6 +508,7 @@ pub fn graph(commits: &[Commit]) -> (Vec<GraphRow>, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     #[test]
     fn parses_porcelain_output() {

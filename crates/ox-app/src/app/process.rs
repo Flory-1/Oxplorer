@@ -421,6 +421,7 @@ impl OxApp {
                     }
                 })
             }
+            Action::Git(a) => self.git_action(a),
             Action::OpenTerminal(dir) => {
                 if let Err(e) = fsops::open_terminal(&dir) {
                     self.toast(ox_core::trf!("Couldn't open a terminal: {e}", e = e));

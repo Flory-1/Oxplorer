@@ -35,7 +35,7 @@ use crate::icons;
 use crate::shortcuts::{self, Command};
 use crate::tabs::{FolderView, Location};
 
-fn git_color(state: ox_core::git::GitState, v: &egui::Visuals) -> Color32 {
+pub(crate) fn git_color(state: ox_core::git::GitState, v: &egui::Visuals) -> Color32 {
     use ox_core::git::GitState::*;
     match state {
         Conflicted | Deleted => Color32::from_rgb(0xe5, 0x48, 0x4d),

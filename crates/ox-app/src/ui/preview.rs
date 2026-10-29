@@ -4,7 +4,11 @@ mod animation;
 mod data;
 mod document;
 mod font;
+mod git_branches;
+mod git_changes;
+mod git_diff;
 mod git_graph;
+mod git_panel;
 mod hex;
 mod info;
 mod large;
@@ -93,6 +97,8 @@ pub enum PreviewTab {
     FontSample,
     Glyphs,
     Git,
+    /// The changes of a file in a Git repository.
+    Diff,
     Player,
     /// The items of a folder or archive (Quick Look).
     Contents,
@@ -115,6 +121,7 @@ impl PreviewTab {
             PreviewTab::FontSample => tr("Aa Preview"),
             PreviewTab::Glyphs => tr("🔣 Glyphs"),
             PreviewTab::Git => tr("🌿 Git"),
+            PreviewTab::Diff => tr("± Diff"),
             PreviewTab::Player => tr("▶ Player"),
             PreviewTab::Contents => tr("📂 Contents"),
             PreviewTab::Document => tr("📄 Document"),
@@ -223,6 +230,8 @@ pub struct PreviewState {
     /// The Document tab's preview handler.
     document: document::DocumentState,
     hex: hex::HexView,
+    /// The Git tab's changes, branches and diffs.
+    git: git_panel::GitPanel,
     /// Quick Look: opens on what the file shows rather than Info, with
     /// sharper pictures, pictures fitted, folder contents and autoplay.
     quick_look: bool,
@@ -432,6 +441,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 .flatten();
             // The Player tab plays with the app's player (see `preview/player.rs`).
             std::mem::swap(&mut app.preview.play, &mut app.player);
+            app.preview.git.status = app.tabs.active().view.git.clone();
             tabbed(
                 ui,
                 &mut app.preview,
@@ -513,6 +523,7 @@ fn tabbed(
     let mut tabs = content.tabs();
     document::offer(&mut tabs, &mut state.document, content, e);
     state.hex.offer(e, &mut tabs);
+    state.git.offer(e, &mut tabs);
     // The tab picked last, if this file has it; otherwise Info (Quick
     // Look: what the file shows).
     let first = match state.quick_look {
@@ -547,8 +558,11 @@ fn tabbed(
         return;
     }
     if let (PreviewTab::Git, Content::Folder { git: Some(git), .. }) = (tab, content) {
-        git_graph(ui, git, date_fmt, actions);
+        git_changes::git_tab(ui, &mut state.git, git, date_fmt, actions);
         return;
+    }
+    if tab == PreviewTab::Diff {
+        return git_diff::file_tab(ui, &mut state.git, e);
     }
     if tab == PreviewTab::Document {
         return document::show(ui, &mut state.document, e, actions);
