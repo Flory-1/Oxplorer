@@ -284,13 +284,16 @@ fn tab_widget(
         text_color,
     );
 
-    // Close button.
-    if is_active || resp.hovered() {
-        let close = ui.interact(
-            close_rect,
-            egui::Id::unique(("close_tab", id)),
-            Sense::click(),
-        );
+    // Close button. It always exists, also on inactive tabs: once the pointer
+    // is over it, it covers the tab, so the tab itself no longer counts as
+    // hovered (making it depend on that hid it again and the click went to
+    // the tab instead).
+    let close = ui.interact(
+        close_rect,
+        egui::Id::unique(("close_tab", id)),
+        Sense::click(),
+    );
+    if is_active || resp.hovered() || close.hovered() {
         if close.hovered() {
             ui.painter().rect_filled(
                 close_rect,
