@@ -508,6 +508,16 @@ fn preview(ui: &mut Ui, s: &mut Settings) {
         tr("Open as a window"),
         tr("Show the preview in its own window that you can move and resize, instead of a pane on the right."),
     );
+    if ox_core::player::supported() {
+        let mut keep = !p.stop_player_on_select;
+        toggle(
+            ui,
+            &mut keep,
+            tr("Keep playing while browsing"),
+            tr("Audio and video go on playing in the mini player when you select another item or go to another folder. Off: selecting another item stops the player."),
+        );
+        p.stop_player_on_select = !keep;
+    }
 }
 
 /// Editors offered on the Developer page: name and command line.

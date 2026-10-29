@@ -127,6 +127,8 @@ pub enum Action {
     View(super::ViewAction),
     /// The disk usage view: scan again, stop.
     DiskUsage(super::DiskUsageAction),
+    /// The built-in player: play, next, play all, playlists, ...
+    Player(super::PlayerAction),
 }
 
 pub enum TabAction {

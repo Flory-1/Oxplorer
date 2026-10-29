@@ -15,6 +15,7 @@ mod instances;
 mod library;
 mod links;
 mod picture_tools;
+mod player;
 mod poll;
 mod process;
 mod properties;
@@ -32,6 +33,7 @@ pub use compare::{CompareAction, CompareState};
 pub use disk_usage::{DiskUsageAction, DiskUsageScans};
 pub use instances::Start;
 pub use picture_tools::{doing as doing_pictures, PictureAction, PictureTools};
+pub use player::{PlayerAction, Session as PlayerSession, RATES};
 pub use properties::Properties;
 pub use search_history::{HistoryAction, RecentSearches};
 pub use select::SelectAction;
@@ -180,6 +182,8 @@ pub struct OxApp {
     folder_views_saved: Instant,
     pub index: IndexService,
     pub preview: crate::ui::preview::PreviewState,
+    /// The built-in player (plays on while browsing; see `app/player.rs`).
+    pub player: PlayerSession,
     /// Quick Look, while it is open (Space).
     pub quick_look: Option<crate::ui::quick_look::QuickLook>,
     pub folder_sizes: FolderSizes,
@@ -360,6 +364,7 @@ impl OxApp {
                 })
             },
             preview: Default::default(),
+            player: PlayerSession::main(),
             quick_look: None,
             disk_usage: Default::default(),
             folder_sizes: {
@@ -475,6 +480,7 @@ impl OxApp {
         self.poll_git();
         self.poll_cloud();
         self.poll_libraries();
+        self.poll_player(ctx);
         self.poll_watcher();
         self.poll_jobs();
         self.poll_undo();

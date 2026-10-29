@@ -375,6 +375,9 @@ impl Default for Sidebar {
 pub struct Preview {
     /// Show it as a separate window instead of a pane on the right.
     pub as_window: bool,
+    /// Selecting another item stops the player, instead of it playing on
+    /// in the mini player while you browse.
+    pub stop_player_on_select: bool,
 }
 
 /// Settings → Developer.

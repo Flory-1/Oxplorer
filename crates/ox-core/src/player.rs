@@ -5,6 +5,13 @@
 //! and picture in sync. Video frames are copied into a small Direct3D
 //! texture and read back as RGBA pixels for the UI to draw.
 //! Elsewhere there is no player ([`supported`] is false).
+//!
+//! What plays next ([`queue`]), playlists ([`playlist`]) and subtitles
+//! ([`subtitles`]) are worked out here too, the same on every system.
+
+pub mod playlist;
+pub mod queue;
+pub mod subtitles;
 
 use std::io;
 use std::path::Path;
@@ -130,6 +137,14 @@ impl Player {
         self.imp.set_looping(on);
         #[cfg(not(windows))]
         let _ = on;
+    }
+
+    /// Playback speed: 1.0 is normal, 0.5 half, 2.0 double.
+    pub fn set_rate(&self, rate: f64) {
+        #[cfg(windows)]
+        self.imp.set_rate(rate);
+        #[cfg(not(windows))]
+        let _ = rate;
     }
 
     /// The newest video frame, if there is one since the last call.
@@ -326,6 +341,12 @@ mod imp {
 
         pub fn set_looping(&self, on: bool) {
             let _ = self.player.SetIsLoopingEnabled(on);
+        }
+
+        pub fn set_rate(&self, rate: f64) {
+            if let Ok(session) = self.player.PlaybackSession() {
+                let _ = session.SetPlaybackRate(rate.clamp(0.25, 4.0));
+            }
         }
 
         pub fn frame(&mut self) -> Option<Frame> {

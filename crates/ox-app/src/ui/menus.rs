@@ -150,6 +150,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     {
         actions.push(Action::QuickLook);
     }
+    super::mini_player::item_menu(ui, &sel, actions);
     ui.separator();
     if ui
         .add(egui::Button::new(tr("✂ Cut")).shortcut_text(shortcuts::label(Command::Cut)))
@@ -429,6 +430,7 @@ pub fn background_menu(
     {
         actions.push(Action::Refresh);
     }
+    super::mini_player::folder_menu(ui, folder, actions);
     if ui
         .add(
             egui::Button::new(tr("☑ Select all"))
