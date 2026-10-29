@@ -23,6 +23,7 @@ use ox_core::transfer::TransferKind;
 use crate::app::{Action, OxApp, TabAction};
 use crate::shortcuts::{self, Command};
 use crate::tabs::{Location, TabId};
+use ox_core::settings::NewItem;
 
 /// Drag payload: files/folders being dragged inside the app.
 #[derive(Clone)]
@@ -823,22 +824,39 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     }
 }
 
+/// The entries of the "New" menus: Folder, Text document and the user's own
+/// (Settings → New menu).
+pub fn new_menu(ui: &mut Ui, folder: &Path, new_items: &[NewItem], actions: &mut Vec<Action>) {
+    if ui
+        .add(egui::Button::new(tr("📁 Folder")).shortcut_text(shortcuts::label(Command::NewFolder)))
+        .clicked()
+    {
+        actions.push(Action::NewFolder(folder.to_path_buf()));
+    }
+    if ui.button(tr("📄 Text document")).clicked() {
+        actions.push(Action::NewFile(folder.to_path_buf()));
+    }
+    if !new_items.is_empty() {
+        ui.separator();
+    }
+    for (i, item) in new_items.iter().enumerate() {
+        let text = format!("📄 {}", ox_core::i18n::t_any(&item.label));
+        if ui.button(text).on_hover_text(&item.file_name).clicked() {
+            actions.push(Action::NewFromItem(folder.to_path_buf(), i));
+        }
+    }
+}
+
 /// Context menu for the empty area of a folder.
 pub fn background_menu(
     ui: &mut Ui,
     folder: &Path,
     can_paste: bool,
     pinned: bool,
+    new_items: &[NewItem],
     actions: &mut Vec<Action>,
 ) {
-    ui.menu_button(tr("➕ New"), |ui| {
-        if ui.button(tr("📁 Folder")).clicked() {
-            actions.push(Action::NewFolder(folder.to_path_buf()));
-        }
-        if ui.button(tr("📄 Text document")).clicked() {
-            actions.push(Action::NewFile(folder.to_path_buf()));
-        }
-    });
+    ui.menu_button(tr("➕ New"), |ui| new_menu(ui, folder, new_items, actions));
     if ui
         .add_enabled(
             can_paste,

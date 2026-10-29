@@ -146,6 +146,15 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             "",
             act(move || Action::NewFile(f2)),
         );
+        for (i, item) in app.settings.new_items.0.iter().enumerate() {
+            let dir = f.clone();
+            cmd(
+                "📄",
+                &ox_core::trf!("New {what}", what = ox_core::i18n::t_any(&item.label)),
+                &item.file_name,
+                act(move || Action::NewFromItem(dir.clone(), i)),
+            );
+        }
         cmd(
             "📥",
             tr("Paste"),

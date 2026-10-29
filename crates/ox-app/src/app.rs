@@ -77,6 +77,8 @@ pub enum Action {
     RenameTag(TagColor, String),
     NewFolder(PathBuf),
     NewFile(PathBuf),
+    /// Create a file from the user's "New" entry with this index.
+    NewFromItem(PathBuf, usize),
     Pin(PathBuf),
     Unpin(PathBuf),
     MoveFavorite(PathBuf, isize),
@@ -1277,6 +1279,20 @@ impl OxApp {
                 Ok(p) => self.after_create(&dir, p),
                 Err(e) => self.toast(ox_core::trf!("Couldn't create file: {e}", e = e)),
             },
+            Action::NewFromItem(dir, i) => {
+                let Some(item) = self.settings.new_items.0.get(i).cloned() else {
+                    return;
+                };
+                let name = if item.file_name.trim().is_empty() {
+                    tr("New Text Document.txt").to_owned()
+                } else {
+                    item.file_name.trim().to_owned()
+                };
+                match fsops::create_file_with(&dir, &name, &item.content_for(&name)) {
+                    Ok(p) => self.after_create(&dir, p),
+                    Err(e) => self.toast(ox_core::trf!("Couldn't create file: {e}", e = e)),
+                }
+            }
             Action::Pin(p) => {
                 self.quick.pin(&p);
                 self.save_quick();

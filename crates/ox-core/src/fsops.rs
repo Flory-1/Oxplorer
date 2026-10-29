@@ -90,6 +90,19 @@ pub fn create_file(dir: &Path, name: &str) -> io::Result<PathBuf> {
     Ok(path)
 }
 
+/// Create a new file with `content` in `dir`, numbering the name if it is
+/// taken (like [`create_file`]).
+pub fn create_file_with(dir: &Path, name: &str, content: &str) -> io::Result<PathBuf> {
+    use std::io::Write;
+    let path = unique_path(dir, name);
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)?;
+    file.write_all(content.as_bytes())?;
+    Ok(path)
+}
+
 /// Characters Windows does not allow in file names.
 pub const INVALID_NAME_CHARS: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 
@@ -316,5 +329,28 @@ mod tests {
         assert!(rename(&folder2, "New folder").is_err());
         delete(&[folder.clone(), folder2.clone()], false).unwrap();
         assert!(!folder.exists() && !folder2.exists());
+    }
+
+    #[test]
+    fn new_files_from_templates() {
+        let dir = tempfile::tempdir().unwrap();
+        let item = crate::settings::NewItem {
+            label: "Python script".into(),
+            file_name: "tool.py".into(),
+            content: "# {name}\n".into(),
+        };
+        let first =
+            create_file_with(dir.path(), &item.file_name, &item.content_for("tool.py")).unwrap();
+        assert_eq!(fs::read_to_string(&first).unwrap(), "# tool\n");
+        // A taken name gets a number, the content is written all the same.
+        let second = create_file_with(dir.path(), "tool.py", "x").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(fs::read_to_string(&second).unwrap(), "x");
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let dated = crate::settings::NewItem {
+            content: "{date}".into(),
+            ..Default::default()
+        };
+        assert_eq!(dated.content_for("a.txt"), today);
     }
 }

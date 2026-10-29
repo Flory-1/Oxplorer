@@ -325,9 +325,68 @@ pub struct Settings {
     pub search: Search,
     pub sidebar: Sidebar,
     pub preview: Preview,
+    /// Extra entries of the "New" menus (Python script, Markdown, …).
+    pub new_items: NewItems,
     /// Changed keyboard shortcuts: command name → keys ("" = none).
     pub shortcuts: std::collections::BTreeMap<String, String>,
     pub terminal: Terminal,
+}
+
+/// A file type in the "New" menus: its label, the file name it starts with
+/// and what is written into it. `{name}` (the file name without extension)
+/// and `{date}` (today, YYYY-MM-DD) in the content are filled in.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct NewItem {
+    pub label: String,
+    pub file_name: String,
+    pub content: String,
+}
+
+impl NewItem {
+    fn new(label: &str, file_name: &str, content: &str) -> Self {
+        Self {
+            label: label.to_owned(),
+            file_name: file_name.to_owned(),
+            content: content.to_owned(),
+        }
+    }
+
+    /// The content for a file called `file_name`, placeholders filled in.
+    pub fn content_for(&self, file_name: &str) -> String {
+        let stem = std::path::Path::new(file_name)
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        self.content
+            .replace("{name}", &stem)
+            .replace("{date}", &today)
+    }
+}
+
+/// The user's "New" menu entries (shown after Folder and Text document).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct NewItems(pub Vec<NewItem>);
+
+impl Default for NewItems {
+    fn default() -> Self {
+        Self(vec![
+            NewItem::new("Markdown document", "Document.md", "# {name}\n\n"),
+            NewItem::new(
+                "Python script",
+                "script.py",
+                "#!/usr/bin/env python3\n\"\"\"{name}\"\"\"\n\n\ndef main():\n    pass\n\n\nif __name__ == \"__main__\":\n    main()\n",
+            ),
+            NewItem::new(
+                "PowerShell script",
+                "script.ps1",
+                "# {name}.ps1 ({date})\n\nparam()\n\n",
+            ),
+            NewItem::new("JSON file", "data.json", "{\n}\n"),
+        ])
+    }
 }
 
 /// The built-in terminal panel.

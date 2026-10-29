@@ -10,16 +10,32 @@ use ox_core::transfer::ConflictPolicy;
 use crate::app::{Action, OxApp};
 use crate::shortcuts::{self, Command};
 
-const SECTIONS: [&str; 9] = [
-    "🎨 Appearance",
-    "📂 Browsing",
-    "🚀 Startup",
-    "◧ Sidebar",
-    "◨ Preview pane",
-    "⇄ Copy engine",
-    "🔍 Search",
-    "⌨ Shortcuts",
-    "ℹ About",
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Section {
+    Appearance,
+    Browsing,
+    Startup,
+    Sidebar,
+    Preview,
+    NewMenu,
+    Transfer,
+    Search,
+    Shortcuts,
+    About,
+}
+
+/// The pages in the order of the list on the left, with their names.
+const SECTIONS: [(Section, &str); 10] = [
+    (Section::Appearance, "🎨 Appearance"),
+    (Section::Browsing, "📂 Browsing"),
+    (Section::Startup, "🚀 Startup"),
+    (Section::Sidebar, "◧ Sidebar"),
+    (Section::Preview, "◨ Preview pane"),
+    (Section::NewMenu, "➕ New menu"),
+    (Section::Transfer, "⇄ Copy engine"),
+    (Section::Search, "🔍 Search"),
+    (Section::Shortcuts, "⌨ Shortcuts"),
+    (Section::About, "ℹ About"),
 ];
 
 /// Query examples on the Search page: what to type, and what it does.
@@ -50,7 +66,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         .show(ui, |ui| {
             ui.heading(RichText::new(tr("Settings")).strong());
             ui.add_space(10.0);
-            for (i, name) in SECTIONS.iter().enumerate() {
+            for (i, (_, name)) in SECTIONS.iter().enumerate() {
                 let selected = app.ui.settings_section == i;
                 if super::nav_item(ui, tr(name), selected).clicked() {
                     app.ui.settings_section = i;
@@ -64,35 +80,37 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 .inner_margin(egui::Margin::symmetric(24, 16))
                 .show(ui, |ui| {
                     ui.set_max_width(680.0);
-                    let section = app.ui.settings_section;
-                    let title = tr(SECTIONS[section]);
+                    let (section, name) = SECTIONS[app.ui.settings_section.min(SECTIONS.len() - 1)];
+                    let title = tr(name);
                     let title = &title[title.find(' ').map_or(0, |i| i + 1)..];
                     ui.heading(RichText::new(title).size(20.0).strong());
                     ui.add_space(12.0);
                     match section {
-                        0 => {
+                        Section::Appearance => {
                             appearance(ui, app);
                             theme_editor(ui, app);
                         }
-                        1 => browsing(ui, &mut app.settings),
-                        2 => {
+                        Section::Browsing => browsing(ui, &mut app.settings),
+                        Section::Startup => {
                             startup(ui, &mut app.settings);
                             default_folder_handler(ui, app);
                         }
-                        3 => sidebar(ui, &mut app.settings),
-                        4 => preview(ui, &mut app.settings),
-                        5 => transfer(ui, &mut app.settings),
-                        6 => {
+                        Section::Sidebar => sidebar(ui, &mut app.settings),
+                        Section::Preview => preview(ui, &mut app.settings),
+                        Section::NewMenu => new_menu(ui, &mut app.settings),
+                        Section::Transfer => transfer(ui, &mut app.settings),
+                        Section::Search => {
                             search(ui, &mut app.settings);
                             index_section(ui, app);
                         }
-                        7 => shortcuts(ui, app),
-                        _ => about(ui),
+                        Section::Shortcuts => shortcuts(ui, app),
+                        Section::About => about(ui),
                     }
                     ui.add_space(24.0);
                     ui.separator();
                     ui.horizontal(|ui| {
-                        if section < 7 && ui.button(tr("Reset this page to defaults")).clicked() {
+                        let resettable = !matches!(section, Section::Shortcuts | Section::About);
+                        if resettable && ui.button(tr("Reset this page to defaults")).clicked() {
                             reset_section(&mut app.settings, section);
                         }
                         ui.label(
@@ -111,23 +129,24 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     }
 }
 
-fn reset_section(s: &mut Settings, section: usize) {
+fn reset_section(s: &mut Settings, section: Section) {
     let d = Settings::default();
     match section {
-        0 => s.appearance = d.appearance,
-        1 => s.browsing = d.browsing,
-        2 => s.startup = d.startup,
-        3 => s.sidebar = d.sidebar,
-        4 => {
+        Section::Appearance => s.appearance = d.appearance,
+        Section::Browsing => {
+            s.browsing = d.browsing;
+            s.terminal = d.terminal;
+        }
+        Section::Startup => s.startup = d.startup,
+        Section::Sidebar => s.sidebar = d.sidebar,
+        Section::Preview => {
             s.preview = d.preview;
             s.browsing.show_preview = d.browsing.show_preview;
         }
-        5 => s.transfer = d.transfer,
-        6 => s.search = d.search,
-        _ => {}
-    }
-    if section == 1 {
-        s.terminal = d.terminal;
+        Section::NewMenu => s.new_items = d.new_items,
+        Section::Transfer => s.transfer = d.transfer,
+        Section::Search => s.search = d.search,
+        Section::Shortcuts | Section::About => {}
     }
 }
 
@@ -638,6 +657,84 @@ fn preview(ui: &mut Ui, s: &mut Settings) {
     );
 }
 
+/// The user's entries of the "New" menus.
+fn new_menu(ui: &mut Ui, s: &mut Settings) {
+    ui.label(
+        RichText::new(tr(
+            "Extra entries of ➕ New (toolbar and right-click menu) and the command palette, after Folder and Text document. In the content, {name} becomes the file name without extension and {date} today's date.",
+        ))
+        .weak(),
+    );
+    ui.add_space(8.0);
+    let items = &mut s.new_items.0;
+    let mut remove = None;
+    let mut swap = None;
+    let count = items.len();
+    for (i, item) in items.iter_mut().enumerate() {
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            egui::Grid::new(("new_item", i))
+                .num_columns(2)
+                .spacing(vec2(12.0, 6.0))
+                .show(ui, |ui| {
+                    ui.label(tr("Name in the menu"));
+                    ui.horizontal(|ui| {
+                        ui.add(egui::TextEdit::singleline(&mut item.label).desired_width(220.0));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("🗑").on_hover_text(tr("Remove")).clicked() {
+                                remove = Some(i);
+                            }
+                            if ui
+                                .add_enabled(i + 1 < count, egui::Button::new("⬇").small())
+                                .on_hover_text(tr("Move down"))
+                                .clicked()
+                            {
+                                swap = Some((i, i + 1));
+                            }
+                            if ui
+                                .add_enabled(i > 0, egui::Button::new("⬆").small())
+                                .on_hover_text(tr("Move up"))
+                                .clicked()
+                            {
+                                swap = Some((i - 1, i));
+                            }
+                        });
+                    });
+                    ui.end_row();
+                    ui.label(tr("File name"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut item.file_name)
+                            .hint_text("script.py")
+                            .desired_width(220.0),
+                    );
+                    ui.end_row();
+                    ui.label(tr("Content"));
+                    ui.add(
+                        egui::TextEdit::multiline(&mut item.content)
+                            .code_editor()
+                            .desired_rows(3)
+                            .desired_width(f32::INFINITY),
+                    );
+                    ui.end_row();
+                });
+        });
+        ui.add_space(4.0);
+    }
+    if let Some(i) = remove {
+        items.remove(i);
+    }
+    if let Some((a, b)) = swap {
+        items.swap(a, b);
+    }
+    if ui.button(tr("➕ Add entry")).clicked() {
+        items.push(ox_core::settings::NewItem {
+            label: tr("New entry").to_owned(),
+            file_name: "file.txt".to_owned(),
+            content: String::new(),
+        });
+    }
+}
+
 fn transfer(ui: &mut Ui, s: &mut Settings) {
     let t = &mut s.transfer;
     ui.label(
@@ -1118,6 +1215,7 @@ mod tests {
     #[test]
     fn sections_are_translated() {
         for s in SECTIONS
+            .map(|(_, name)| name)
             .into_iter()
             .chain(QUERY_SYNTAX.map(|(_, what)| what))
         {
