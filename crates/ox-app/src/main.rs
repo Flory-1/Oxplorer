@@ -55,6 +55,11 @@ fn main() -> eframe::Result {
             ),
         // We handle Ctrl+C/X/V ourselves so that pasting *files* works too.
         clipboard_shortcuts: false,
+        // Window position, size and maximized state are kept in this file
+        // (a file, despite the name); eframe keeps the window on screen if
+        // its monitor is gone.
+        persist_window: true,
+        persistence_path: Some(ox_core::config_dir().join("window.ron")),
         ..Default::default()
     };
     #[cfg(windows)]

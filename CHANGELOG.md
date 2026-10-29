@@ -3,6 +3,24 @@
 All notable changes to Oxplorer. Versions follow [Semantic Versioning](https://semver.org/).
 The release workflow publishes the section of the tagged version as the release notes.
 
+## [Unreleased]
+
+### Added
+- Settings → **Preview pane**: open the preview as its own window (move and resize it freely)
+  instead of a pane on the right, and set the pane's width.
+- Settings → Sidebar: **sidebar width**. Dragging the edge of the sidebar or the preview pane
+  updates the setting, and the width is kept between runs.
+
+### Fixed
+- The window opens where it was closed, with the same size and maximized state, instead of in
+  the top left corner. If its monitor is gone, it is moved onto a connected one.
+- The search index is no longer rebuilt at every start: a saved index that is younger than
+  *Refresh every* is used as is, and the refresh waits until it is due.
+  (*Only at start* still rebuilds at every start.)
+
+### Removed
+- The *UI scale* setting.
+
 ## [1.0.0] - 2026-10-28
 
 The first release: a fast file explorer for Windows, written in Rust.

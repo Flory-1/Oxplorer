@@ -8,12 +8,14 @@ use ox_core::settings::{Backdrop, Settings, StartPage, Theme, ViewMode};
 use ox_core::transfer::ConflictPolicy;
 
 use crate::app::{Action, OxApp};
+use crate::shortcuts::{self, Command};
 
-const SECTIONS: [&str; 8] = [
+const SECTIONS: [&str; 9] = [
     "🎨 Appearance",
     "📂 Browsing",
     "🚀 Startup",
     "◧ Sidebar",
+    "◨ Preview pane",
     "⇄ Copy engine",
     "🔍 Search",
     "⌨ Shortcuts",
@@ -82,18 +84,19 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                             default_folder_handler(ui, app);
                         }
                         3 => sidebar(ui, &mut app.settings),
-                        4 => transfer(ui, &mut app.settings),
-                        5 => {
+                        4 => preview(ui, &mut app.settings),
+                        5 => transfer(ui, &mut app.settings),
+                        6 => {
                             search(ui, &mut app.settings);
                             index_section(ui, app);
                         }
-                        6 => shortcuts(ui, app),
+                        7 => shortcuts(ui, app),
                         _ => about(ui),
                     }
                     ui.add_space(24.0);
                     ui.separator();
                     ui.horizontal(|ui| {
-                        if section < 6 && ui.button(tr("Reset this page to defaults")).clicked() {
+                        if section < 7 && ui.button(tr("Reset this page to defaults")).clicked() {
                             reset_section(&mut app.settings, section);
                         }
                         ui.label(
@@ -119,8 +122,12 @@ fn reset_section(s: &mut Settings, section: usize) {
         1 => s.browsing = d.browsing,
         2 => s.startup = d.startup,
         3 => s.sidebar = d.sidebar,
-        4 => s.transfer = d.transfer,
-        5 => s.search = d.search,
+        4 => {
+            s.preview = d.preview;
+            s.browsing.show_preview = d.browsing.show_preview;
+        }
+        5 => s.transfer = d.transfer,
+        6 => s.search = d.search,
         _ => {}
     }
     if section == 1 {
@@ -377,13 +384,6 @@ fn appearance(ui: &mut Ui, app: &mut OxApp) {
             }
         },
     );
-    row(ui, tr("UI scale"), tr("Zoom the whole interface."), |ui| {
-        ui.add(
-            egui::Slider::new(&mut a.ui_scale, 0.75..=2.0)
-                .step_by(0.05)
-                .custom_formatter(|v, _| format!("{:.0} %", v * 100.0)),
-        );
-    });
     toggle(
         ui,
         &mut a.compact_rows,
@@ -605,6 +605,41 @@ fn sidebar(ui: &mut Ui, s: &mut Settings) {
     row(ui, tr("Recent folders shown"), "", |ui| {
         ui.add(egui::Slider::new(&mut sb.recent_count, 1..=20));
     });
+    row(
+        ui,
+        tr("Sidebar width"),
+        tr("You can also drag the sidebar's edge."),
+        |ui| {
+            ui.add(egui::Slider::new(&mut sb.width, super::SIDEBAR_WIDTH).suffix(" px"));
+        },
+    );
+}
+
+fn preview(ui: &mut Ui, s: &mut Settings) {
+    toggle(
+        ui,
+        &mut s.browsing.show_preview,
+        tr("Show the preview pane"),
+        &ox_core::trf!(
+            "Also with {keys} or View → Preview pane.",
+            keys = shortcuts::label(Command::TogglePreview)
+        ),
+    );
+    let p = &mut s.preview;
+    toggle(
+        ui,
+        &mut p.as_window,
+        tr("Open as a window"),
+        tr("Show the preview in its own window that you can move and resize, instead of a pane on the right."),
+    );
+    row(
+        ui,
+        tr("Pane width"),
+        tr("You can also drag the pane's edge."),
+        |ui| {
+            ui.add(egui::Slider::new(&mut p.width, super::PREVIEW_WIDTH).suffix(" px"));
+        },
+    );
 }
 
 fn transfer(ui: &mut Ui, s: &mut Settings) {

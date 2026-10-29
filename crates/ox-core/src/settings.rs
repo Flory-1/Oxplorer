@@ -60,8 +60,6 @@ pub struct Appearance {
     pub theme: Theme,
     /// Accent colour as RGB.
     pub accent: [u8; 3],
-    /// UI zoom factor (1.0 = 100 %).
-    pub ui_scale: f32,
     pub compact_rows: bool,
     /// Show the real Windows file icons instead of the built-in ones.
     pub system_icons: bool,
@@ -82,7 +80,6 @@ impl Default for Appearance {
         Self {
             theme: Theme::System,
             accent: [0x4c, 0x8d, 0xf6],
-            ui_scale: 1.0,
             compact_rows: false,
             system_icons: true,
             thumbnails: true,
@@ -282,6 +279,8 @@ pub struct Sidebar {
     pub show_drives: bool,
     pub show_recent: bool,
     pub recent_count: usize,
+    /// Width in points (also changed by dragging the sidebar's edge).
+    pub width: f32,
 }
 
 impl Default for Sidebar {
@@ -292,6 +291,26 @@ impl Default for Sidebar {
             show_drives: true,
             show_recent: true,
             recent_count: 8,
+            width: 230.0,
+        }
+    }
+}
+
+/// The preview pane (shown or hidden with `Browsing::show_preview`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Preview {
+    /// Show it as a separate window instead of a pane on the right.
+    pub as_window: bool,
+    /// Width in points (also changed by dragging the pane's edge).
+    pub width: f32,
+}
+
+impl Default for Preview {
+    fn default() -> Self {
+        Self {
+            as_window: false,
+            width: 320.0,
         }
     }
 }
@@ -305,6 +324,7 @@ pub struct Settings {
     pub transfer: Transfer,
     pub search: Search,
     pub sidebar: Sidebar,
+    pub preview: Preview,
     /// Changed keyboard shortcuts: command name → keys ("" = none).
     pub shortcuts: std::collections::BTreeMap<String, String>,
     pub terminal: Terminal,

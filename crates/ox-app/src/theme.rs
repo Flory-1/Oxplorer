@@ -49,7 +49,6 @@ pub fn apply(ctx: &Context, settings: &Settings, all: &[ColorTheme], see_through
         settings::Theme::Light => ThemePreference::Light,
         settings::Theme::Dark => ThemePreference::Dark,
     });
-    ctx.set_zoom_factor(settings.appearance.ui_scale.clamp(0.5, 3.0));
 
     let accent = accent(settings);
     for theme in [Theme::Dark, Theme::Light] {
