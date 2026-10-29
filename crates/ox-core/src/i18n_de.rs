@@ -874,4 +874,9 @@ pub const TABLE: &[(&str, &str)] = &[
     ("📂 Open log folder", "📂 Protokollordner öffnen"),
     ("The log and crash reports, to attach to a bug report", "Das Protokoll und die Absturzberichte, zum Anhängen an einen Fehlerbericht"),
     ("Oxplorer closed unexpectedly last time. The crash report is in the log folder: Help → Open log folder.", "Oxplorer wurde beim letzten Mal unerwartet beendet. Der Absturzbericht liegt im Protokollordner: Hilfe → Protokollordner öffnen."),
+    ("Check for updates", "Nach Updates suchen"),
+    ("Once a day, ask GitHub for the newest version of Oxplorer and say so on the Home page when there's a newer one.", "Einmal täglich bei GitHub nach der neuesten Version von Oxplorer fragen und auf der Startseite darauf hinweisen, wenn eine neuere verfügbar ist."),
+    ("✨ Oxplorer {v1} is available.", "✨ Oxplorer {v1} ist verfügbar."),
+    ("What's new", "Neuerungen"),
+    ("Don't show this again for this version", "Für diese Version nicht mehr anzeigen"),
 ];

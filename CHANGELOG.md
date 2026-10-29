@@ -6,6 +6,9 @@ The release workflow publishes the section of the tagged version as the release 
 ## [Unreleased]
 
 ### Added
+- **Update check**: once a day Oxplorer asks GitHub for the newest release and, when there's a
+  newer one, says so on the Home page with a link to what's new. ✖ hides the note for that
+  version; Settings → Startup → *Check for updates* turns it off.
 - **Properties dialog of its own** instead of Windows': type, the program that opens it, size
   and size on disk, place, dates (also last opened and, for photos, taken), Read-only and Hidden
   to change, a program's version, a photo's camera details, and the Git state and last commit.

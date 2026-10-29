@@ -19,6 +19,9 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         egui::Frame::new().inner_margin(egui::Margin::symmetric(28, 20)).show(ui, |ui| {
             ui.heading(RichText::new(tr("Quick access")).size(24.0).strong());
             ui.label(RichText::new(tr("Your pinned folders, drives and recent places.")).weak());
+            if app.settings.startup.check_updates {
+                update_note(ui, accent);
+            }
             ui.add_space(14.0);
 
             // Favorites
@@ -125,6 +128,35 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         });
     });
     app.actions.extend(actions);
+}
+
+/// A newer release is on GitHub: a quiet line with a link to its notes, and
+/// ✖ to stop showing it for that version.
+fn update_note(ui: &mut Ui, accent: Color32) {
+    let Some(release) = ox_core::update::available() else {
+        return;
+    };
+    ui.add_space(10.0);
+    egui::Frame::new()
+        .stroke(Stroke::new(1.0, accent.gamma_multiply(0.6)))
+        .corner_radius(CornerRadius::same(8))
+        .inner_margin(egui::Margin::symmetric(12, 6))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(ox_core::trf!(
+                    "✨ Oxplorer {v1} is available.",
+                    v1 = release.version()
+                ));
+                ui.hyperlink_to(tr("What's new"), release.notes_url());
+                ui.add_space(6.0);
+                if super::close_button(ui)
+                    .on_hover_text(tr("Don't show this again for this version"))
+                    .clicked()
+                {
+                    ox_core::update::dismiss();
+                }
+            });
+        });
 }
 
 fn heading(ui: &mut Ui, text: &str) {

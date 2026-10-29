@@ -183,6 +183,8 @@ Copying and moving never opens the Windows copy dialog. Oxplorer's own engine
   shortcuts and common questions, with a filter
 - Settings are saved as TOML in `%APPDATA%\Oxplorer\`; problems and crashes are written to a
   log there (Help → *Open log folder*), to attach to a bug report
+- A quiet **update check**: a note on the Home page when a newer release is on GitHub (can be
+  turned off in Settings → Startup)
 
 ## Screenshots
 
@@ -316,6 +318,7 @@ crates/
     places.rs         favorites, recent items, known folders, drives
     settings.rs       settings (TOML)
     logfile.rs        log file and crash reports
+    update.rs         update check (newest release on GitHub, via WinHTTP)
     i18n.rs           translations (English text as key); i18n_de.rs: German
     fsops.rs          create / rename / delete, terminal and editor helpers
     watcher.rs        auto-refresh when a folder changes

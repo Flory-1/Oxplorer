@@ -28,8 +28,6 @@ Windows machine yet.
     moving the window between monitors with different scaling
 - ⏳ **Copy engine benchmarks** against Explorer, robocopy and TeraCopy (many small files, one
   huge file, SSD → USB stick, network share), with the numbers in the README
-- ⏳ **Update check**: a quiet note on the Home page when a newer release is on GitHub (can be
-  turned off), and a link to the release notes
 - ⏳ Code-signed releases, so SmartScreen doesn't warn on the first start
 
 ## Phase 8 — Safer file operations
