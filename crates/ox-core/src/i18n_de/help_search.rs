@@ -1,0 +1,11 @@
+//! German translations for the Help topics of search, disk usage and clean-up
+//! (continued from `i18n_de.rs`).
+
+pub const TABLE: &[(&str, &str)] = &[
+    ("There are chips for your colour tags too, and Inside archives also finds the files in zip, 7z and tar archives.", "Es gibt auch Filter für Ihre Farb-Tags, und „In Archiven“ findet auch die Dateien in Zip-, 7z- und Tar-Archiven."),
+    ("The search box remembers your searches. Up and Down choose an earlier search or a completion of what you type (ki → kind:); Enter runs it, Tab puts it in the box. Settings → Search → Remember searches turns the history off.", "Das Suchfeld merkt sich Ihre Suchen. Mit Pfeil nach oben und unten wählen Sie eine frühere Suche oder eine Ergänzung des Eingegebenen (ki → kind:); Eingabe führt sie aus, Tab setzt sie ins Feld. Einstellungen → Suche → Suchen merken schaltet den Verlauf aus."),
+    ("Disk usage, duplicates and empty folders", "Speicherbelegung, Duplikate und leere Ordner"),
+    ("Right-click a folder or drive → Disk usage shows what takes up the space, as a map of rectangles, with the largest items next to it. Click a folder to zoom in; Back or Up zooms out again.", "Rechtsklick auf einen Ordner oder ein Laufwerk → Speicherbelegung zeigt als Karte aus Rechtecken, was den Platz belegt, daneben die größten Elemente. Ein Klick auf einen Ordner zoomt hinein; Zurück oder Nach oben zoomt wieder heraus."),
+    ("Right-click a folder → Clean up → Find duplicates lists the files with the same contents and the space they waste. Tick the copies you don't need, or use Select all but the newest, and Delete selected moves them to the Recycle Bin (Ctrl+Z brings them back).", "Rechtsklick auf einen Ordner → Aufräumen → Duplikate finden listet die Dateien mit gleichem Inhalt und den Platz, den sie verschwenden. Haken Sie die Kopien an, die Sie nicht brauchen, oder nutzen Sie „Alle außer der neuesten auswählen“; „Auswahl löschen“ verschiebt sie in den Papierkorb (Strg+Z holt sie zurück)."),
+    ("Clean up → Find empty folders lists the folders with nothing in them, to review and delete the same way.", "Aufräumen → Leere Ordner finden listet die Ordner, in denen nichts ist, zum Prüfen und Löschen auf dieselbe Weise."),
+];
