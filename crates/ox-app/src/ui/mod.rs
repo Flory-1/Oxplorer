@@ -768,7 +768,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
             });
         }
     }
-    if ui.button(tr("🗜 Compress to ZIP")).clicked() {
+    if ui.button(tr("📦 Compress to ZIP")).clicked() {
         actions.push(Action::Compress(sel.clone()));
     }
     let theme_file = sel.len() == 1
@@ -800,7 +800,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     {
         actions.push(Action::CopyPathText(sel.clone()));
     }
-    if sel.len() == 1 && ui.button(tr("🗔 Show in Windows Explorer")).clicked() {
+    if sel.len() == 1 && ui.button(tr("🖥 Show in Windows Explorer")).clicked() {
         actions.push(Action::Reveal(sel[0].clone()));
     }
     if t.dev {
@@ -939,7 +939,7 @@ pub fn background_menu(
     if ui.button(tr("🖳 Open in Terminal")).clicked() {
         actions.push(Action::OpenTerminal(folder.to_path_buf()));
     }
-    if ui.button(tr("🗔 Open in Windows Explorer")).clicked() {
+    if ui.button(tr("🖥 Open in Windows Explorer")).clicked() {
         actions.push(Action::Reveal(folder.to_path_buf()));
     }
     if dev {

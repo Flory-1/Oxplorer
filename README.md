@@ -65,7 +65,8 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 - Chrome-style **tab groups** with names and colours; click a group's chip to collapse it
 - **Split view** (Ctrl+\\): two folders side by side. F6 or a click switches the pane, and
   you can drag files between the panes.
-- **Home page** with favorites, drives with usage bars, and recent folders and files
+- **Home tab**, always the first tab: favorites, drives with usage bars, and recent folders and
+  files. What you open from it opens in a new tab.
 - **Sidebar** with Favorites, This PC, Network, Recent, Tags and Saved searches
 - **Command palette** (Ctrl+Shift+P): type a few letters to run any command or jump to a
   favorite, drive, recent folder, tag or saved search
@@ -174,6 +175,7 @@ Copying and moving never opens the Windows copy dialog. Oxplorer's own engine
   Light, High contrast, or your own. Change any colour, **export** a theme as a small `.toml`
   file, and right-click a theme file → *Use as theme* to install one.
 - Accent colour, compact rows, thumbnails, single-click to open, date format, and more
+- Clean [Lucide](https://lucide.dev) line icons throughout, the same on every computer
 - **Keyboard shortcuts** you can change: click one in Settings → Shortcuts and press the new keys
 - **English and German**. Oxplorer follows the Windows display language or the one you
   choose. Everything is translated, including Help, messages and key names (*Strg+C*).
@@ -326,6 +328,7 @@ crates/
                       sidebar, home page, file view, preview pane, command palette,
                       settings and help pages, transfers, dialogs
 installer/            Inno Setup script, winget manifest templates, build script
+tools/icon-font/      builds the icon font (crates/ox-app/assets/icons.ttf) from Lucide
 ```
 
 The UI is [egui](https://github.com/emilk/egui) (immediate mode, GPU rendered), which keeps
@@ -333,4 +336,5 @@ Oxplorer a single small native `.exe`.
 
 ## License
 
-MIT
+MIT. The icons are from [Lucide](https://lucide.dev) (ISC licence, see
+`crates/ox-app/assets/LICENSE-lucide.txt`); `tools/icon-font` builds the icon font from them.

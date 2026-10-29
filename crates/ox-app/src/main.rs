@@ -3,6 +3,8 @@
 mod app;
 #[cfg(test)]
 mod i18n_check;
+#[cfg(test)]
+mod icon_check;
 mod icons;
 mod shortcuts;
 mod tabs;

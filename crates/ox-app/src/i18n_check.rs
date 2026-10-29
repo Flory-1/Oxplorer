@@ -19,7 +19,7 @@ macro_rules! core {
     };
 }
 
-const SOURCES: &[(&str, &str)] = &[
+pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("app.rs"),
     app!("tabs.rs"),
     app!("thumbs.rs"),

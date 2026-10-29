@@ -19,7 +19,9 @@ serde.workspace = true
 toml.workspace = true
 # persistence: remembers the window's position, size and maximized state.
 eframe = { version = "0.37", features = ["persistence"] }
-egui = "0.37"
+# Black-and-white emoji fonts for the icons in menus and buttons. Without
+# them, egui takes them from the system: Windows' colour emoji font.
+egui = { version = "0.37", features = ["monochrome_emoji_fonts"] }
 arboard = "3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp", "ico", "tiff"] }
 egui_extras = { version = "0.37", default-features = false, features = ["syntect", "image", "file"] }
