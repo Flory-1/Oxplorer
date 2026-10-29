@@ -77,6 +77,7 @@ impl OxApp {
                 self.ctx.request_repaint_after(again);
             }
         }
+        self.poll_prop_values();
     }
 
     pub(super) fn poll_notices(&mut self) {
@@ -123,7 +124,12 @@ impl OxApp {
                 .and_then(|t| t.location().folder().map(Path::to_path_buf))
                 .filter(|_| self.settings.browsing.auto_refresh)
                 .filter(|_| !flat.is_some_and(|f| f.truncated));
-            self.watchers[i].watch_tree(folder.as_deref(), flat.is_some());
+            // A library: all its folders.
+            let library = tab.and_then(|t| self.watched_library(t.location()));
+            let dirs = library
+                .as_ref()
+                .map_or_else(|| folder.clone().into_iter().collect(), |l| l.1.clone());
+            self.watchers[i].watch_all(&dirs, flat.is_some());
             if self.watchers[i].take_dirty() && self.refresh_at[i].is_none() {
                 // Debounce bursts of file system events.
                 let wait = if flat.is_some() { 1000 } else { 250 };
@@ -139,6 +145,9 @@ impl OxApp {
                     if let Some(folder) = &folder {
                         self.folder_sizes.invalidate(folder);
                         self.tabs.mark_stale(Some(folder));
+                    }
+                    if let Some((file, _)) = &library {
+                        self.library_changed(file);
                     }
                 } else {
                     self.ctx.request_repaint_after(at - Instant::now());

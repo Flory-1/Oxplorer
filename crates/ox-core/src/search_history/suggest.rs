@@ -13,6 +13,9 @@ pub enum SuggestionKind {
     Filter,
     /// A value for a filter (`kind:image`).
     Value,
+    /// A folder or a file completing a typed path ([`crate::path_complete`]).
+    Folder,
+    File,
 }
 
 #[derive(Debug, Clone, PartialEq)]

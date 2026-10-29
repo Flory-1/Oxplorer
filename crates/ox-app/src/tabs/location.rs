@@ -106,6 +106,18 @@ impl Location {
         }
     }
 
+    /// Where a search's `root` is: a folder, or a library (searched from a
+    /// library, the root is its `.library-ms` file).
+    pub fn search_root(root: PathBuf) -> Location {
+        if ox_core::library::is_library_file(&root) {
+            let name = root
+                .file_stem()
+                .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+            return Location::Library { name, file: root };
+        }
+        Location::Folder(root)
+    }
+
     /// The folder this location represents, if any (used for paste, new folder, …).
     pub fn folder(&self) -> Option<&Path> {
         match self {

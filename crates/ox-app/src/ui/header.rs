@@ -2,7 +2,7 @@
 
 mod caption;
 mod command_bar;
-mod nav;
+pub(super) mod nav;
 mod tab_strip;
 use caption::caption_buttons;
 pub use caption::caption_buttons_id;

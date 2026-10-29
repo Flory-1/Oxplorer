@@ -21,6 +21,7 @@ mod groups;
 mod item_groups;
 mod location;
 mod pinned;
+mod prop_values;
 mod select;
 mod session;
 #[cfg(test)]
@@ -61,6 +62,8 @@ pub struct FolderView {
     pub needs_grouping: bool,
     /// `TagStore::version` the items were grouped with.
     pub grouped_tags: u64,
+    /// Values read from the files, when sorted or grouped by them.
+    pub props: prop_values::PropValues,
 }
 
 impl FolderView {
@@ -234,7 +237,7 @@ impl Tab {
         let parent = match self.location() {
             // Up from a share's root goes to its server.
             Location::Folder(p) => ox_core::network::parent(p).map(Location::Folder),
-            Location::Search { root, .. } => root.clone().map(Location::Folder),
+            Location::Search { root, .. } => root.clone().map(Location::search_root),
             // Up from an archive's top level leaves the archive.
             Location::Archive { archive, inner } => Some(match inner.parent() {
                 Some(up) => Location::Archive {
@@ -281,8 +284,8 @@ impl Tab {
             self.filter = query.clone();
         }
         if *self.location() == Location::Gallery {
-            // Like Windows' Gallery: large pictures, newest first.
-            self.view_mode = ViewMode::Grid;
+            // Like Windows' Gallery: large pictures, newest first, by month.
+            (self.view_mode, self.group_by) = (ViewMode::Grid, ox_core::grouping::GroupBy::Month);
             self.sort_key = SortKey::Modified;
             self.sort_order = SortOrder::Descending;
         }
@@ -295,12 +298,7 @@ impl Tab {
 
     /// Re-sort entries and re-apply the quick filter.
     pub fn refresh_visible(&mut self, folders_first: bool, case_sensitive: bool) {
-        entry::sort_entries(
-            &mut self.view.entries,
-            self.sort_key,
-            self.sort_order,
-            folders_first,
-        );
+        self.sort_view(folders_first);
         let query = Query::parse(&self.filter, case_sensitive);
         let here = self.location();
         let filtering =

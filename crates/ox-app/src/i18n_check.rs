@@ -155,6 +155,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     core!("links.rs"),
     core!("mirror.rs"),
     core!("grouping.rs"),
+    core!("grouping/month.rs"),
     core!("pathfmt.rs"),
     core!("picture_tools/codec.rs"),
     core!("picture_tools/mod.rs"),
@@ -328,6 +329,7 @@ fn texts_translated_where_they_are_shown_have_german_too() {
     texts.extend(ox_core::columns::ColumnId::ALL.map(|c| c.label()));
     texts.extend(ox_core::entry::SortKey::ALL.map(|k| k.label()));
     texts.extend(ox_core::grouping::GroupBy::ALL.map(|g| g.label()));
+    texts.extend(ox_core::grouping::MONTHS);
     use ox_core::grouping::{DateBucket as D, SizeBucket as S};
     texts.extend(
         [
