@@ -359,11 +359,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             ui.add_space(8.0);
             for (i, name) in SECTIONS.iter().enumerate() {
                 let selected = app.ui.help.section == i && app.ui.help.filter.is_empty();
-                let button = egui::Button::new(RichText::new(tr(name)).size(14.0))
-                    .selected(selected)
-                    .frame(selected)
-                    .min_size(vec2(180.0, 30.0));
-                if ui.add(button).clicked() {
+                if super::nav_item(ui, tr(name), selected).clicked() {
                     app.ui.help.section = i;
                     app.ui.help.filter.clear();
                 }

@@ -170,6 +170,45 @@ fn terminal_panel(app: &mut OxApp, ui: &mut Ui) {
     app.actions.extend(actions);
 }
 
+/// An entry of the section list on the Settings and Help pages. `name` is
+/// "<icon> <label>"; the icon is drawn centred in its own slot so it lines
+/// up whatever font it comes from.
+pub fn nav_item(ui: &mut Ui, name: &str, selected: bool) -> Response {
+    let (icon, label) = name.split_once(' ').unwrap_or(("", name));
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(180.0, 30.0), egui::Sense::click());
+    let v = ui.visuals();
+    if selected {
+        ui.painter()
+            .rect_filled(rect, v.widgets.active.corner_radius, v.selection.bg_fill);
+    } else if resp.hovered() {
+        ui.painter().rect_filled(
+            rect,
+            v.widgets.hovered.corner_radius,
+            v.widgets.hovered.weak_bg_fill,
+        );
+    }
+    let color = if selected {
+        v.selection.stroke.color
+    } else {
+        v.text_color()
+    };
+    crate::icons::paint_glyph_centered(
+        ui.painter(),
+        egui::pos2(rect.left() + 18.0, rect.center().y),
+        icon,
+        FontId::proportional(15.0),
+        color,
+    );
+    ui.painter().text(
+        egui::pos2(rect.left() + 34.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        label,
+        FontId::proportional(14.0),
+        color,
+    );
+    resp
+}
+
 /// A small "✖" without a background (highlighted on hover), like on tabs.
 fn close_button(ui: &mut Ui) -> Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::click());

@@ -22,6 +22,11 @@ The release workflow publishes the section of the tagged version as the release 
   Home page show their share instead of "0 B free of 0 B".
 - The terminal opens in the current folder also when it is shown again later, not only when
   it starts.
+- Tabs that aren't active can be closed with their ✖ (it disappeared under the pointer before,
+  so the click only activated the tab).
+- Icons on tabs, in the sidebar, the command palette and the section lists of Settings and
+  Help are centred on their visible shape, so emoji icons on Windows (from its emoji fonts,
+  which sit higher or lower than the text font) line up.
 
 ### Changed
 - The terminal panel's close button has no background any more.

@@ -256,6 +256,32 @@ pub fn paint_server(p: &Painter, rect: Rect, accent: Color32) {
     }
 }
 
+/// Paint `text` (usually one emoji or symbol) with its visible pixels
+/// centred on `center`. Centring the text line instead puts icons too high or
+/// too low: on Windows most of them come from the emoji fonts, whose line
+/// metrics differ from the UI font's.
+pub fn paint_glyph_centered(p: &Painter, center: Pos2, text: &str, font: FontId, color: Color32) {
+    let galley = p.layout_no_wrap(text.to_owned(), font, color);
+    let ink = galley
+        .rows
+        .iter()
+        .flat_map(|row| {
+            row.row
+                .glyphs
+                .iter()
+                .filter(|g| !g.uv_rect.is_nothing())
+                .map(move |g| {
+                    Rect::from_min_size(
+                        row.pos + g.pos.to_vec2() + g.uv_rect.offset,
+                        g.uv_rect.size,
+                    )
+                })
+        })
+        .reduce(|a, b| a.union(b))
+        .unwrap_or(galley.rect);
+    p.galley(center - ink.center().to_vec2(), galley, color);
+}
+
 /// Square rect of `size` centred vertically at the left of `x`.
 pub fn icon_rect(x: f32, center_y: f32, size: f32) -> Rect {
     Rect::from_min_size(pos2(x, center_y - size / 2.0), vec2(size, size))
@@ -277,9 +303,9 @@ pub enum Icon<'a> {
 pub fn paint_icon(p: &Painter, rect: Rect, icon: Icon<'_>, text_color: Color32, accent: Color32) {
     match icon {
         Icon::Glyph(g) => {
-            p.text(
+            paint_glyph_centered(
+                p,
                 rect.center(),
-                Align2::CENTER_CENTER,
                 g,
                 FontId::proportional(rect.height() * 0.95),
                 text_color,
