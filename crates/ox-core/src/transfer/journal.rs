@@ -10,7 +10,9 @@
 //! - `root  src  dst`: where a top-level source goes (a copy into the same
 //!   folder gets a "name - Copy" target that must not change on resume),
 //! - `policy  name`: the answer to the conflict question,
-//! - `start  src  dst`: a file is about to be written,
+//! - `start  src  dst`: a file is about to be written (downloads and
+//!   uploads add the size and modified time of the original: `start  src
+//!   dst  size  modified`, so a partial `.oxpart` copy can be continued),
 //! - `done  src  dst  size  modified  size  modified`: a file is completely
 //!   transferred (for a move: the original is gone), with the size and
 //!   modified time of the original and of the copy.
@@ -41,8 +43,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use super::plan::Plan;
-use super::{ConflictPolicy, Job, JobState, TransferEngine, TransferKind, TransferRequest};
+use super::{
+    ConflictPolicy, Job, JobState, RemoteSide, TransferEngine, TransferKind, TransferRequest,
+};
 use crate::fsops;
+use crate::remote::RemoteAddr;
 
 const MAGIC: &str = "oxplorer-transfer-journal 1";
 const EXTENSION: &str = "journal";
@@ -54,14 +59,14 @@ pub fn default_dir() -> PathBuf {
 
 /// Size and modified time of a file, as recorded in the journal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Stamp {
-    size: u64,
+pub(super) struct Stamp {
+    pub(super) size: u64,
     /// Nanoseconds since 1970.
-    modified: Option<u128>,
+    pub(super) modified: Option<u128>,
 }
 
 impl Stamp {
-    fn new(size: u64, modified: Option<SystemTime>) -> Self {
+    pub(super) fn new(size: u64, modified: Option<SystemTime>) -> Self {
         Self {
             size,
             modified: modified
@@ -70,7 +75,7 @@ impl Stamp {
         }
     }
 
-    fn of(path: &Path) -> Option<Self> {
+    pub(super) fn of(path: &Path) -> Option<Self> {
         let meta = fs::symlink_metadata(path).ok()?;
         Some(Self::new(meta.len(), meta.modified().ok()))
     }
@@ -94,10 +99,12 @@ impl Stamp {
 }
 
 #[derive(Debug, Clone)]
-struct Entry {
-    dst: PathBuf,
+pub(super) struct Entry {
+    pub(super) dst: PathBuf,
     /// `(original, copy)` when the file was completely transferred.
-    done: Option<(Stamp, Stamp)>,
+    pub(super) done: Option<(Stamp, Stamp)>,
+    /// The original when a download or upload of it started.
+    pub(super) part: Option<Stamp>,
 }
 
 /// An interrupted transfer that can be resumed (or discarded).
@@ -117,6 +124,29 @@ pub struct Pending {
     torn: bool,
     /// The job of this session that left the journal behind.
     job_id: Option<u64>,
+}
+
+impl Pending {
+    /// The servers of an interrupted download or upload (source first):
+    /// connect to them and continue with [`TransferEngine::resume_with`].
+    pub fn servers(&self) -> Vec<RemoteAddr> {
+        let req = &self.request;
+        let paths = req.sources.iter().chain(req.pairs.iter().map(|(s, _)| s));
+        let paths = paths.chain([&req.destination]);
+        let paths = paths.chain(req.pairs.iter().map(|(_, d)| d));
+        let mut out: Vec<RemoteAddr> = Vec::new();
+        for a in paths.filter_map(|p| RemoteAddr::from_path(p)) {
+            if !out.iter().any(|o| o.same_server(&a)) {
+                out.push(a.with_path(""));
+            }
+        }
+        out
+    }
+
+    /// What the journal knows about the file `src`.
+    pub(super) fn file(&self, src: &Path) -> Option<&Entry> {
+        self.files.get(src)
+    }
 }
 
 // ---- text format -------------------------------------------------------
@@ -258,12 +288,13 @@ fn parse(path: &Path, bytes: &[u8]) -> Option<Pending> {
             ("root", 3) => {
                 roots.insert(PathBuf::from(&f[1]), PathBuf::from(&f[2]));
             }
-            ("start", 3) => {
+            ("start", n @ (3 | 5)) => {
                 files.insert(
                     PathBuf::from(&f[1]),
                     Entry {
                         dst: PathBuf::from(&f[2]),
                         done: None,
+                        part: (n == 5).then(|| Stamp::parse(&f[3], &f[4])).flatten(),
                     },
                 );
             }
@@ -276,6 +307,7 @@ fn parse(path: &Path, bytes: &[u8]) -> Option<Pending> {
                         Entry {
                             dst: PathBuf::from(&f[2]),
                             done: Some((src, dst)),
+                            part: None,
                         },
                     );
                 }
@@ -369,10 +401,12 @@ struct Setup {
 pub(super) struct JobJournal {
     setup: OnceLock<Setup>,
     writer: Mutex<Option<Writer>>,
+    /// A download or upload lost its server: keep the journal.
+    pub(super) lost: std::sync::atomic::AtomicBool,
 }
 
 impl JobJournal {
-    fn resume(&self) -> Option<&Pending> {
+    pub(super) fn resume(&self) -> Option<&Pending> {
         self.setup.get()?.resume.as_deref()
     }
 
@@ -382,7 +416,7 @@ impl JobJournal {
         }
     }
 
-    fn active(&self) -> bool {
+    pub(super) fn active(&self) -> bool {
         self.writer.lock().unwrap().is_some()
     }
 
@@ -495,15 +529,27 @@ impl JobJournal {
 
     /// A file is completely transferred.
     pub(super) fn finished(&self, src: &Path, dst: &Path, size: u64, modified: Option<SystemTime>) {
-        if !self.active() {
-            return;
+        if self.active() {
+            self.finished_as(src, dst, Stamp::new(size, modified), Stamp::of(dst));
         }
-        let (Some(s), Some(d), Some(copy)) = (src.to_str(), dst.to_str(), Stamp::of(dst)) else {
+    }
+
+    /// A file is completely transferred; `copy`: what it looks like now.
+    pub(super) fn finished_as(&self, src: &Path, dst: &Path, orig: Stamp, copy: Option<Stamp>) {
+        let (Some(s), Some(d), Some(copy)) = (src.to_str(), dst.to_str(), copy) else {
             return;
         };
-        let [ss, sm] = Stamp::new(size, modified).fields();
+        let [ss, sm] = orig.fields();
         let [ds, dm] = copy.fields();
         self.write(&["done", s, d, &ss, &sm, &ds, &dm]);
+    }
+
+    /// A download or upload of a file is about to start.
+    pub(super) fn started_part(&self, src: &Path, dst: &Path, orig: Stamp) {
+        if let (Some(s), Some(d)) = (src.to_str(), dst.to_str()) {
+            let [size, modified] = orig.fields();
+            self.write(&["start", s, d, &size, &modified]);
+        }
     }
 }
 
@@ -542,8 +588,12 @@ fn create(job: &Job, dir: &Path) -> std::io::Result<Option<Writer>> {
     }))
 }
 
-/// The destination or a source drive is gone (e.g. a pulled USB stick).
+/// The destination or a source drive is gone (e.g. a pulled USB stick),
+/// or the server of a download or upload can't be reached.
 fn unreachable(job: &Job) -> bool {
+    if job.is_remote() {
+        return job.journal.lost.load(Ordering::Relaxed);
+    }
     let root_gone = |p: &Path| p.ancestors().last().is_some_and(|r| !r.exists());
     !job.destination.exists()
         || job.sources.iter().any(|s| root_gone(s))
@@ -620,11 +670,19 @@ impl TransferEngine {
 
     /// Continue an interrupted transfer.
     pub fn resume(&self, pending: &Arc<Pending>) -> Arc<Job> {
+        self.resume_with(pending, None)
+    }
+
+    /// Continue an interrupted transfer; `remote`: the connected server(s)
+    /// of a download or upload (see [`Pending::servers`]).
+    pub fn resume_with(&self, pending: &Arc<Pending>, remote: Option<RemoteSide>) -> Arc<Job> {
         self.forget_journal(pending);
         if let Some(id) = pending.job_id {
             self.remove(id);
         }
-        self.submit_job(pending.request.clone(), false, Some(pending.clone()))
+        let mut req = pending.request.clone();
+        req.remote = remote.or(req.remote);
+        self.submit_job(req, false, Some(pending.clone()))
     }
 
     /// Forget an interrupted transfer. Files already copied stay where they are.

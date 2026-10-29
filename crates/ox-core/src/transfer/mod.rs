@@ -232,6 +232,8 @@ pub struct Job {
     /// A spinning disk was detected, so files are copied one at a time.
     pub hdd: AtomicBool,
     pub verified_files: AtomicU64,
+    /// Downloads and uploads only compared by size (no server checksum).
+    pub size_checked_files: AtomicU64,
 
     state: AtomicU8,
     pub total_bytes: AtomicU64,
@@ -272,6 +274,7 @@ impl Job {
             workers: AtomicU64::new(0),
             hdd: AtomicBool::new(false),
             verified_files: AtomicU64::new(0),
+            size_checked_files: AtomicU64::new(0),
             state: AtomicU8::new(JobState::Queued as u8),
             total_bytes: AtomicU64::new(0),
             done_bytes: AtomicU64::new(0),
@@ -295,7 +298,7 @@ impl Job {
         }
     }
 
-    /// A download or upload: no resuming, no verification.
+    /// A download, upload or copy between servers (see `remote.rs`).
     pub fn is_remote(&self) -> bool {
         self.remote.is_some()
     }
@@ -530,7 +533,7 @@ fn job_volumes(req: &TransferRequest) -> Vec<String> {
         .filter_map(crate::disk::volume_id)
         .collect();
     // Jobs on one server wait for each other like jobs on one drive.
-    vols.extend(req.remote.iter().map(|r| r.server.server_key()));
+    vols.extend(req.remote.iter().flat_map(|r| r.servers()));
     vols.sort();
     vols.dedup();
     vols
@@ -669,10 +672,10 @@ impl TransferEngine {
 }
 
 fn run_job(job: &Job, cfg: &EngineConfig, notify: &dyn Fn()) {
+    let _journal = journal::Guard::open(job, cfg.journal_dir.as_deref());
     if let Some(side) = &job.remote {
         return remote::run(job, side, cfg, notify);
     }
-    let _journal = journal::Guard::open(job, cfg.journal_dir.as_deref());
     job.set_state(JobState::Scanning);
     notify();
     let mut plan = plan::build(job);

@@ -8,6 +8,8 @@ use ox_core::remote::{AuthMethod, Protocol, RemoteAddr, RemotePlace};
 
 use crate::app::{RemoteAction, RemoteDialog};
 
+mod edits;
+
 /// What a dialog's button does once the dialog is drawn.
 type Then = Option<Box<dyn FnOnce(&mut OxApp)>>;
 
@@ -106,6 +108,7 @@ impl PlaceForm {
 
 /// Draw the open remote dialog, if any.
 pub fn show(app: &mut OxApp, ctx: &Context) {
+    edits::show(app, ctx);
     let Some(mut dialog) = app.remote.dialog.take() else {
         return;
     };
