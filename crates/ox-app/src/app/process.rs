@@ -494,6 +494,7 @@ impl OxApp {
             Action::NewLink(dir, kind) => self.new_link_dialog(dir, kind),
             Action::ShowLinkTarget(link) => self.show_link_target(link),
             Action::Session(a) => self.process_session(a),
+            Action::View(a) => self.process_view(a),
             Action::Toast(t) => self.toast(t),
             Action::RestoreFromBin(paths) => {
                 let items = self.tabs.active().view.bin.select(&paths);

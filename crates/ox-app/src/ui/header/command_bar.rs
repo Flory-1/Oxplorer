@@ -127,13 +127,8 @@ pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
             ui.menu_button(RichText::new(tr("⇅ Sort")).size(13.5), |ui| {
                 let mut new_key = key;
                 let mut new_order = order;
-                for (k, label) in [
-                    (SortKey::Name, tr("Name")),
-                    (SortKey::Modified, tr("Date modified")),
-                    (SortKey::Type, tr("Type")),
-                    (SortKey::Size, tr("Size")),
-                ] {
-                    ui.radio_value(&mut new_key, k, label);
+                for k in SortKey::ALL {
+                    ui.radio_value(&mut new_key, k, tr(k.label()));
                 }
                 ui.separator();
                 ui.radio_value(&mut new_order, SortOrder::Ascending, tr("Ascending"));
@@ -175,6 +170,17 @@ pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 if flat_box.changed() {
                     actions.push(Action::ToggleFlatView);
                 }
+                ui.add_enabled_ui(m == ViewMode::Details, |ui| {
+                    ui.menu_button(tr("Columns"), |ui| {
+                        crate::ui::files::column_menu(
+                            ui,
+                            &app.settings.browsing.columns,
+                            crate::ui::files::column_context(app.tabs.active()),
+                            in_bin,
+                            &mut actions,
+                        );
+                    });
+                });
                 ui.separator();
                 let b = &mut app.settings.browsing;
                 let mut changed = ui

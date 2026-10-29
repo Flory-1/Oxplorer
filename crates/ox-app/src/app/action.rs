@@ -115,6 +115,8 @@ pub enum Action {
     ShowLinkTarget(PathBuf),
     /// Named sessions: save, open, rename and delete sets of tabs.
     Session(super::SessionAction),
+    /// How the file view looks (columns, …).
+    View(super::ViewAction),
 }
 
 pub enum TabAction {

@@ -11,6 +11,7 @@ use crate::shortcuts::{self, Command};
 use crate::tabs::Location;
 
 mod tabs;
+mod views;
 
 #[derive(Default)]
 pub struct PaletteState {
@@ -511,6 +512,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         "",
         act(|| Action::ClearRecent),
     );
+    views::entries(app, &mut v);
 
     tabs::entries(app, &mut v);
 

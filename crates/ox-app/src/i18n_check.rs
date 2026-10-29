@@ -34,8 +34,10 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("app/quick_look.rs"),
     app!("app/select.rs"),
     app!("app/undo.rs"),
+    app!("app/view.rs"),
     app!("app/transfer_watch.rs"),
     app!("app/window.rs"),
+    app!("column_values.rs"),
     app!("tabs.rs"),
     app!("tabs/flat.rs"),
     app!("tabs/groups.rs"),
@@ -45,6 +47,8 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("ui/compare.rs"),
     app!("ui/dialogs.rs"),
     app!("ui/files.rs"),
+    app!("ui/files/cells.rs"),
+    app!("ui/files/column_header.rs"),
     app!("ui/files/details.rs"),
     app!("ui/files/flat.rs"),
     app!("ui/files/grid.rs"),
@@ -65,6 +69,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("ui/mod.rs"),
     app!("ui/palette.rs"),
     app!("ui/palette/tabs.rs"),
+    app!("ui/palette/views.rs"),
     app!("ui/preview.rs"),
     app!("ui/preview/font.rs"),
     app!("ui/preview/git_graph.rs"),
@@ -85,6 +90,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("ui/transfers/when_done.rs"),
     app!("ui/transfers/resume.rs"),
     core!("archive.rs"),
+    core!("columns.rs"),
     core!("default_app.rs"),
     core!("details.rs"),
     core!("entry.rs"),
@@ -92,6 +98,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     core!("links.rs"),
     core!("pathfmt.rs"),
     core!("places.rs"),
+    core!("props.rs"),
     core!("player.rs"),
     core!("rename.rs"),
     core!("tags.rs"),
@@ -248,6 +255,8 @@ fn texts_translated_where_they_are_shown_have_german_too() {
         .map(FileKind::label),
     );
     texts.extend(ox_core::tags::TagColor::ALL.map(|c| c.name()));
+    texts.extend(ox_core::columns::ColumnId::ALL.map(|c| c.label()));
+    texts.extend(ox_core::entry::SortKey::ALL.map(|k| k.label()));
     texts.extend(crate::tabs::GROUP_COLORS.map(|(name, _)| name));
     texts.extend(ConflictPolicy::ALL.map(ConflictPolicy::label));
     texts.extend([TransferKind::Copy.verb(), TransferKind::Move.verb()]);

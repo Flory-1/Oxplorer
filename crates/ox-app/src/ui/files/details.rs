@@ -1,6 +1,9 @@
-//! Details list: column rows with name, date, type, size and git state.
+//! Details list: a row per item with the columns the user chose.
 
+use super::cells::{cell, Cell};
+use super::column_header::header;
 use super::*;
+use ox_core::columns::{ColumnContext, ColumnId, ColumnLayout};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn details(
@@ -8,68 +11,27 @@ pub(super) fn details(
     view: &mut FolderView,
     tab_id: u64,
     cx: &Ctx<'_>,
+    layout: &ColumnLayout,
+    col_cx: ColumnContext,
     actions: &mut Vec<Action>,
     sort_clicked: &mut Option<SortKey>,
-    sort_key: SortKey,
-    sort_order: ox_core::entry::SortOrder,
+    sort: (SortKey, ox_core::entry::SortOrder),
 ) {
     let width = ui.available_width();
-    let with_folder = cx.is_search || cx.flat || cx.is_bin;
-    let columns = Columns::fit(width, with_folder, cx.git.is_some());
-
-    // Column header
-    let (header, _) = ui.allocate_exact_size(vec2(width, 28.0), Sense::hover());
-    let v = ui.visuals().clone();
-    ui.painter().line_segment(
-        [header.left_bottom(), header.right_bottom()],
-        v.widgets.noninteractive.bg_stroke,
+    let fitted = layout.fit(col_cx, width);
+    header(
+        ui,
+        tab_id,
+        cx,
+        layout,
+        col_cx,
+        &fitted,
+        sort,
+        sort_clicked,
+        actions,
     );
-    let mut x = header.left() + 8.0;
-    let mut cols: Vec<(&str, f32, Option<SortKey>)> =
-        vec![(tr("Name"), columns.name, Some(SortKey::Name))];
-    if columns.folder > 0.0 {
-        let label = if cx.is_bin {
-            tr("Original location")
-        } else {
-            tr("Folder")
-        };
-        cols.push((label, columns.folder, None));
-    }
-    let date_label = if cx.is_bin {
-        tr("Date deleted")
-    } else {
-        tr("Date modified")
-    };
-    cols.extend([
-        (tr("Git"), columns.git, None),
-        (date_label, columns.date, Some(SortKey::Modified)),
-        (tr("Type"), columns.kind, Some(SortKey::Type)),
-        (tr("Size"), columns.size, Some(SortKey::Size)),
-    ]);
-    for (label, w, key) in cols.into_iter().filter(|c| c.1 > 0.0) {
-        let rect = Rect::from_min_size(egui::pos2(x, header.top()), vec2(w, header.height()));
-        let resp = ui.interact(rect, Id::unique(("col", tab_id, label)), Sense::click());
-        if resp.hovered() && key.is_some() {
-            ui.painter()
-                .rect_filled(rect, CornerRadius::same(4), v.widgets.hovered.weak_bg_fill);
-        }
-        let arrow = match (key == Some(sort_key), sort_order) {
-            (true, ox_core::entry::SortOrder::Ascending) => " ⏶",
-            (true, ox_core::entry::SortOrder::Descending) => " ⏷",
-            _ => "",
-        };
-        ui.painter().text(
-            rect.left_center() + vec2(6.0, 0.0),
-            Align2::LEFT_CENTER,
-            format!("{label}{arrow}"),
-            FontId::proportional(12.5),
-            v.weak_text_color(),
-        );
-        if resp.clicked() {
-            *sort_clicked = key;
-        }
-        x += w;
-    }
+    // Only read files when a shown column needs it.
+    let props = cx.props.filter(|_| fitted.iter().any(|c| c.0.info().props));
 
     let n = view.visible.len();
     let row_h = cx.row_h;
@@ -88,7 +50,14 @@ pub(super) fn details(
             };
             let selected = view.selection.contains(&entry.path);
             let drop_hover = item_interact(view, i, &entry, &resp, cx, actions);
-            paint_row(ui, rect, &entry, selected, drop_hover, &resp, cx, columns);
+            let values = props.and_then(|p| p.get(&entry));
+            let row = Row {
+                rect,
+                selected,
+                drop_hover,
+                props: values.as_deref(),
+            };
+            paint_row(ui, &row, &entry, &resp, cx, &fitted);
             item_context_menu(&resp, view, &entry, cx, actions);
             item_tooltip(ui, resp, &entry, cx, false);
         }
@@ -101,27 +70,31 @@ pub(super) fn details(
     );
 }
 
-#[allow(clippy::too_many_arguments)]
-fn paint_row(
-    ui: &Ui,
+struct Row<'a> {
     rect: Rect,
-    e: &FileEntry,
     selected: bool,
     drop_hover: bool,
+    props: Option<&'a ox_core::props::Props>,
+}
+
+fn paint_row(
+    ui: &Ui,
+    row: &Row<'_>,
+    e: &FileEntry,
     resp: &Response,
     cx: &Ctx<'_>,
-    columns: Columns,
+    columns: &[(ColumnId, f32)],
 ) {
-    let name_w = columns.name;
+    let rect = row.rect;
     let v = ui.visuals();
-    if selected {
+    if row.selected {
         ui.painter()
             .rect_filled(rect, CornerRadius::same(4), cx.selection_fill);
     } else if resp.hovered() {
         ui.painter()
             .rect_filled(rect, CornerRadius::same(4), v.widgets.hovered.weak_bg_fill);
     }
-    if drop_hover {
+    if row.drop_hover {
         ui.painter().rect_stroke(
             rect,
             CornerRadius::same(4),
@@ -137,8 +110,66 @@ fn paint_row(
     let y = rect.center().y;
     let mut x = rect.left() + 8.0;
 
+    for &(id, w) in columns {
+        if id == ColumnId::Name {
+            paint_name(ui, rect, x, w, e, cx, dim, text, &fade);
+            x += w;
+            continue;
+        }
+        let p = ui.painter().with_clip_rect(Rect::from_min_max(
+            egui::pos2(x, rect.top()),
+            egui::pos2(x + w - 6.0, rect.bottom()),
+        ));
+        match cell(id, e, cx, row.props, v) {
+            Cell::Text(s) if id.info().align_right => {
+                p.text(
+                    egui::pos2(x + w - 14.0, y),
+                    Align2::RIGHT_CENTER,
+                    s,
+                    FontId::proportional(12.5),
+                    weak,
+                );
+            }
+            Cell::Text(s) => {
+                p.text(
+                    egui::pos2(x + 6.0, y),
+                    Align2::LEFT_CENTER,
+                    s,
+                    FontId::proportional(12.5),
+                    weak,
+                );
+            }
+            Cell::Symbol(s, color) => {
+                p.text(
+                    egui::pos2(x + 14.0, y),
+                    Align2::LEFT_CENTER,
+                    s,
+                    FontId::monospace(12.5),
+                    fade(color),
+                );
+            }
+            Cell::Empty => {}
+        }
+        x += w;
+    }
+}
+
+/// Icon, name and tag dots.
+#[allow(clippy::too_many_arguments)]
+fn paint_name(
+    ui: &Ui,
+    rect: Rect,
+    x: f32,
+    name_w: f32,
+    e: &FileEntry,
+    cx: &Ctx<'_>,
+    dim: bool,
+    text: Color32,
+    fade: &dyn Fn(Color32) -> Color32,
+) {
+    let y = rect.center().y;
     let p = ui.painter().with_clip_rect(Rect::from_min_max(
-        rect.min,
+        egui::pos2(rect.left(), rect.top()),
         egui::pos2(x + name_w - 8.0, rect.max.y),
     ));
     let icon_size = (cx.row_h - 8.0).min(20.0);
@@ -162,79 +193,6 @@ fn paint_row(
         let c = egui::pos2(name_rect.right() + 10.0 + i as f32 * 10.0, y);
         p.circle_filled(c, 4.0, fade(super::super::tag_color(tag)));
     }
-    x += name_w;
-
-    let col = |x: f32, w: f32, s: String, align_right: bool| {
-        let p = ui.painter().with_clip_rect(Rect::from_min_max(
-            egui::pos2(x, rect.top()),
-            egui::pos2(x + w - 6.0, rect.bottom()),
-        ));
-        if align_right {
-            p.text(
-                egui::pos2(x + w - 14.0, y),
-                Align2::RIGHT_CENTER,
-                s,
-                FontId::proportional(12.5),
-                weak,
-            );
-        } else {
-            p.text(
-                egui::pos2(x + 6.0, y),
-                Align2::LEFT_CENTER,
-                s,
-                FontId::proportional(12.5),
-                weak,
-            );
-        }
-    };
-    if cx.is_bin && columns.folder > 0.0 {
-        let original = cx
-            .bin
-            .get(&e.path)
-            .map(|i| i.original_parent.display().to_string())
-            .unwrap_or_default();
-        col(x, columns.folder, original, false);
-        x += columns.folder;
-    } else if (cx.is_search || cx.flat) && columns.folder > 0.0 {
-        col(x, columns.folder, folder_text(e, cx), false);
-        x += columns.folder;
-    }
-    if let (true, Some(git)) = (columns.git > 0.0, cx.git) {
-        if let Some(state) = git.state(&e.path) {
-            ui.painter().text(
-                egui::pos2(x + 14.0, y),
-                Align2::LEFT_CENTER,
-                state.letter(),
-                FontId::monospace(12.5),
-                fade(git_color(state, v)),
-            );
-        }
-        x += columns.git;
-    }
-    if columns.date > 0.0 {
-        col(
-            x,
-            columns.date,
-            e.modified
-                .map(|t| format::time(t, cx.date_format))
-                .unwrap_or_default(),
-            false,
-        );
-        x += columns.date;
-    }
-    if columns.kind > 0.0 {
-        col(x, columns.kind, e.type_label(), false);
-        x += columns.kind;
-    }
-    let size = match (e.is_dir, cx.sizes) {
-        (false, _) => format::size(e.size),
-        (true, Some(sizes)) if !e.is_symlink => match sizes.get(&e.path) {
-            Some(s) => format::size(s.bytes),
-            None => "…".into(),
-        },
-        (true, _) => String::new(),
-    };
-    col(x, columns.size, size, true);
 }
 
 /// The folder an item is in, relative to the search or flat view's root

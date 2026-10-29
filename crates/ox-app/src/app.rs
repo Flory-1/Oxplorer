@@ -18,6 +18,7 @@ mod select;
 mod sessions;
 mod transfer_watch;
 mod undo;
+mod view;
 mod window;
 pub use action::{Action, TabAction};
 pub use compare::{CompareAction, CompareState};
@@ -26,6 +27,7 @@ pub use properties::Properties;
 pub use select::SelectAction;
 pub use sessions::{SavedSessions, SessionAction};
 pub use transfer_watch::TransferWatch;
+pub use view::{ColumnEdit, ViewAction};
 
 use ox_core::i18n::t as tr;
 use std::collections::HashSet;
@@ -159,6 +161,8 @@ pub struct OxApp {
     applied_settings: Option<Settings>,
     pub icons: crate::icons::IconCache,
     pub thumbs: crate::thumbs::Thumbnails,
+    /// Values of the extra details columns, read in the background.
+    pub column_values: crate::column_values::ColumnValues,
     pub index: IndexService,
     pub preview: crate::ui::preview::PreviewState,
     /// Quick Look, while it is open (Space).
@@ -312,6 +316,7 @@ impl OxApp {
             applied_settings: None,
             icons: crate::icons::IconCache::new(&cc.egui_ctx),
             thumbs: crate::thumbs::Thumbnails::new(&cc.egui_ctx),
+            column_values: crate::column_values::ColumnValues::new(&cc.egui_ctx),
             index: {
                 let repaint = cc.egui_ctx.clone();
                 IndexService::start(ox_core::index::default_cache_path(), move || {
@@ -403,6 +408,7 @@ impl OxApp {
         self.poll_shared_files();
         self.icons.poll(ctx);
         self.thumbs.poll(ctx);
+        self.column_values.poll();
         self.manage_index();
         self.tabs.fix_panes();
         self.load_active_tab();

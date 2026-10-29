@@ -884,6 +884,7 @@ pub const TABLE: &[(&str, &str)] = &[
 mod flat_links;
 mod operations;
 mod tabs;
+mod views;
 mod zoom_select;
 
 /// Every entry: [`TABLE`] and the tables of the submodules (split for the
@@ -894,5 +895,6 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(operations::TABLE)
         .chain(flat_links::TABLE)
         .chain(tabs::TABLE)
+        .chain(views::TABLE)
         .chain(zoom_select::TABLE)
 }

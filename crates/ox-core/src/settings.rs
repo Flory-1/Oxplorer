@@ -124,6 +124,8 @@ pub struct Browsing {
     pub open_archives: bool,
     /// Show the Git column and branch inside repositories.
     pub git_status: bool,
+    /// Columns of the details view.
+    pub columns: crate::columns::ColumnLayout,
 }
 
 impl Default for Browsing {
@@ -145,6 +147,7 @@ impl Default for Browsing {
             folder_sizes: true,
             open_archives: true,
             git_status: true,
+            columns: Default::default(),
         }
     }
 }
@@ -451,7 +454,9 @@ impl Settings {
 
     /// Load settings, falling back to defaults if the file is missing or broken.
     pub fn load() -> Self {
-        load_toml(&Self::path()).unwrap_or_default()
+        let mut s: Self = load_toml(&Self::path()).unwrap_or_default();
+        s.browsing.columns.normalize();
+        s
     }
 
     pub fn save(&self) -> io::Result<()> {
@@ -496,5 +501,16 @@ mod tests {
         let partial: Settings = load_toml(&path).unwrap();
         assert!(partial.browsing.show_hidden);
         assert_eq!(partial.transfer, Transfer::default());
+    }
+
+    #[test]
+    fn columns_round_trip() {
+        use crate::columns::ColumnId;
+        let mut s = Settings::default();
+        s.browsing.columns.toggle(ColumnId::Dimensions);
+        s.browsing.columns.set_width(ColumnId::Size, 120.0);
+        let text = toml::to_string_pretty(&s).unwrap();
+        let back: Settings = toml::from_str(&text).unwrap();
+        assert_eq!(back.browsing.columns, s.browsing.columns);
     }
 }
