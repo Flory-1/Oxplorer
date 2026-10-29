@@ -8,6 +8,7 @@ mod action;
 mod compare;
 mod flat;
 mod input;
+mod instances;
 mod links;
 mod poll;
 mod process;
@@ -18,6 +19,7 @@ mod undo;
 mod window;
 pub use action::{Action, TabAction};
 pub use compare::{CompareAction, CompareState};
+pub use instances::Start;
 pub use properties::Properties;
 pub use sessions::{SavedSessions, SessionAction};
 pub use transfer_watch::TransferWatch;
@@ -198,6 +200,8 @@ pub struct OxApp {
     pub undo: undo::UndoState,
     /// Named sessions (sets of tabs saved to open again).
     pub sessions: SavedSessions,
+    /// This window among other Oxplorer windows (files they share).
+    instance: instances::Instance,
 }
 
 /// What background work started by an action reports back.
@@ -211,24 +215,30 @@ pub enum Notice {
 
 impl OxApp {
     /// `see_through`: the window was created transparent (for Mica/Acrylic).
-    pub fn new(cc: &eframe::CreationContext<'_>, open: Option<PathBuf>, see_through: bool) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, start: Start, see_through: bool) -> Self {
         let ctx = cc.egui_ctx.clone();
         // Images in the Markdown preview (local files).
         egui_extras::install_image_loaders(&ctx);
         install_icon_font(&ctx);
-        let settings = Settings::load();
+        let mut instance = instances::Instance::new(start.session_lock);
+        let settings = instance.settings.load().unwrap_or_default();
         // Before anything is named (e.g. the default favorites on first start).
         ox_core::i18n::set_language(settings.appearance.language);
-        let quick = QuickAccess::load();
+        let quick = instance.quick.load().unwrap_or_default();
 
         let engine = TransferEngine::new(settings.transfer.engine_config());
         let repaint = ctx.clone();
         engine.set_notifier(move || repaint.request_repaint());
 
+        // Tabs handed over by another window, else the start page (only
+        // one window restores the saved session).
+        let handed = start.tabs.and_then(|s| Tabs::from_session(s, &settings));
         let mut tabs = match settings.startup.start_page {
-            StartPage::RestoreSession => {
+            _ if handed.is_some() => handed,
+            StartPage::RestoreSession if instance.owns_session() => {
                 Session::load().and_then(|s| Tabs::from_session(s, &settings))
             }
+            StartPage::RestoreSession => None,
             StartPage::Folder => settings
                 .startup
                 .start_folder
@@ -238,7 +248,7 @@ impl OxApp {
             StartPage::Home => None,
         }
         .unwrap_or_else(|| Tabs::new(Location::Home, &settings));
-        if let Some(path) = open {
+        if let Some(path) = start.open {
             tabs.open(Location::Folder(path), None, true, &settings);
         }
 
@@ -302,7 +312,11 @@ impl OxApp {
                 let repaint = cc.egui_ctx.clone();
                 FolderSizes::new(move || repaint.request_repaint())
             },
-            tags: TagStore::load(),
+            tags: {
+                let mut tags = TagStore::from_file(instance.tags.load().unwrap_or_default());
+                tags.prune();
+                tags
+            },
             compare: None,
             keymap: Default::default(),
             themes: ox_core::themes::load_all(),
@@ -324,6 +338,7 @@ impl OxApp {
             index_settings: None,
             undo: Default::default(),
             sessions: Default::default(),
+            instance,
         }
     }
 
@@ -373,6 +388,7 @@ impl OxApp {
             self.applied_settings = Some(self.settings.clone());
         }
         self.remap_text_clipboard_keys(ctx);
+        self.poll_shared_files();
         self.icons.poll(ctx);
         self.thumbs.poll(ctx);
         self.manage_index();
@@ -729,18 +745,6 @@ impl OxApp {
         self.process(Action::Rename(created));
     }
 
-    pub fn save_quick(&mut self) {
-        if let Err(e) = self.quick.save() {
-            log::warn!("could not save quick access: {e}");
-        }
-    }
-
-    fn save_session(&self) {
-        if let Err(e) = self.tabs.to_session().save() {
-            log::warn!("could not save session: {e}");
-        }
-    }
-
     /// Short status text for the transfers button.
     pub fn transfer_summary(&self) -> Option<String> {
         let jobs = self.engine.jobs();
@@ -812,6 +816,7 @@ impl eframe::App for OxApp {
         ui::show(self, ui);
         self.publish_title_bar(&ctx);
         self.drag_out_of_window(&ctx);
+        self.drag_tab_out(&ctx);
         self.process_actions();
         if ctx.input(|i| i.viewport().close_requested()) {
             self.save_session();

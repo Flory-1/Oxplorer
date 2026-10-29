@@ -32,6 +32,20 @@ pub(super) fn entries(app: &OxApp, v: &mut Vec<Entry>) {
         }
     }
     cmd(
+        "🗔",
+        tr("New window").into(),
+        shortcuts::label(Command::NewWindow),
+        act(|| Action::Tab(TabAction::NewWindow)),
+    );
+    if !app.tabs.is_home(id) {
+        cmd(
+            "🗔",
+            tr("Move tab to new window").into(),
+            String::new(),
+            act(move || Action::Tab(TabAction::ToNewWindow(id, None))),
+        );
+    }
+    cmd(
         "💾",
         tr("Save tabs as session…").into(),
         String::new(),

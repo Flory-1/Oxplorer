@@ -198,7 +198,7 @@ impl OxApp {
 
     /// Save the tag store and reload tag views.
     pub fn tags_changed(&mut self) {
-        if let Err(e) = self.tags.save() {
+        if let Err(e) = self.save_tags() {
             self.toast(ox_core::trf!("Could not save tags: {e}", e = e));
         }
         for t in &mut self.tabs.tabs {

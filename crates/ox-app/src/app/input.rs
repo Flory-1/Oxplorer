@@ -93,6 +93,7 @@ impl OxApp {
         for c in pressed {
             match c {
                 C::NewTab => actions.push(Action::Tab(TabAction::New)),
+                C::NewWindow => actions.push(Action::Tab(TabAction::NewWindow)),
                 C::CloseTab => actions.push(Action::Tab(TabAction::Close(self.tabs.active))),
                 C::NextTab => actions.push(Action::Tab(TabAction::Cycle(1))),
                 C::PrevTab => actions.push(Action::Tab(TabAction::Cycle(-1))),

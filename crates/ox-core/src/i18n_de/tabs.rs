@@ -63,4 +63,17 @@ pub const TABLE: &[(&str, &str)] = &[
         "Add session to the open tabs: {name}",
         "Sitzung zu den geöffneten Tabs hinzufügen: {name}",
     ),
+    // More windows
+    ("New window", "Neues Fenster"),
+    ("🗔 New window", "🗔 Neues Fenster"),
+    ("🗔 Move to new window", "🗔 In neues Fenster verschieben"),
+    ("Move tab to new window", "Tab in neues Fenster verschieben"),
+    (
+        "🗔 Release to open in a new window",
+        "🗔 Loslassen, um es in einem neuen Fenster zu öffnen",
+    ),
+    (
+        "Couldn't open a new window: {e}",
+        "Ein neues Fenster konnte nicht geöffnet werden: {e}",
+    ),
 ];

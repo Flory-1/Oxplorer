@@ -479,7 +479,7 @@ impl OxApp {
                 self.save_quick();
             }
             Action::SettingsChanged => {
-                if let Err(e) = self.settings.save() {
+                if let Err(e) = self.save_settings() {
                     self.toast(ox_core::trf!("Couldn't save settings: {e}", e = e));
                 }
                 // Hidden-file setting etc. affect listings.
@@ -543,6 +543,8 @@ impl OxApp {
             TabAction::New => {
                 self.tabs.open(Location::Home, None, true, s);
             }
+            TabAction::NewWindow => self.new_window(),
+            TabAction::ToNewWindow(id, pos) => self.move_to_new_window(id, pos),
             TabAction::Close(id) => self.tabs.close(id),
             TabAction::Activate(id) => self.tabs.activate(id),
             TabAction::ToggleSplit => self.tabs.toggle_split(s),

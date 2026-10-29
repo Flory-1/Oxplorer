@@ -26,6 +26,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("app/flat.rs"),
     app!("app/input.rs"),
     app!("app/links.rs"),
+    app!("app/instances.rs"),
     app!("app/poll.rs"),
     app!("app/process.rs"),
     app!("app/properties.rs"),

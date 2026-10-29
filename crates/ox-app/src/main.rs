@@ -32,20 +32,41 @@ fn main() -> eframe::Result {
     }
     // `oxplorer C:\some\folder` opens that folder in a new tab.
     // Opened as the default folder handler, `"C:\"` arrives as `C:"`.
-    let open = std::env::args()
-        .nth(1)
-        .map(|a| PathBuf::from(ox_core::default_app::folder_argument(&a)))
+    let launch = ox_core::instance::parse(std::env::args().skip(1));
+    let open = launch
+        .folder
+        .as_deref()
+        .map(|a| PathBuf::from(ox_core::default_app::folder_argument(a)))
         .filter(|p| ox_core::network::is_dir(p));
     ox_core::default_app::refresh();
+    // Every window is a process of its own. The first one started normally
+    // owns the saved session; windows opened from another one don't.
+    let session_lock = if launch.new_window {
+        None
+    } else {
+        ox_core::instance::own_session(&ox_core::config_dir())
+    };
+    let handed = launch.tabs.as_deref().and_then(|p| {
+        let session = ox_core::settings::load_toml::<tabs::Session>(p);
+        let _ = std::fs::remove_file(p);
+        session
+    });
+    // Only the session's window keeps its place and size in window.ron, so
+    // other windows don't open on top of it or move it next time.
+    let main_window = session_lock.is_some();
 
     // Mica/Acrylic need a see-through window, which can only be chosen now.
     let backdrop = ox_core::shell::supported()
         && ox_core::settings::Settings::load().appearance.backdrop
             != ox_core::settings::Backdrop::Off;
 
+    let mut viewport = egui::ViewportBuilder::default();
+    if let Some(pos) = launch.pos {
+        viewport = viewport.with_position(pos);
+    }
     #[cfg_attr(not(windows), allow(unused_mut))]
     let mut options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
+        viewport: viewport
             .with_transparent(backdrop)
             .with_title(ox_core::APP_NAME)
             .with_app_id("oxplorer")
@@ -61,7 +82,7 @@ fn main() -> eframe::Result {
         // Window position, size and maximized state are kept in this file
         // (a file, despite the name); eframe keeps the window on screen if
         // its monitor is gone.
-        persist_window: true,
+        persist_window: main_window,
         persistence_path: Some(ox_core::config_dir().join("window.ron")),
         ..Default::default()
     };
@@ -73,7 +94,12 @@ fn main() -> eframe::Result {
         ox_core::APP_NAME,
         options,
         Box::new(move |cc| {
-            let mut app = app::OxApp::new(cc, open, backdrop);
+            let start = app::Start {
+                open,
+                tabs: handed,
+                session_lock,
+            };
+            let mut app = app::OxApp::new(cc, start, backdrop);
             if crashed {
                 ui::help_page::crash_note(&mut app);
             }
