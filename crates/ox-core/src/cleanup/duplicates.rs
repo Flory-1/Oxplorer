@@ -153,7 +153,12 @@ pub fn find(root: &Path, opts: ScanOptions, cancel: &AtomicBool, progress: &Prog
     for f in files {
         by_size.entry(f.size).or_default().push(f);
     }
-    let mut sizes: Vec<Vec<Candidate>> = by_size.into_values().filter(|v| v.len() > 1).collect();
+    let mut sizes: Vec<Vec<Candidate>> = by_size
+        .into_values()
+        .filter(|v| v.len() > 1)
+        .map(one_per_file)
+        .filter(|v| v.len() > 1)
+        .collect();
     Progress::add(
         &progress.candidates,
         sizes.iter().map(|v| v.len() as u64).sum(),
@@ -201,6 +206,19 @@ pub fn find(root: &Path, opts: ScanOptions, cancel: &AtomicBool, progress: &Prog
             .then_with(|| a.files[0].path.cmp(&b.files[0].path))
     });
     report
+}
+
+/// Hard links of one file are the same data, not copies (deleting one frees
+/// nothing), so only the first of them is kept.
+fn one_per_file(files: Vec<Candidate>) -> Vec<Candidate> {
+    let mut seen = HashSet::new();
+    files
+        .into_iter()
+        .filter(|c| match crate::links::file_id(&c.path) {
+            Ok(id) => seen.insert(id),
+            Err(_) => true,
+        })
+        .collect()
 }
 
 /// Group files by `key`; groups of one are dropped, and so are files that

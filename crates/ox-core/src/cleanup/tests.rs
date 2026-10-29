@@ -117,6 +117,21 @@ fn empty_files_only_when_asked() {
     assert_eq!(dups(p, opts).0, [(0, vec!["a".into(), "b".into()])]);
 }
 
+#[test]
+fn hard_links_are_not_copies() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path();
+    fs::write(p.join("a.txt"), "hello").unwrap();
+    fs::hard_link(p.join("a.txt"), p.join("b.txt")).unwrap();
+    assert!(dups(p, ScanOptions::default()).0.is_empty());
+    // A real copy next to them: one of the links and the copy.
+    fs::write(p.join("c.txt"), "hello").unwrap();
+    let (groups, _) = dups(p, ScanOptions::default());
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].1.len(), 2);
+    assert!(groups[0].1.contains(&"c.txt".to_string()));
+}
+
 #[cfg(windows)]
 #[test]
 fn hidden_files_follow_the_setting() {

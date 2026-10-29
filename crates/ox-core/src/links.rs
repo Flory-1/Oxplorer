@@ -259,6 +259,11 @@ pub fn remove(link: &Path, kind: LinkKind) -> io::Result<()> {
     }
 }
 
+/// Which file `path` is on its volume: the same for all hard links of a file.
+pub fn file_id(path: &Path) -> io::Result<(u64, u64)> {
+    imp::file_id(path)
+}
+
 #[cfg(windows)]
 mod imp {
     use std::fs;
@@ -388,7 +393,7 @@ mod imp {
         })
     }
 
-    pub fn link_count(path: &Path) -> io::Result<u32> {
+    fn file_info(path: &Path) -> io::Result<BY_HANDLE_FILE_INFORMATION> {
         let f = open_link(path, FILE_READ_ATTRIBUTES)?;
         // SAFETY: zeroed is a valid value for this plain C struct.
         let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
@@ -396,7 +401,17 @@ mod imp {
         if unsafe { GetFileInformationByHandle(f.as_raw_handle(), &mut info) } == 0 {
             return Err(io::Error::last_os_error());
         }
-        Ok(info.nNumberOfLinks)
+        Ok(info)
+    }
+
+    pub fn link_count(path: &Path) -> io::Result<u32> {
+        Ok(file_info(path)?.nNumberOfLinks)
+    }
+
+    pub fn file_id(path: &Path) -> io::Result<(u64, u64)> {
+        let info = file_info(path)?;
+        let index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+        Ok((u64::from(info.dwVolumeSerialNumber), index))
     }
 }
 
@@ -428,6 +443,12 @@ mod imp {
     pub fn link_count(path: &Path) -> io::Result<u32> {
         use std::os::unix::fs::MetadataExt;
         Ok(fs::symlink_metadata(path)?.nlink() as u32)
+    }
+
+    pub fn file_id(path: &Path) -> io::Result<(u64, u64)> {
+        use std::os::unix::fs::MetadataExt;
+        let meta = fs::symlink_metadata(path)?;
+        Ok((meta.dev(), meta.ino()))
     }
 }
 
