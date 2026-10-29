@@ -28,8 +28,6 @@ Windows machine yet.
     moving the window between monitors with different scaling
 - ⏳ **Copy engine benchmarks** against Explorer, robocopy and TeraCopy (many small files, one
   huge file, SSD → USB stick, network share), with the numbers in the README
-- ⏳ **Log file and crash report**: panics and errors written to a log in the config folder,
-  with *Help → Open log folder* to attach it to a bug report
 - ⏳ **Update check**: a quiet note on the Home page when a newer release is on GitHub (can be
   turned off), and a link to the release notes
 - ⏳ Code-signed releases, so SmartScreen doesn't warn on the first start
