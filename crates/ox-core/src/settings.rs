@@ -429,6 +429,8 @@ pub struct Settings {
     pub shortcuts: std::collections::BTreeMap<String, String>,
     pub terminal: Terminal,
     pub developer: Developer,
+    /// The user's own commands (Settings → Custom commands).
+    pub commands: crate::commands::CustomCommands,
 }
 
 /// A file type in the "New" menus: its label, the file name it starts with

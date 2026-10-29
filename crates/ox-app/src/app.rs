@@ -7,6 +7,7 @@
 mod action;
 mod cleanup;
 mod cloud;
+mod commands;
 mod compare;
 mod disk_usage;
 mod flat;
@@ -29,6 +30,7 @@ mod view;
 mod window;
 pub use action::{Action, TabAction};
 pub use cleanup::{CleanupAction, CleanupView, ConfirmCleanup};
+pub use commands::{shortcut_of, CommandAction, CustomCommands};
 pub use compare::{CompareAction, CompareState};
 pub use disk_usage::{DiskUsageAction, DiskUsageScans};
 pub use instances::Start;
@@ -253,6 +255,8 @@ pub struct OxApp {
     pub cleanups: cleanup::Cleanups,
     /// Picture tools: the running job (rotate, convert, …).
     pub pictures: PictureTools,
+    /// Custom commands: the question before one runs, output windows.
+    pub commands: CustomCommands,
 }
 
 /// What background work started by an action reports back.
@@ -406,6 +410,7 @@ impl OxApp {
             gallery_walks: Vec::new(),
             cleanups: Default::default(),
             pictures: Default::default(),
+            commands: Default::default(),
         }
     }
 
@@ -452,6 +457,7 @@ impl OxApp {
             );
             self.keymap = crate::shortcuts::Keymap::new(&self.settings.shortcuts);
             crate::shortcuts::set_current(&self.keymap);
+            crate::ui::commands::set_current(&self.settings.commands.0);
             self.engine
                 .set_config(self.settings.transfer.engine_config());
             self.applied_settings = Some(self.settings.clone());
@@ -507,6 +513,7 @@ impl OxApp {
             && !ctx.text_edit_focused()
             // Not while a new shortcut is being recorded in the settings.
             && self.ui.recording.is_none()
+            && !self.commands.takes_keys()
         {
             self.handle_shortcuts(ctx);
         }

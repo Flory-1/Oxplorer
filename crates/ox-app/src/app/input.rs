@@ -92,6 +92,7 @@ impl OxApp {
             C::PlayerPlayPause | C::PlayerNext | C::PlayerPrevious => playing,
             _ => true,
         };
+        self.command_shortcuts(ctx);
         let (pressed, back, forward) = ctx.input_mut(|i| {
             (
                 self.keymap.pressed(i, available),

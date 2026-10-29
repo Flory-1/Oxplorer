@@ -253,6 +253,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         actions.push(Action::Compress(sel.clone()));
     }
     super::picture_tools::menu(ui, &sel, actions);
+    super::commands::item_menu(ui, &sel, actions);
     let theme_file = sel.len() == 1
         && sel[0]
             .extension()
@@ -457,6 +458,7 @@ pub fn background_menu(
         actions.push(Action::Reveal(folder.to_path_buf()));
     }
     super::cleanup::menu(ui, folder, actions);
+    super::commands::background_menu(ui, folder, actions);
     if dev {
         ui.separator();
         dev_menu(ui, &[folder.to_path_buf()], actions);

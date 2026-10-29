@@ -113,6 +113,8 @@ pub enum Action {
     Cleanup(super::CleanupAction),
     /// Picture tools: rotate, flip, convert and resize pictures.
     Pictures(super::PictureAction),
+    /// Custom commands (Settings → Custom commands).
+    Command(super::CommandAction),
     /// Turn the flat view (all files of the sub-folders in one list) on or off.
     ToggleFlatView,
     /// Go to the folder an item is in and select it there.

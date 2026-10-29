@@ -8,6 +8,7 @@ pub mod cleanup;
 pub mod clipboard;
 pub mod cloud;
 pub mod columns;
+pub mod commands;
 pub mod compare;
 pub mod datatable;
 pub mod datatree;

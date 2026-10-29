@@ -5,6 +5,7 @@ use ox_core::entry::{SortKey, SortOrder};
 use ox_core::i18n::t as tr;
 use ox_core::settings::{Backdrop, Settings, StartPage, Theme, ViewMode};
 
+mod commands;
 mod keys;
 mod search;
 mod theme;
@@ -28,6 +29,7 @@ enum Section {
     Preview,
     NewMenu,
     Developer,
+    Commands,
     Transfer,
     Search,
     Shortcuts,
@@ -35,7 +37,7 @@ enum Section {
 }
 
 /// The pages in the order of the list on the left, with their names.
-const SECTIONS: [(Section, &str); 11] = [
+const SECTIONS: [(Section, &str); 12] = [
     (Section::Appearance, "🎨 Appearance"),
     (Section::Browsing, "📂 Browsing"),
     (Section::Startup, "🚀 Startup"),
@@ -43,6 +45,7 @@ const SECTIONS: [(Section, &str); 11] = [
     (Section::Preview, "◨ Preview pane"),
     (Section::NewMenu, "➕ New menu"),
     (Section::Developer, "🛠 Developer"),
+    (Section::Commands, "⚡ Custom commands"),
     (Section::Transfer, "⇄ Copy engine"),
     (Section::Search, "🔍 Search"),
     (Section::Shortcuts, "⌨ Shortcuts"),
@@ -95,6 +98,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                         Section::Preview => preview(ui, &mut app.settings),
                         Section::NewMenu => new_menu(ui, &mut app.settings),
                         Section::Developer => developer(ui, &mut app.settings),
+                        Section::Commands => commands::commands(ui, app),
                         Section::Transfer => transfer(ui, &mut app.settings),
                         Section::Search => {
                             search(ui, &mut app.settings);
@@ -107,7 +111,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                     ui.add_space(24.0);
                     ui.separator();
                     ui.horizontal(|ui| {
-                        let resettable = !matches!(section, Section::Shortcuts | Section::About);
+                        let resettable = !matches!(
+                            section,
+                            Section::Shortcuts | Section::Commands | Section::About
+                        );
                         if resettable && ui.button(tr("Reset this page to defaults")).clicked() {
                             reset_section(&mut app.settings, section);
                         }
@@ -145,7 +152,7 @@ fn reset_section(s: &mut Settings, section: Section) {
         Section::Developer => s.developer = d.developer,
         Section::Transfer => s.transfer = d.transfer,
         Section::Search => s.search = d.search,
-        Section::Shortcuts | Section::About => {}
+        Section::Shortcuts | Section::Commands | Section::About => {}
     }
 }
 
