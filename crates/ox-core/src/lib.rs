@@ -47,6 +47,7 @@ pub mod power;
 pub mod preview_handler;
 pub mod props;
 pub mod recycle;
+pub mod remote;
 pub mod rename;
 pub mod search;
 pub mod search_history;
