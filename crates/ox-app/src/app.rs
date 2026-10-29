@@ -11,6 +11,7 @@ mod commands;
 mod compare;
 mod disk_usage;
 mod flat;
+mod fulltext;
 mod git;
 mod init;
 mod input;
@@ -263,6 +264,7 @@ pub struct OxApp {
     gallery_walks: Vec<(TabId, Arc<AtomicBool>)>,
     /// Find duplicates / empty folders: the pages' scans and ticks.
     pub cleanups: cleanup::Cleanups,
+    pub fulltext: fulltext::FullText,
     /// Picture tools: the running job (rotate, convert, …).
     pub pictures: PictureTools,
     /// The WSL distributions (for the sidebar and the Home page).

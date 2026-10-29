@@ -56,7 +56,11 @@ impl CleanupView {
 
 /// The clean-up pages of all tabs.
 #[derive(Default)]
-pub struct Cleanups(HashMap<TabId, CleanupView>);
+pub struct Cleanups {
+    views: HashMap<TabId, CleanupView>,
+    /// Duplicates: compare files with the same hash byte by byte too.
+    pub byte_compare: bool,
+}
 
 impl Cleanups {
     /// (Re)start the scan of the page in `tab`.
@@ -70,10 +74,11 @@ impl Cleanups {
     ) {
         let opts = ScanOptions {
             show_hidden,
+            byte_compare: self.byte_compare,
             ..Default::default()
         };
         let scan = ox_core::cleanup::start(root.clone(), mode, opts, move || ctx.request_repaint());
-        self.0.insert(
+        self.views.insert(
             tab,
             CleanupView {
                 root,
@@ -88,7 +93,7 @@ impl Cleanups {
     }
 
     pub fn get_mut(&mut self, tab: TabId) -> Option<&mut CleanupView> {
-        self.0.get_mut(&tab)
+        self.views.get_mut(&tab)
     }
 }
 
@@ -97,14 +102,14 @@ impl OxApp {
     /// were closed or show something else now.
     pub(super) fn poll_cleanups(&mut self) {
         let tabs = &self.tabs;
-        self.cleanups.0.retain(|&id, view| {
+        self.cleanups.views.retain(|&id, view| {
             tabs.get(id).is_some_and(|t| {
                 matches!(t.location(), Location::Cleanup { root, mode }
                     if *root == view.root && *mode == view.mode)
             })
         });
         let mut running = false;
-        for view in self.cleanups.0.values_mut() {
+        for view in self.cleanups.views.values_mut() {
             let Some(scan) = &view.scan else { continue };
             match scan.result.try_recv() {
                 Ok((outcome, elapsed)) => {

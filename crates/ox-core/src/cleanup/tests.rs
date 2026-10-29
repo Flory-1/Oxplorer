@@ -300,3 +300,79 @@ fn hidden_files_keep_a_folder_and_hidden_folders_are_listed_when_shown() {
     };
     assert_eq!(empties(p, opts), ["hidden_empty"]);
 }
+
+/// Many groups of files of several sizes: some copies, some that differ
+/// only in the middle, some unique.
+fn many_files(p: &Path) {
+    for g in 0..12usize {
+        let n = 1000 + g * 7000; // small ones and ones over two parts
+        let dir = p.join(format!("g{g}"));
+        fs::create_dir_all(&dir).unwrap();
+        for k in 0..(2 + g % 3) {
+            fs::write(dir.join(format!("copy{k}.bin")), data(n, None)).unwrap();
+        }
+        fs::write(dir.join("other.bin"), data(n, Some((n / 2, 0xfe)))).unwrap();
+        fs::write(dir.join("unique.bin"), data(n + 1, None)).unwrap();
+    }
+}
+
+#[test]
+fn several_threads_find_what_one_finds() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path();
+    many_files(p);
+    let with = |threads: usize, byte_compare: bool| {
+        let opts = ScanOptions {
+            threads,
+            byte_compare,
+            ..Default::default()
+        };
+        let (groups, report) = dups(p, opts);
+        assert!(!report.cancelled);
+        assert_eq!(report.unreadable, 0);
+        groups
+    };
+    let one = with(1, false);
+    assert_eq!(one.len(), 12, "{one:?}");
+    assert_eq!(with(4, false), one);
+    assert_eq!(with(3, true), one);
+    assert_eq!(with(1, true), one);
+    assert!(duplicates::threads_for(p, 0) >= 1);
+    assert_eq!(duplicates::threads_for(p, 3), 3);
+}
+
+#[test]
+fn byte_by_byte_compare() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path();
+    let n = 600 * 1024; // more than two read chunks
+    fs::write(p.join("a"), data(n, None)).unwrap();
+    fs::write(p.join("b"), data(n, None)).unwrap();
+    fs::write(p.join("c"), data(n, Some((n - 1, 0xff)))).unwrap();
+    fs::write(p.join("d"), data(n - 1, None)).unwrap();
+    let (cancel, progress) = (AtomicBool::new(false), Progress::default());
+    let same =
+        |x: &str, y: &str| duplicates::same_bytes(&p.join(x), &p.join(y), &cancel, &progress);
+    assert!(same("a", "b").unwrap());
+    assert!(!same("a", "c").unwrap(), "differs in the last byte");
+    assert!(!same("a", "d").unwrap(), "shorter");
+    assert!(Progress::get(&progress.hashed) >= 2 * n as u64);
+    let stop = AtomicBool::new(true);
+    let err = duplicates::same_bytes(&p.join("a"), &p.join("b"), &stop, &progress).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::Interrupted);
+}
+
+#[test]
+fn cancel_stops_a_scan_on_several_threads() {
+    let dir = tempfile::tempdir().unwrap();
+    many_files(dir.path());
+    let opts = ScanOptions {
+        threads: 4,
+        byte_compare: true,
+        ..Default::default()
+    };
+    let cancel = AtomicBool::new(true);
+    let report = duplicates::find(dir.path(), opts, &cancel, &Progress::default());
+    assert!(report.cancelled);
+    assert!(report.groups.is_empty());
+}

@@ -123,6 +123,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("ui/preview/tree.rs"),
     app!("ui/settings_page.rs"),
     app!("ui/settings_page/commands.rs"),
+    app!("ui/settings_page/fulltext.rs"),
     app!("ui/settings_page/keys.rs"),
     app!("ui/settings_page/search.rs"),
     app!("ui/settings_page/theme.rs"),
