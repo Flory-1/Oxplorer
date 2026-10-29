@@ -2,13 +2,15 @@
 //! and keeps it current with live updates.
 
 use std::fs;
+use std::io;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use super::checkpoint::{self, JournalState};
 use super::live::{Live, LiveInfo};
-use super::{FileIndex, IndexConfig};
+use super::{catchup, FileIndex, IndexConfig};
 
 /// Where the index is cached between runs.
 pub fn default_cache_path() -> PathBuf {
@@ -37,6 +39,9 @@ pub(super) struct Shared {
     pub last_build: Mutex<Option<(Instant, Duration)>>,
     pub cache: PathBuf,
     pub notify: Box<dyn Fn() + Send + Sync>,
+    /// How far the change journals are applied to the index (locked
+    /// before `index` when both are needed).
+    pub journal: Mutex<JournalState>,
     live: Mutex<Option<Live>>,
 }
 
@@ -59,6 +64,7 @@ impl IndexService {
                 last_build: Mutex::new(None),
                 cache,
                 notify: Box::new(notify),
+                journal: Mutex::new(JournalState::default()),
                 live: Mutex::new(None),
             }),
         };
@@ -70,6 +76,15 @@ impl IndexService {
                 let ready = loaded.is_some();
                 if let Some(idx) = loaded {
                     *shared.index.write().unwrap() = Some(Arc::new(idx));
+                    (shared.notify)();
+                    // Catch up on what changed while Oxplorer was closed;
+                    // live updates wait for this and go on from there.
+                    if let Some(state) = checkpoint::load(&shared.cache) {
+                        *shared.journal.lock().unwrap() = state.clone();
+                        if !catchup::run(&shared, &state) {
+                            shared.journal.lock().unwrap().checkpoints.clear();
+                        }
+                    }
                 }
                 let mut state = shared.state.lock().unwrap();
                 if *state == IndexState::Loading {
@@ -127,6 +142,8 @@ impl IndexService {
         *self.shared.index.write().unwrap() = None;
         *self.shared.state.lock().unwrap() = IndexState::Empty;
         let _ = fs::remove_file(&self.shared.cache);
+        checkpoint::remove(&self.shared.cache);
+        *self.shared.journal.lock().unwrap() = JournalState::default();
         (self.shared.notify)();
     }
 
@@ -136,7 +153,10 @@ impl IndexService {
         let mut live = self.shared.live.lock().unwrap();
         match cfg {
             None => *live = None,
-            Some(cfg) if live.as_ref().is_some_and(|l| *l.config() == cfg) => {}
+            Some(cfg)
+                if live.as_ref().is_some_and(|l| {
+                    *l.config() == cfg && l.service() == super::helper::enabled()
+                }) => {}
             Some(cfg) => *live = Some(Live::start(&self.shared, cfg)),
         }
     }
@@ -160,6 +180,11 @@ pub(super) fn rebuild(shared: &Arc<Shared>, cfg: IndexConfig) {
         .name("index-build".into())
         .spawn(move || {
             let start = Instant::now();
+            // Changes from here on are caught up on at the next start.
+            #[cfg(windows)]
+            let checkpoints = super::journal::positions(&cfg.roots);
+            #[cfg(not(windows))]
+            let checkpoints = Vec::new();
             let idx = FileIndex::build_fast(&cfg, &shared.cancel, &shared.progress);
             if shared.cancel.load(Ordering::Relaxed) {
                 let has_index = shared.index.read().unwrap().is_some();
@@ -169,8 +194,15 @@ pub(super) fn rebuild(shared: &Arc<Shared>, cfg: IndexConfig) {
                     IndexState::Empty
                 };
             } else {
-                let save = idx.save(&shared.cache);
-                *shared.index.write().unwrap() = Some(Arc::new(idx));
+                {
+                    let mut journal = shared.journal.lock().unwrap();
+                    *journal = JournalState {
+                        checkpoints,
+                        exclude: cfg.exclude.clone(),
+                    };
+                    *shared.index.write().unwrap() = Some(Arc::new(idx));
+                }
+                let save = save(&shared);
                 *shared.last_build.lock().unwrap() = Some((Instant::now(), start.elapsed()));
                 *shared.state.lock().unwrap() = match save {
                     Ok(()) => IndexState::Ready,
@@ -181,6 +213,22 @@ pub(super) fn rebuild(shared: &Arc<Shared>, cfg: IndexConfig) {
             (shared.notify)();
         })
         .expect("failed to spawn index thread");
+}
+
+/// Save the current index with the journal positions it reflects.
+pub(super) fn save(shared: &Shared) -> io::Result<()> {
+    let (idx, journal) = {
+        let journal = shared.journal.lock().unwrap();
+        (shared.index.read().unwrap().clone(), journal.clone())
+    };
+    let Some(idx) = idx else {
+        return Ok(());
+    };
+    if let Err(e) = idx.save(&shared.cache) {
+        checkpoint::remove(&shared.cache);
+        return Err(e);
+    }
+    checkpoint::save(&shared.cache, &journal)
 }
 
 #[cfg(test)]

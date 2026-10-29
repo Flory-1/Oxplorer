@@ -1,10 +1,16 @@
 //! Reacting to the transfer queue every frame: show questions about failed
-//! files, and do what the settings say once all transfers are done.
+//! files, and do what the settings say once all transfers are done (and
+//! a Windows notification when Oxplorer is in the background).
 
 use std::sync::atomic::Ordering;
 
 use super::*;
+use ox_core::transfer::notice::{self, Finished};
 use ox_core::transfer::when_done::{BatchDone, BatchWatch, Countdown, WhenDone};
+use ox_core::transfer::JobState;
+
+/// Notifications kept so that clicking them still reaches the window.
+const KEEP_TOASTS: usize = 5;
 
 #[derive(Default)]
 pub struct TransferWatch {
@@ -15,6 +21,9 @@ pub struct TransferWatch {
     asking: HashSet<u64>,
     /// The next transfer started waits for the current ones.
     pub(super) run_after_next: bool,
+    /// The last Windows notifications, and whether one was clicked.
+    toasts: Vec<ox_core::toast::Toast>,
+    clicked: Arc<AtomicBool>,
 }
 
 impl TransferWatch {
@@ -55,6 +64,12 @@ impl TransferWatch {
 
 impl OxApp {
     pub(super) fn poll_transfer_watch(&mut self, ctx: &Context) {
+        if self.transfer_watch.clicked.swap(false, Ordering::Relaxed) {
+            // A notification was clicked: bring the window to the front.
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            self.ui.show_transfers = true;
+        }
         let jobs = self.engine.jobs();
 
         // A failed file waits for an answer: show the panel, flash the taskbar once.
@@ -90,6 +105,14 @@ impl OxApp {
     }
 
     fn when_done(&mut self, ctx: &Context, done: BatchDone) {
+        let in_front = ctx.input(|i| {
+            let v = i.viewport();
+            v.focused.unwrap_or(true) && v.minimized != Some(true)
+        });
+        let finished = self.finished_jobs(&done);
+        if notice::wanted(self.settings.transfer.notify_done, in_front, &finished) {
+            self.show_toast(ctx, &finished);
+        }
         match self.settings.transfer.when_done {
             WhenDone::Nothing => {}
             WhenDone::Notify => {
@@ -110,6 +133,46 @@ impl OxApp {
             WhenDone::Sleep => {
                 self.toast(tr("A transfer was cancelled, so the computer stays awake."));
             }
+        }
+    }
+
+    /// The jobs of `done` still in the list, for the notification.
+    fn finished_jobs(&self, done: &BatchDone) -> Vec<Finished> {
+        let jobs = self.engine.jobs();
+        done.ids
+            .iter()
+            .filter_map(|id| jobs.iter().find(|j| j.id == *id))
+            .map(|j| Finished {
+                kind: j.kind,
+                items: j.item_count(),
+                first: j.sources.first().map(|p| entry::display_name(p)),
+                destination: j.destination.clone(),
+                cancelled: j.state() == JobState::Cancelled,
+                errors: j.error_count(),
+            })
+            .collect()
+    }
+
+    /// A Windows notification about `finished`; clicking it brings the
+    /// window back (see [`Self::poll_transfer_watch`]).
+    fn show_toast(&mut self, ctx: &Context, finished: &[Finished]) {
+        let Some(n) = notice::notice(finished) else {
+            return;
+        };
+        let (clicked, repaint) = (self.transfer_watch.clicked.clone(), ctx.clone());
+        let icon = include_bytes!("../../assets/oxplorer.png");
+        match ox_core::toast::show(&n.title, &n.body, icon, move || {
+            clicked.store(true, Ordering::Relaxed);
+            repaint.request_repaint();
+        }) {
+            Ok(t) => {
+                let toasts = &mut self.transfer_watch.toasts;
+                toasts.push(t);
+                if toasts.len() > KEEP_TOASTS {
+                    toasts.remove(0);
+                }
+            }
+            Err(e) => log::warn!("could not show a notification: {e}"),
         }
     }
 }

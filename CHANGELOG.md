@@ -5,6 +5,8 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-29
+
 ### Added
 - **Remote locations**: SFTP, FTP/FTPS and WebDAV servers as places in the sidebar (*Remote
   locations → Add…*), or type `sftp://`, `ftp://`, `ftps://` or `webdavs://` in the address bar.
@@ -21,6 +23,69 @@ The release workflow publishes the section of the tagged version as the release 
 - **More Git** in the preview's Git tab: stage and unstage files, discard changes (after asking),
   commit (also amend), switch and create branches (*Stash and switch* when changes are in the
   way), fetch, pull and push. A **Diff** tab shows what changed in a file, also side by side.
+- **Mirror / sync** a folder to another, one way (right-click a folder → *Mirror to*, the split
+  view's compare bar, or the command palette). *Mirror* makes the target exactly like the source,
+  *Update* only copies what's new or changed; compare by size and date or by contents, and leave
+  things out (`*.tmp; node_modules; .git`). A preview lists what will be copied, updated and
+  removed, and every row can be unticked. Removed items go to the Recycle Bin, copies run as
+  normal transfers, and Ctrl+Z undoes it. A target inside the source is refused, and removing
+  more than half of the target needs an extra tick. Recent pairs are remembered.
+- **Undo history kept after a restart** (Settings → Browsing → *Keep undo history after
+  restart*): the last 100 operations of the last 30 days, still checked before anything is
+  undone. Several windows don't overwrite each other's history.
+- **Windows notifications** when transfers are done while Oxplorer is in the background
+  (Settings → Transfers → *Notifications when transfers are done*). Clicking one brings the
+  window to the front with the transfers panel open.
+- **Custom commands in Settings → Shortcuts**, next to the built-in ones, with the same warning
+  when two commands share keys.
+- **Git stashes**: the Branches view lists the stashes with *Apply*, *Pop* and *Drop* (asks
+  first), and *Stash changes* with an optional message. Fetch, pull and push show git's progress
+  live and can be cancelled.
+- **Sort by the columns read from the files**: Dimensions, Length, Date taken, Authors and File
+  version. Items not read yet come last and move into place as their values arrive.
+- **Libraries** refresh by themselves when files change in their folders, and the search box
+  searches all of a library's folders.
+- **Group by month** ("October 2026", by date taken where known), on by default in the Gallery
+  and available in every folder.
+- **New link dialog**: *Browse…* picks the target, and the target field completes folders and
+  files as you type (also after `%USERPROFILE%` and `~`). The address bar completes the same way.
+- **Compare two text files** (select two files → right-click → *Compare these two files*, or one
+  file in each pane of the split view from the command palette): a diff window like the Git tab's,
+  one column or side by side, with *Ignore whitespace*. Binary and very large files show where
+  they first differ.
+- **Data views and the hex view for items inside archives**: tables, trees and SQLite databases
+  inside a zip or 7z show like files on disk.
+- **Text index** (Settings → Search → *Index the text of documents*, off by default): keeps the
+  words of text files, code, PDF, Word, Excel, PowerPoint and OpenDocument files in chosen
+  folders, so `content:` searches there are fast and also find text inside those documents.
+  Built in the background and paused while files are copied; files it doesn't know yet are still
+  read.
+- **Index service** (optional installer task *Fast index service*, for all users, off by default;
+  then Settings → Search → *Use the Oxplorer index service*): reads NTFS drives from the master
+  file table and follows the change journal **without running Oxplorer as administrator**. It
+  answers only the user who installed it (and administrators), and only with what the master
+  file table holds: names, sizes and dates of every file on the fixed NTFS drives, never their
+  contents.
+- **Catch-up after a restart**: with NTFS drives read through the service or as administrator,
+  the index applies what changed while Oxplorer was closed from the change journal instead of
+  building again.
+- **Duplicates**: *Compare contents byte by byte* after the hashes match, and hashing on several
+  threads (one on a hard disk), so scans on SSDs are faster.
+- **Server transfers resume and verify**: downloads, uploads and server copies continue where
+  they stopped after the connection dropped, and interrupted ones can be resumed from the
+  transfer panel after a restart. With *Verify* on, they're checked with the server's checksum
+  where it offers one (FTP `HASH`, Nextcloud/ownCloud), otherwise by size ("size checked only").
+- **Copying between two servers** (or within one), streamed through Oxplorer without a temporary
+  file.
+- **Upload after editing**: a file opened from a server can be uploaded again after you saved
+  it, with a warning when the server's file changed in the meantime.
+- **Thumbnails in remote folders** for pictures up to 8 MB (Settings → Appearance).
+
+### Changed
+- **Rotating and flipping JPEGs is lossless**: only the EXIF orientation is changed, every other
+  byte stays as it was. Settings → Preview → *Re-encode JPEGs instead* for programs that ignore
+  the orientation.
+- *Stash and switch* now stashes untracked files too (they were left behind before).
 
 ## [1.0.4] - 2026-10-29
 
@@ -331,5 +396,5 @@ Windows 10 (1809) or newer, 64-bit.
   [report problems](https://github.com/Flory-1/oxplorer/issues).
 - The installer is not code-signed, so Windows SmartScreen may warn before the first start
   (*More info → Run anyway*).
-- Still planned (see the [roadmap](ROADMAP.md)): a keyboard-only accessibility pass, resuming
+- Still planned at the time: a keyboard-only accessibility pass, resuming
   interrupted transfers, live index updates and an NTFS MFT index builder.

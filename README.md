@@ -21,7 +21,8 @@ and Windows 11, 64-bit:
 
 - **Installer** (`oxplorer-<version>-setup-x64.exe`): installs for your user, no admin rights
   needed. It adds a Start menu entry and an optional desktop icon, and can make folders open
-  in Oxplorer.
+  in Oxplorer. Installed for all users, it can also add the optional **index service** (see
+  *Search*).
 - **Portable** (`oxplorer-<version>-windows-x64.zip`): unzip and run `oxplorer.exe`
 - `.sha256` files to check the downloads
 
@@ -41,10 +42,10 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 
 - **Details and grid views** with sortable columns and natural sort order (`file2` before `file10`)
 - **Choose your columns**: show, hide, move and resize them, with extra ones such as dimensions,
-  length, date taken, authors, file version and attributes
+  length, date taken, authors, file version and attributes, and sort by them too
 - **Each folder remembers its view**: sort order, view mode, columns and grouping (e.g.
   *Downloads* by date, *Pictures* as a grid)
-- **Group by** type, date, size or tag, with groups you can fold away
+- **Group by** type, date, month, size or tag, with groups you can fold away
 - **Grid zoom** with Ctrl+mouse wheel or a slider, from small icons to large thumbnails
 - **Quick Look**: Space shows the selected file large over the window; the arrow keys go
   through the folder
@@ -53,7 +54,7 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
   **select by pattern** (`*.jpg; *.png`), invert the selection or select all of the same type
 - Back, forward and up (the mouse side buttons work too) and a **breadcrumb address bar**:
   click a `›` to jump into a sub-folder, or click the empty part to type a path
-  (`%USERPROFILE%` and `~` are expanded)
+  (`%USERPROFILE%` and `~` are expanded, and folders are completed as you type)
 - New folder or file, rename (F2), delete to the Recycle Bin, delete permanently (Shift+Del).
   Add **your own file types to ➕ New**, such as *Python script* or *Markdown document*, each
   with a file name and content to start with (`{name}` and `{date}` are filled in).
@@ -62,20 +63,20 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
   to find what fills your disk.
 - **Disk usage view**: a treemap of a folder or drive, with the largest items next to it
 - **Find duplicates and empty folders** in a folder, with a list to review before they go to
-  the Recycle Bin
+  the Recycle Bin; duplicates can also be compared byte by byte
 - **Colour tags** with your own names (e.g. Red → *Urgent*): coloured dots in the file view, a
   *Tags* section in the sidebar, and tags follow the items you rename or move
 - **Archives as folders**: open `.zip`, `.7z`, `.tar`, `.tar.gz` and `.tgz` files to browse
   them, preview what's inside and drag or copy items out. *Extract here*, *Extract to "name"*
   and *Compress to ZIP* are in the right-click menu.
 - **Picture tools**: rotate, flip, convert (PNG, JPG, WebP) and resize one or many pictures,
-  with undo
+  with undo. JPEGs are turned losslessly.
 - **Recycle Bin view**: deleted items with their original location; restore, delete
   permanently or empty the bin, and drop files onto it to delete them
 - **Undo and redo** (Ctrl+Z / Ctrl+Y) for renames, moves, copies, new items and deletes to the
-  Recycle Bin; Oxplorer checks first that nothing changed since
-- **Links**: create symbolic links, junctions and hard links from ➕ New or by dragging with
-  Ctrl+Shift; links show where they point
+  Recycle Bin, also after a restart; Oxplorer checks first that nothing changed since
+- **Links**: create symbolic links, junctions and hard links from ➕ New (with *Browse…* and path
+  completion) or by dragging with Ctrl+Shift; links show where they point
 
 ### Tabs, split view and quick access
 
@@ -89,11 +90,14 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
   you can drag files between the panes.
 - **Compare folders** (Ctrl+Shift+D) in the split view: what only one side has, what's newer
   and what differs is marked, and missing or newer files are copied over in one go
+- **Mirror / sync** a folder to another, one way: *Mirror* makes the target exactly like the
+  source (extras go to the Recycle Bin), *Update* only copies what's new or changed. A preview
+  shows every change first, and Ctrl+Z undoes it.
 - **Home tab**, always the first tab: favorites, drives with usage bars, and recent folders and
   files. What you open from it opens in a new tab.
 - **Sidebar** with Favorites, This PC, Network, Recent, Tags, Saved searches and **Libraries**:
-  Windows' libraries with all their folders in one view, and a **Gallery** of every picture and
-  video, newest first
+  Windows' libraries with all their folders in one view (refreshed by themselves and searchable),
+  and a **Gallery** of every picture and video, newest first and grouped by month
 - **Command palette** (Ctrl+Shift+P): type a few letters to run any command or jump to a
   favorite, drive, recent folder, tag or saved search
 - Your tabs and groups can be restored at startup, and the window opens where you left it
@@ -109,7 +113,8 @@ the background, so large files never block the window.
   codecs), animated GIF and WebP, and the photo's details (camera, exposure, location)
 - **Office documents and mails** through the same preview handlers Explorer uses
 - **Data files**: CSV/TSV as a table, JSON/XML/YAML/TOML as a tree, SQLite tables, and a **hex
-  view** for every file
+  view** for every file, also for items inside archives
+- **Compare two text files**: a diff in one column or side by side, with *Ignore whitespace*
 - **Player**: audio and video play right in the preview with Windows' own media engine, so
   every format Windows can play works. It has a seek bar, 10 s back/forward, repeat, shuffle,
   speed, a queue, playlists and subtitles, and keeps playing in a mini player while you browse.
@@ -125,8 +130,12 @@ the background, so large files never block the window.
 - Typing in the search box **filters the current folder** instantly
 - A **file-name index** of your drives finds files anywhere as you type: 280,000 files are
   searched in milliseconds. The index is kept between runs and follows file changes as they
-  happen. Run as administrator, NTFS drives are read straight from the master file table and
-  followed through the change journal.
+  happen. Run as administrator, or through the optional **index service** without admin rights,
+  NTFS drives are read straight from the master file table and followed through the change
+  journal, and what changed while Oxplorer was closed is caught up instead of building again.
+  The service only answers the user who installed it and is off by default.
+- An optional **text index** of documents (text, code, PDF, Word, Excel, PowerPoint,
+  OpenDocument) makes `content:` searches in those folders fast
 - **Enter** searches all sub-folders: from the index when it covers the folder, otherwise with
   a multi-threaded walker
 - **Filter chips** for kind, date, size and tags, and **saved searches** in the sidebar
@@ -146,7 +155,7 @@ the background, so large files never block the window.
   | `kind:image,video` | by kind (image, video, audio, document, archive, code, app) |
   | `size:>10mb`, `size:<1kb` | by size |
   | `modified:7d`, `modified:today` | recently changed |
-  | `content:"TODO"` | text inside files |
+  | `content:"TODO"` | text inside files (fast with the text index) |
   | `tag:red,blue` | by colour tag (also your tag names) |
   | `archives:yes` | also inside zip, 7z and tar archives |
 
@@ -170,6 +179,7 @@ Copying and moving never opens the Windows copy dialog. Oxplorer's own engine
   transfers** after a crash, sleep or a pulled USB stick
 - A **queue**: hold, reorder or run jobs after the current ones, and when all are done, show a
   notification or put the computer to sleep
+- **Windows notifications** when transfers finish while Oxplorer is in the background
 - Optionally keeps **permissions**, **alternate data streams** and **folder dates**
 - The **clipboard is shared with Explorer** both ways: copy in Explorer, paste in Oxplorer,
   and the paste still runs through the fast engine
@@ -189,8 +199,10 @@ Copying and moving never opens the Windows copy dialog. Oxplorer's own engine
 - **Network locations**: type `\\server` to see its shares, browse them like any folder, mapped
   drives under *This PC*, and *Map network drive…*
 - **Remote locations**: SFTP, FTP/FTPS and WebDAV servers in the sidebar, browsed like folders
-  and copied to and from with the copy engine. Server keys are checked and passwords stay in the
-  Windows Credential Manager.
+  (with thumbnails) and copied to and from with the copy engine, also from one server to
+  another. Transfers resume after a dropped connection and can be verified; files you edit are
+  uploaded again when you save them. Server keys are checked and passwords stay in the Windows
+  Credential Manager.
 - **WSL**: Linux distributions under *This PC*, with *Open in WSL terminal* and Linux paths
 - **Mica or Acrylic** window backdrop on Windows 11, rounded corners, dark or light title bar
 - **Open folders in Oxplorer** instead of Explorer: folders and drives opened from the desktop
@@ -214,10 +226,12 @@ Copying and moving never opens the Windows copy dialog. Oxplorer's own engine
   them) and the branch with ahead/behind in the status bar (needs Git installed)
 - Right-click → **Git**: open a file or folder on GitHub, GitLab or Bitbucket, copy the branch
   name. The Info tab shows the last commit that changed the item.
-- **Git tab**: stage, unstage and discard changes, commit, switch and create branches, fetch,
-  pull and push, and a **diff** of every changed file (also side by side)
+- **Git tab**: stage, unstage and discard changes, commit, switch and create branches, stashes,
+  fetch, pull and push with live progress, and a **diff** of every changed file (also side by
+  side)
 - **Custom commands** in the right-click menu and the command palette: your own command lines
-  with placeholders such as `{path}`, `{paths}` and `{folder}`, optionally with a shortcut
+  with placeholders such as `{path}`, `{paths}` and `{folder}`, optionally with a shortcut (also
+  set in Settings → Shortcuts)
 - Text files show their **encoding**, **line endings** and **indentation**; **SHA-256 and MD5
   checksums** of any file on request
 - **Bulk rename** (F2 on several items): names from a pattern (`{name}`, `{ext}`, `{n:3}`,
@@ -384,7 +398,11 @@ crates/
                       verification, speed limit, history, queue, error questions,
                       resume journal, permissions/streams/folder dates
     search.rs         query language, parallel walker, indexed search
-    index.rs          persistent file-name index (build, query, cache)
+    index.rs          persistent file-name index (build, query, cache, journal catch-up,
+                      client of the index service)
+    fulltext/         optional text index of documents for content: searches
+    mirror.rs         one-way mirror / sync plans with their safety checks
+    textdiff.rs       line diff of two text files (Myers)
     rename.rs         bulk rename: patterns, preview, safe apply with rollback
     archive.rs        zip/7z/tar browsing, extraction and zip compression
     git.rs            Git status, log and commit graph layout, remotes
@@ -404,6 +422,7 @@ crates/
     recycle.rs        Recycle Bin: list, restore, purge
     undo.rs           undo/redo history of file operations, with safety checks
     compare.rs        compare two folders (size and date, or contents)
+    remote/           SFTP, FTP/FTPS and WebDAV, re-upload after editing, thumbnails
     clipboard.rs      file clipboard, shared with Windows Explorer
     disk.rs           volume ids, HDD/SSD detection
     entry.rs          directory listing, file kinds, sorting
@@ -414,6 +433,8 @@ crates/
     i18n.rs           translations (English text as key); i18n_de.rs: German
     fsops.rs          create / rename / delete, terminal and editor helpers
     watcher.rs        auto-refresh when a folder changes
+  ox-indexer/         the optional index service ("oxplorer-indexer" binary): reads the
+                      master file table and change journal for one user, over a named pipe
   ox-app/             the egui/eframe desktop app ("oxplorer" binary)
     app.rs            state, action dispatcher, keyboard handling, window style
     tabs.rs           tabs, tab groups, history, session restore

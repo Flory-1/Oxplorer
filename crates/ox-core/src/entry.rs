@@ -240,6 +240,13 @@ pub enum SortKey {
     /// OneDrive / Dropbox state. Not in the menus: the Status column's
     /// header sorts by it.
     Status,
+    /// The values read from the files ([`crate::props`]), by their columns'
+    /// headers only. Items whose value isn't read yet come last.
+    Dimensions,
+    Length,
+    DateTaken,
+    Authors,
+    Version,
 }
 
 impl SortKey {
@@ -261,6 +268,11 @@ impl SortKey {
             Self::Type => "Type",
             Self::Size => "Size",
             Self::Status => "Status",
+            Self::Dimensions => "Dimensions",
+            Self::Length => "Length",
+            Self::DateTaken => "Date taken",
+            Self::Authors => "Authors",
+            Self::Version => "File version",
         }
     }
 }
@@ -288,33 +300,75 @@ pub fn sort_entries(
     order: SortOrder,
     folders_first: bool,
 ) {
-    entries.sort_by(|a, b| {
-        if folders_first && a.is_dir != b.is_dir {
-            return if a.is_dir {
-                Ordering::Less
-            } else {
-                Ordering::Greater
-            };
-        }
-        let ord = match key {
-            SortKey::Name => natural_cmp(&a.name, &b.name),
-            SortKey::Modified => a.modified.cmp(&b.modified),
-            SortKey::Created => a.created.cmp(&b.created),
-            SortKey::Type => a
-                .type_label()
-                .cmp(&b.type_label())
-                .then_with(|| natural_cmp(&a.name, &b.name)),
-            SortKey::Size => a.size.cmp(&b.size),
-            SortKey::Status => crate::cloud::sort_rank(a.cloud)
-                .cmp(&crate::cloud::sort_rank(b.cloud))
-                .then_with(|| natural_cmp(&a.name, &b.name)),
+    entries.sort_by(|a, b| compare(a, b, None, key, order, folders_first));
+}
+
+/// Like [`sort_entries`], also by the values read from the files: `props`
+/// gives an item's values if they are read ([`SortKey::reads_props`]).
+pub fn sort_entries_with<'a>(
+    entries: &mut Vec<FileEntry>,
+    key: SortKey,
+    order: SortOrder,
+    folders_first: bool,
+    props: impl Fn(&FileEntry) -> Option<&'a crate::props::Props>,
+) {
+    if !key.reads_props() {
+        return sort_entries(entries, key, order, folders_first);
+    }
+    // Looked up once per item, not once per comparison.
+    let mut items: Vec<_> = std::mem::take(entries)
+        .into_iter()
+        .map(|e| (props(&e), e))
+        .collect();
+    items.sort_by(|(pa, a), (pb, b)| compare(a, b, Some((*pa, *pb)), key, order, folders_first));
+    entries.extend(items.into_iter().map(|(_, e)| e));
+}
+
+type PropsPair<'a> = (
+    Option<&'a crate::props::Props>,
+    Option<&'a crate::props::Props>,
+);
+
+fn compare(
+    a: &FileEntry,
+    b: &FileEntry,
+    props: Option<PropsPair<'_>>,
+    key: SortKey,
+    order: SortOrder,
+    folders_first: bool,
+) -> Ordering {
+    if folders_first && a.is_dir != b.is_dir {
+        return if a.is_dir {
+            Ordering::Less
+        } else {
+            Ordering::Greater
         };
-        let ord = ord.then_with(|| natural_cmp(&a.name, &b.name));
-        match order {
-            SortOrder::Ascending => ord,
-            SortOrder::Descending => ord.reverse(),
-        }
-    });
+    }
+    if key.reads_props() {
+        // Unknown values stay last; names in their usual order between them.
+        let (pa, pb) = props.unwrap_or_default();
+        return crate::prop_sort::compare(key, pa, pb, order)
+            .then_with(|| natural_cmp(&a.name, &b.name));
+    }
+    let ord = match key {
+        SortKey::Name => natural_cmp(&a.name, &b.name),
+        SortKey::Modified => a.modified.cmp(&b.modified),
+        SortKey::Created => a.created.cmp(&b.created),
+        SortKey::Type => a
+            .type_label()
+            .cmp(&b.type_label())
+            .then_with(|| natural_cmp(&a.name, &b.name)),
+        SortKey::Size => a.size.cmp(&b.size),
+        SortKey::Status => crate::cloud::sort_rank(a.cloud)
+            .cmp(&crate::cloud::sort_rank(b.cloud))
+            .then_with(|| natural_cmp(&a.name, &b.name)),
+        _ => Ordering::Equal,
+    };
+    let ord = ord.then_with(|| natural_cmp(&a.name, &b.name));
+    match order {
+        SortOrder::Ascending => ord,
+        SortOrder::Descending => ord.reverse(),
+    }
 }
 
 #[cfg(test)]
@@ -341,6 +395,41 @@ mod tests {
 
         sort_entries(&mut entries, SortKey::Size, SortOrder::Descending, false);
         assert_eq!(entries[0].name, "b10.txt");
+    }
+
+    #[test]
+    fn sorting_by_read_values_puts_unknown_ones_last() {
+        let file = |name: &str| FileEntry {
+            path: name.into(),
+            name: name.into(),
+            is_dir: false,
+            is_symlink: false,
+            size: 0,
+            modified: None,
+            created: None,
+            hidden: false,
+            readonly: false,
+            cloud: None,
+        };
+        let mut entries = vec![file("c"), file("b"), file("a"), file("d")];
+        let dims = |w, h| crate::props::Props {
+            dimensions: Some((w, h)),
+            ..Default::default()
+        };
+        let (big, small) = (dims(100, 100), dims(10, 10));
+        let none = crate::props::Props::default();
+        let props = |e: &FileEntry| match e.name.as_str() {
+            "a" => Some(&big),
+            "c" => Some(&small),
+            "d" => Some(&none),
+            _ => None,
+        };
+        let names = |v: &[FileEntry]| v.iter().map(|e| e.name.clone()).collect::<Vec<_>>();
+        let k = SortKey::Dimensions;
+        sort_entries_with(&mut entries, k, SortOrder::Ascending, true, props);
+        assert_eq!(names(&entries), ["c", "a", "d", "b"]);
+        sort_entries_with(&mut entries, k, SortOrder::Descending, true, props);
+        assert_eq!(names(&entries), ["a", "c", "d", "b"]);
     }
 
     #[test]

@@ -16,6 +16,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use super::checkpoint::Checkpoint;
 use super::{
     is_excluded, push_entry, read_children, Child, Entry, FileIndex, F_DELETED, F_DIR, F_HIDDEN,
     NO_PARENT,
@@ -34,6 +35,9 @@ pub(crate) enum Signal {
     RenamedTo(PathBuf),
     /// Changes were lost (e.g. the watcher overflowed): rebuild.
     Rescan,
+    /// The change journal was read up to here (sent after the changes before it).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Checkpoint(Checkpoint),
 }
 
 /// Changes collected over a short time, with duplicates removed.
@@ -45,6 +49,8 @@ pub(crate) struct Batch {
     /// A rename's old name waiting for its new name.
     from: Option<PathBuf>,
     rescan: bool,
+    /// The latest journal position per drive.
+    checkpoints: Vec<Checkpoint>,
 }
 
 /// Paths to reconcile, plus renames to try in place first.
@@ -69,7 +75,21 @@ impl Batch {
                 _ => self.add(p),
             },
             Signal::Rescan => self.set_rescan(),
+            Signal::Checkpoint(c) => self.checkpoint(c),
         }
+    }
+
+    fn checkpoint(&mut self, c: Checkpoint) {
+        match self.checkpoints.iter_mut().find(|k| k.drive == c.drive) {
+            Some(k) => *k = c,
+            None => self.checkpoints.push(c),
+        }
+    }
+
+    /// Where the change journals were read up to when the last change in
+    /// this batch was sent.
+    pub fn checkpoints(&self) -> &[Checkpoint] {
+        &self.checkpoints
     }
 
     fn add(&mut self, p: PathBuf) {
@@ -103,6 +123,9 @@ impl Batch {
     pub fn merge(&mut self, mut other: Batch) {
         other.flush();
         self.flush();
+        for c in std::mem::take(&mut other.checkpoints) {
+            self.checkpoint(c);
+        }
         if other.rescan {
             self.set_rescan();
             return;
@@ -116,7 +139,11 @@ impl Batch {
     }
 
     pub fn is_empty(&self) -> bool {
-        !self.rescan && self.paths.is_empty() && self.renames.is_empty() && self.from.is_none()
+        !self.rescan
+            && self.paths.is_empty()
+            && self.renames.is_empty()
+            && self.from.is_none()
+            && self.checkpoints.is_empty()
     }
 
     /// Were changes lost, so the index must be rebuilt?
@@ -528,7 +555,7 @@ impl FileIndex {
         1
     }
 
-    /// Reconcile all changes in `batch` with the disk (in one go, for tests).
+    /// Reconcile all changes in `batch` with the disk (in one go).
     #[cfg(test)]
     pub(super) fn update(&mut self, batch: &Batch, exclude: &[String]) -> usize {
         batch

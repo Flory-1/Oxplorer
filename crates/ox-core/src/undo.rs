@@ -8,12 +8,16 @@
 //! [`Op`] describing *that*, which is what a redo reverses again. Undoing a
 //! copy or a new file moves it to the Recycle Bin, so nothing is lost; the
 //! redo restores it from there. Permanent deletes are never recorded.
+//!
+//! The [`History`] is kept across restarts by a [`Store`], which merges what
+//! several windows write.
 
-use std::collections::VecDeque;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
 
 use crate::entry::display_name;
 use crate::i18n::t;
@@ -21,11 +25,11 @@ use crate::links::{self, LinkKind};
 use crate::recycle::{self, TrashItem};
 use crate::{fsops, rename};
 
-/// How many operations can be undone.
-pub const LIMIT: usize = 50;
+/// How many operations can be undone (and are kept across restarts).
+pub const LIMIT: usize = 100;
 
 /// What kind of operation an entry is, for messages.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Kind {
     Rename,
     Move,
@@ -60,7 +64,7 @@ impl Kind {
 
 /// Enough about an item to tell whether it changed: for a folder the total
 /// size, number of entries and newest modification time of everything in it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stamp {
     is_dir: bool,
     size: u64,
@@ -99,7 +103,7 @@ fn add_dir(dir: &Path, s: &mut Stamp) -> io::Result<()> {
 }
 
 /// An item that was put somewhere, as it was right after.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Placed {
     pub path: PathBuf,
     pub stamp: Stamp,
@@ -114,7 +118,7 @@ impl Placed {
 }
 
 /// What an operation did (and so how to reverse it).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Op {
     /// Items renamed in their folder, (from, to). Undone by renaming back.
     Renamed(Vec<(PathBuf, PathBuf)>),
@@ -148,7 +152,7 @@ pub enum Op {
 
 /// A file at `new` that took the place of the file at `original` (often the
 /// same path).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Replacement {
     pub original: PathBuf,
     pub new: Placed,
@@ -157,7 +161,7 @@ pub struct Replacement {
 /// An original put back at `original`. The file that had replaced it was at
 /// `new` and went to the Recycle Bin as `aside` (renamed when it had the
 /// original's name, so the original could come back).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Restored {
     pub original: PathBuf,
     pub new: PathBuf,
@@ -165,7 +169,7 @@ pub struct Restored {
 }
 
 /// A symbolic link, junction or hard link at `path` to `target`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Link {
     pub path: PathBuf,
     pub target: PathBuf,
@@ -579,7 +583,7 @@ fn swap(pairs: &[(PathBuf, PathBuf)]) -> Vec<(PathBuf, PathBuf)> {
 }
 
 /// One operation in the history.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
     pub kind: Kind,
     /// What it was done to: a name or "3 items" (fixed when recorded).
@@ -603,77 +607,10 @@ impl Entry {
     }
 }
 
-/// The undo and redo stacks.
-#[derive(Debug, Default)]
-pub struct History {
-    undo: VecDeque<Entry>,
-    redo: Vec<Entry>,
-    /// Something was recorded since the last [`History::take`].
-    recorded: bool,
-}
-
-impl History {
-    /// A new operation was done: it can be undone, and nothing can be redone.
-    pub fn record(&mut self, entry: Entry) {
-        self.redo.clear();
-        self.recorded = true;
-        self.push_undo(entry);
-    }
-
-    fn push_undo(&mut self, entry: Entry) {
-        self.undo.push_back(entry);
-        while self.undo.len() > LIMIT {
-            self.undo.pop_front();
-        }
-    }
-
-    pub fn can_undo(&self) -> bool {
-        !self.undo.is_empty()
-    }
-
-    pub fn can_redo(&self) -> bool {
-        !self.redo.is_empty()
-    }
-
-    /// The entry that would be undone (`redo` false) or redone next.
-    pub fn peek(&self, redo: bool) -> Option<&Entry> {
-        if redo {
-            self.redo.last()
-        } else {
-            self.undo.back()
-        }
-    }
-
-    /// The entry to undo (`redo` false) or redo next, taken off its stack.
-    pub fn take(&mut self, redo: bool) -> Option<Entry> {
-        self.recorded = false;
-        if redo {
-            self.redo.pop()
-        } else {
-            self.undo.pop_back()
-        }
-    }
-
-    /// Put an entry back where [`History::take`] got it (it couldn't be reversed).
-    pub fn put_back(&mut self, redo: bool, entry: Entry) {
-        if redo {
-            self.redo.push(entry);
-        } else {
-            self.push_undo(entry);
-        }
-    }
-
-    /// An entry was undone or redone; `entry.op` is what that did. It goes
-    /// onto the other stack (unless something new was done meanwhile, which
-    /// ends what can be redone).
-    pub fn reversed(&mut self, redo: bool, entry: Entry) {
-        if redo {
-            self.push_undo(entry);
-        } else if !self.recorded {
-            self.redo.push(entry);
-        }
-    }
-}
-
+mod history;
+mod store;
 #[cfg(test)]
 mod tests;
+
+pub use history::{History, Record};
+pub use store::Store;

@@ -3,6 +3,13 @@
 //! Both return a buffer that starts with an 8-byte value (the next file
 //! reference or USN to ask for) followed by `USN_RECORD_V2`/`V3` records.
 
+use std::collections::HashMap;
+use std::path::{Path, PathBuf, MAIN_SEPARATOR};
+
+use super::patch::Signal;
+use super::tree::ATTR_DIRECTORY;
+
+pub(super) const REASON_FILE_DELETE: u32 = 0x0000_0200;
 pub(super) const REASON_RENAME_OLD_NAME: u32 = 0x0000_1000;
 pub(super) const REASON_RENAME_NEW_NAME: u32 = 0x0000_2000;
 
@@ -93,9 +100,153 @@ fn parse_record(r: &[u8]) -> Option<UsnRecord> {
     })
 }
 
+/// The roots as the journal's paths spell them (long names, no `\\?\`,
+/// ending in a separator), each with the root as given.
+pub(super) fn prefixes(roots: &[PathBuf]) -> Vec<(String, PathBuf)> {
+    roots
+        .iter()
+        .map(|r| {
+            // Roots may be written differently (short 8.3 names, other case).
+            let long = std::fs::canonicalize(r).unwrap_or_else(|_| r.clone());
+            let long = long.to_string_lossy();
+            let mut s = long.strip_prefix(r"\\?\").unwrap_or(&long).to_owned();
+            if !s.ends_with(MAIN_SEPARATOR) {
+                s.push(MAIN_SEPARATOR);
+            }
+            (s, r.clone())
+        })
+        .collect()
+}
+
+/// `path` below one of the roots, written the way that root is.
+pub(super) fn map_to_root(path: &Path, prefixes: &[(String, PathBuf)]) -> Option<PathBuf> {
+    let s = path.to_string_lossy();
+    prefixes.iter().find_map(|(long, root)| {
+        let n = long.len();
+        (s.len() > n && s.is_char_boundary(n) && s[..n].eq_ignore_ascii_case(long))
+            .then(|| root.join(&s[n..]))
+    })
+}
+
+/// Folder paths by file reference, so busy folders are looked up once.
+#[derive(Default)]
+pub(super) struct Dirs(HashMap<u64, Option<PathBuf>>);
+
+/// What journal records mean for the index: the path of each (its folder's
+/// current path, from `lookup`, and its name) below one of the roots.
+/// Records whose folder is gone are skipped: the folder's own record covers
+/// them.
+pub(super) fn signals_for(
+    records: &[UsnRecord],
+    dirs: &mut Dirs,
+    lookup: &mut dyn FnMut(u64) -> Option<PathBuf>,
+    prefixes: &[(String, PathBuf)],
+) -> Vec<Signal> {
+    let mut out = Vec::new();
+    if dirs.0.len() > 10_000 {
+        dirs.0.clear();
+    }
+    for r in records {
+        let dir = match dirs.0.get(&r.parent) {
+            Some(d) => d.clone(),
+            None => {
+                let d = lookup(r.parent);
+                dirs.0.insert(r.parent, d.clone());
+                d
+            }
+        };
+        if r.attrs & ATTR_DIRECTORY != 0
+            && r.reason & (REASON_RENAME_OLD_NAME | REASON_RENAME_NEW_NAME | REASON_FILE_DELETE)
+                != 0
+        {
+            dirs.0.clear(); // paths below it changed
+        }
+        let Some(dir) = dir else { continue };
+        let Some(path) = map_to_root(&dir.join(&r.name), prefixes) else {
+            continue;
+        };
+        out.push(if r.reason & REASON_RENAME_OLD_NAME != 0 {
+            Signal::RenamedFrom(path)
+        } else if r.reason & REASON_RENAME_NEW_NAME != 0 {
+            Signal::RenamedTo(path)
+        } else {
+            Signal::Changed(path)
+        });
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn maps_journal_paths_onto_roots() {
+        let short = PathBuf::from(r"C:\Users\RUNNER~1\Temp");
+        let drive = PathBuf::from(r"D:\");
+        let prefixes = [
+            (r"C:\Users\runneradmin\Temp\".to_owned(), short),
+            (r"D:\".to_owned(), drive),
+        ];
+        assert_eq!(
+            map_to_root(Path::new(r"c:\users\RunnerAdmin\Temp\a\b.txt"), &prefixes),
+            Some(PathBuf::from(r"C:\Users\RUNNER~1\Temp\a\b.txt"))
+        );
+        assert_eq!(
+            map_to_root(Path::new(r"D:\x.txt"), &prefixes),
+            Some(PathBuf::from(r"D:\x.txt"))
+        );
+        assert_eq!(map_to_root(Path::new(r"C:\Windows\x"), &prefixes), None);
+        assert_eq!(
+            map_to_root(Path::new(r"C:\Users\runneradmin\Temp"), &prefixes),
+            None
+        );
+    }
+
+    #[test]
+    fn records_become_signals_below_the_roots() {
+        let root = std::env::temp_dir().join("ox-usn-test-root");
+        let prefixes = vec![(format!("{}{MAIN_SEPARATOR}", root.display()), root.clone())];
+        let rec = |frn, parent, reason, attrs, name: &str| UsnRecord {
+            frn,
+            parent,
+            usn: 0,
+            reason,
+            attrs,
+            name: name.into(),
+        };
+        let records = [
+            rec(10, 1, 0x100, 0, "new.txt"),
+            rec(11, 2, REASON_RENAME_OLD_NAME, ATTR_DIRECTORY, "old"),
+            rec(11, 2, REASON_RENAME_NEW_NAME, ATTR_DIRECTORY, "renamed"),
+            rec(12, 3, 0x100, 0, "outside.txt"),
+            rec(13, 4, REASON_FILE_DELETE, 0, "child-of-a-gone-folder.txt"),
+            rec(14, 1, 0x100, 0, "again.txt"),
+        ];
+        let mut looked_up = Vec::new();
+        let mut lookup = |frn: u64| {
+            looked_up.push(frn);
+            match frn {
+                1 => Some(root.clone()),
+                2 => Some(root.join("sub")),
+                3 => Some(std::env::temp_dir().join("elsewhere")),
+                _ => None,
+            }
+        };
+        let signals = signals_for(&records, &mut Dirs::default(), &mut lookup, &prefixes);
+        assert_eq!(
+            signals,
+            vec![
+                Signal::Changed(root.join("new.txt")),
+                Signal::RenamedFrom(root.join("sub").join("old")),
+                Signal::RenamedTo(root.join("sub").join("renamed")),
+                Signal::Changed(root.join("again.txt")),
+            ]
+        );
+        // Folders are looked up again after a folder was renamed.
+        assert_eq!(looked_up, vec![1, 2, 2, 3, 4, 1]);
+    }
 
     /// A `USN_RECORD_V2` as Windows lays it out (8-byte aligned).
     fn record_v2(frn: u64, parent: u64, reason: u32, attrs: u32, name: &str) -> Vec<u8> {

@@ -110,6 +110,8 @@ pub(super) fn branches_view(ui: &mut Ui, panel: &mut GitPanel, snap: &Snapshot, 
                     panel.create_branch(&ctx);
                 }
             });
+            super::git_stashes::stashes(ui, panel, snap, date_fmt);
+            ui.add_space(6.0);
             ui.add(
                 egui::TextEdit::singleline(&mut panel.filter)
                     .hint_text(tr("Filter branches"))

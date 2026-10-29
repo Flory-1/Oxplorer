@@ -6,6 +6,8 @@ use ox_core::i18n::t as tr;
 use ox_core::settings::{Backdrop, Settings, StartPage, Theme, ViewMode};
 
 mod commands;
+mod fulltext;
+mod index_service;
 mod keys;
 mod search;
 mod theme;
@@ -104,6 +106,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                             search(ui, &mut app.settings);
                             history_section(ui, app);
                             index_section(ui, app);
+                            fulltext::fulltext_section(ui, app);
                         }
                         Section::Shortcuts => shortcuts(ui, app),
                         Section::About => about(ui),
@@ -270,6 +273,12 @@ fn appearance(ui: &mut Ui, app: &mut OxApp) {
         tr("Thumbnails"),
         tr("Show previews of pictures and videos in the grid view."),
     );
+    toggle(
+        ui,
+        &mut a.remote_thumbnails,
+        tr("Thumbnails in remote folders"),
+        tr("Download pictures up to 8 MB from servers in the background to show their thumbnails."),
+    );
     if ox_core::shell::supported() {
         row(
             ui,
@@ -342,6 +351,12 @@ fn browsing(ui: &mut Ui, s: &mut Settings) {
         &mut b.delete_to_trash,
         tr("Delete to Recycle Bin"),
         tr("Shift+Delete always deletes permanently."),
+    );
+    toggle(
+        ui,
+        &mut b.keep_undo_history,
+        tr("Keep undo history after restart"),
+        tr("Ctrl+Z can still undo the last 100 operations of the last 30 days after Oxplorer was closed."),
     );
     toggle(
         ui,
@@ -533,6 +548,12 @@ fn preview(ui: &mut Ui, s: &mut Settings) {
             tr("Show Word, Excel, PowerPoint, Outlook and other files with the preview handlers Windows uses in Explorer (the Document tab)."),
         );
     }
+    toggle(
+        ui,
+        &mut p.reencode_rotated_jpegs,
+        tr("Re-encode JPEGs instead (for programs that ignore the orientation)"),
+        tr("Rotating and flipping a JPEG only changes its EXIF orientation: lossless, and every viewer that honours the tag shows it turned. On: the picture is turned and saved again at quality 95."),
+    );
 }
 
 /// Editors offered on the Developer page: name and command line.

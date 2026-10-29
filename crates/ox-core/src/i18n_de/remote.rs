@@ -23,15 +23,12 @@ pub const TABLE: &[(&str, &str)] = &[
     ("The saved password was removed.", "Das gespeicherte Passwort wurde entfernt."),
     // In remote folders
     ("This isn't available in remote locations.", "Das ist an Remotespeicherorten nicht verfügbar."),
-    ("Opened a downloaded copy: changes to it aren't uploaded to the server.", "Eine heruntergeladene Kopie wurde geöffnet: Änderungen daran werden nicht auf den Server hochgeladen."),
-    ("Copying from one server to another isn't supported: download the items first.", "Kopieren von einem Server auf einen anderen wird nicht unterstützt: Laden Sie die Elemente zuerst herunter."),
     ("This file is too large to preview from the server.", "Diese Datei ist zu groß für eine Vorschau vom Server."),
     ("Downloading the preview…", "Vorschau wird heruntergeladen …"),
     ("📤 Download to", "📤 Herunterladen nach"),
     ("📁 New folder", "📁 Neuer Ordner"),
     ("⭐ Save as remote location", "⭐ Als Remotespeicherort speichern"),
     ("✖ Disconnect", "✖ Trennen"),
-    (" · server transfer (no resume or verify)", " · Serverübertragung (ohne Fortsetzen oder Prüfen)"),
     // Sidebar
     ("Remote locations", "Remotespeicherorte"),
     ("✏ Edit…", "✏ Bearbeiten …"),

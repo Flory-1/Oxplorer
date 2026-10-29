@@ -12,7 +12,9 @@ use crate::tabs::Location;
 
 mod cleanup;
 mod commands;
+mod compare_files;
 mod disk_usage;
+mod mirror;
 mod pictures;
 mod player;
 mod tabs;
@@ -562,7 +564,9 @@ fn entries(app: &OxApp) -> Vec<Entry> {
     cleanup::entries(app, &mut v);
     commands::entries(app, &mut v);
     disk_usage::entries(app, &mut v);
+    mirror::entries(app, &mut v);
     pictures::entries(app, &mut v);
+    compare_files::entries(app, &mut v);
     player::entries(app, &mut v);
 
     tabs::entries(app, &mut v);

@@ -226,6 +226,7 @@ pub(super) fn index_section(ui: &mut Ui, app: &mut OxApp) {
             }),
         );
     });
+    super::index_service::section(ui, app);
 }
 
 /// Remembering searches for the suggestions under the search box.

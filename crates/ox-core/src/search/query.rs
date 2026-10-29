@@ -67,6 +67,8 @@ pub struct Query {
     tagged: Option<Arc<Tagged>>,
     /// `archives:yes`: the walk also matches the items inside archives.
     in_archives: bool,
+    /// The text index that narrows `content:` down, if there is one.
+    text_index: super::text_index::TextIndex,
 }
 
 /// The items carrying one of the `tag:` colours, from the tag store.
@@ -360,9 +362,33 @@ impl Query {
 
     /// Does the file contain the `content:` text? (`true` if there is none.)
     pub fn matches_content(&self, path: &Path) -> bool {
+        self.content_with(path, None)
+    }
+
+    /// [`Self::matches_content`] with the file's size and date if known.
+    fn content_with(&self, path: &Path, meta: Option<(u64, Option<SystemTime>)>) -> bool {
         match &self.content {
-            Some(c) => file_contains(path, &c.regex),
+            Some(c) => self
+                .text_index
+                .check(path, meta, &c.regex)
+                .unwrap_or_else(|| file_contains(path, &c.regex)),
             None => true,
+        }
+    }
+
+    /// Let `content:` use the text index (looked up when the search starts).
+    pub fn use_text_index(&mut self, index: Arc<crate::fulltext::FullTextIndex>) {
+        if self.content.is_some() {
+            self.text_index.set(index);
+        }
+    }
+
+    /// Look the `content:` text up in the text index for the folders
+    /// searched; whether the index is used.
+    pub(super) fn resolve_text_index(&mut self, roots: &[PathBuf]) -> bool {
+        match &self.content {
+            Some(c) => self.text_index.resolve(&c.text, self.case_sensitive, roots),
+            None => false,
         }
     }
 
@@ -383,8 +409,15 @@ impl Query {
                 return false;
             }
         }
-        if self.content.is_some() && (is_dir || !self.matches_content(path)) {
-            return false;
+        if self.content.is_some() {
+            if is_dir {
+                return false;
+            }
+            let known = self.text_index.is_used().then(&meta).flatten();
+            let known = known.map(|m| (m.len(), m.modified().ok()));
+            if !self.content_with(path, known) {
+                return false;
+            }
         }
         true
     }

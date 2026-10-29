@@ -65,6 +65,8 @@ pub struct Appearance {
     pub system_icons: bool,
     /// Pictures and videos show a preview in the grid view.
     pub thumbnails: bool,
+    /// Pictures in remote folders are downloaded (up to 8 MB) for thumbnails.
+    pub remote_thumbnails: bool,
     /// Icon size of the grid view in points (Ctrl+mouse wheel, see `grid_zoom`).
     pub grid_size: u32,
     /// Mica or Acrylic behind the sidebar and header (Windows 11).
@@ -87,6 +89,7 @@ impl Default for Appearance {
             compact_rows: false,
             system_icons: true,
             thumbnails: true,
+            remote_thumbnails: true,
             grid_size: crate::grid_zoom::DEFAULT,
             backdrop: Backdrop::Off,
             tabs_in_title_bar: true,
@@ -113,6 +116,8 @@ pub struct Browsing {
     pub confirm_delete: bool,
     /// Delete moves items to the Recycle Bin (Shift+Delete always deletes permanently).
     pub delete_to_trash: bool,
+    /// Keep what can be undone across restarts (see `undo::Store`).
+    pub keep_undo_history: bool,
     /// `chrono` format string for dates.
     pub date_format: String,
     pub show_status_bar: bool,
@@ -145,6 +150,7 @@ impl Default for Browsing {
             single_click_open: false,
             confirm_delete: true,
             delete_to_trash: true,
+            keep_undo_history: true,
             date_format: "%d.%m.%Y %H:%M".into(),
             show_status_bar: true,
             show_preview: false,
@@ -202,6 +208,8 @@ pub struct Transfer {
     pub ask_on_error: bool,
     /// What happens when the last transfer is done.
     pub when_done: crate::transfer::when_done::WhenDone,
+    /// A Windows notification when transfers are done while Oxplorer is in the background.
+    pub notify_done: bool,
     /// Copy permissions (ACLs) along with the files.
     pub keep_permissions: bool,
     /// Copy alternate data streams (the internet mark is always kept).
@@ -227,6 +235,7 @@ impl Default for Transfer {
             drag_moves_on_same_drive: true,
             ask_on_error: true,
             when_done: Default::default(),
+            notify_done: true,
             keep_permissions: cfg.keep_permissions,
             keep_streams: cfg.keep_streams,
             keep_folder_dates: cfg.keep_folder_dates,
@@ -274,10 +283,16 @@ pub struct Search {
     pub index_refresh_minutes: u32,
     /// Apply file changes to the index as they happen.
     pub index_live: bool,
+    /// Read NTFS drives through the Oxplorer index service (Windows; it must
+    /// be installed by the installer). Off by default: the service shows the
+    /// names of all files on the drives.
+    pub index_service: bool,
     /// Show results while typing (needs the index).
     pub search_as_you_type: bool,
     /// Remember the searches that were run and suggest them again.
     pub remember_searches: bool,
+    /// The text index of documents for `content:` searches.
+    pub fulltext: crate::fulltext::FullTextSettings,
 }
 
 impl Search {
@@ -340,8 +355,10 @@ impl Default for Search {
             .to_vec(),
             index_refresh_minutes: 30,
             index_live: true,
+            index_service: false,
             search_as_you_type: true,
             remember_searches: true,
+            fulltext: Default::default(),
         }
     }
 }
@@ -383,6 +400,9 @@ pub struct Preview {
     /// Office documents, mails and other files Windows has a preview
     /// handler for, shown by that handler (the Document tab).
     pub documents: bool,
+    /// Rotating and flipping JPEGs re-encodes them upright, instead of only
+    /// changing their EXIF orientation.
+    pub reencode_rotated_jpegs: bool,
 }
 
 impl Default for Preview {
@@ -391,6 +411,7 @@ impl Default for Preview {
             as_window: false,
             stop_player_on_select: false,
             documents: true,
+            reencode_rotated_jpegs: false,
         }
     }
 }

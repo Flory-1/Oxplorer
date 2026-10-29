@@ -113,6 +113,8 @@ pub enum Action {
     MoveToBin(Vec<PathBuf>),
     /// Compare folders (the split view's panes).
     Compare(super::CompareAction),
+    /// Mirror / sync a folder to another.
+    Mirror(super::mirror::MirrorAction),
     /// Find duplicates / empty folders: delete the ticked items, show one.
     Cleanup(super::CleanupAction),
     /// Picture tools: rotate, flip, convert and resize pictures.
@@ -137,6 +139,8 @@ pub enum Action {
     Player(super::PlayerAction),
     /// Remote locations: connect, open, add/edit/remove places.
     Remote(super::RemoteAction),
+    /// Compare two text files (old, new) in a window.
+    CompareTextFiles(PathBuf, PathBuf),
 }
 
 pub enum TabAction {

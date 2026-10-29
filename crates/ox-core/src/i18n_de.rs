@@ -753,7 +753,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("by size (kb, mb, gb)", "nach Größe (kb, mb, gb)"),
     ("changed today (also week, month, year)", "heute geändert (auch week, month, year)"),
     ("changed in the last 7 days (m minutes, h, d, w, y)", "in den letzten 7 Tagen geändert (m Minuten, h, d, w, y)"),
-    ("text inside files (slower, can't use the index)", "Text in Dateien (langsamer, ohne Index)"),
+    ("text inside files (fast in the folders of the text index)", "Text in Dateien (schnell in den Ordnern des Textindex)"),
     ("Examples", "Beispiele"),
     ("big pictures", "große Bilder"),
     ("Word files from the last week, without lock files", "Word-Dateien der letzten Woche, ohne Sperrdateien"),
@@ -887,23 +887,31 @@ mod commands;
 mod data_view;
 mod disk_usage;
 mod flat_links;
+mod fulltext;
 mod git_ops;
+mod help_more;
 mod help_preview;
 mod help_search;
 mod help_tools;
 mod help_views;
 mod index_live;
+mod index_service;
 mod libraries;
+mod mirror_undo;
+mod notify_keys_stash;
 mod operations;
 mod picture_tools;
 mod pictures;
 mod player_more;
 mod preview_docs;
+mod previews_more;
 mod remote;
+mod remote_more;
 mod search_history;
 mod search_tags;
 mod tabs;
 mod views;
+mod views_more;
 mod wsl;
 mod zoom_select;
 
@@ -936,5 +944,13 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(commands::TABLE)
         .chain(git_ops::TABLE)
         .chain(remote::TABLE)
+        .chain(remote_more::TABLE)
+        .chain(help_more::TABLE)
         .chain(help_tools::TABLE)
+        .chain(mirror_undo::TABLE)
+        .chain(views_more::TABLE)
+        .chain(previews_more::TABLE)
+        .chain(notify_keys_stash::TABLE)
+        .chain(fulltext::TABLE)
+        .chain(index_service::TABLE)
 }

@@ -37,11 +37,13 @@ impl WhenDone {
 pub const SLEEP_DELAY: Duration = Duration::from_secs(30);
 
 /// A batch of transfers that just finished.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BatchDone {
     pub jobs: usize,
     pub cancelled: usize,
     pub errors: usize,
+    /// The jobs of the batch, in order (some may have been dismissed).
+    pub ids: Vec<u64>,
 }
 
 impl BatchDone {
@@ -81,11 +83,14 @@ impl BatchWatch {
         }
         let mut done = BatchDone::default();
         // A job that vanished from the list was dismissed after it finished.
-        for (cancelled, errors) in self.batch.drain().map(|(_, r)| r.unwrap_or_default()) {
+        for (id, result) in self.batch.drain() {
+            let (cancelled, errors) = result.unwrap_or_default();
             done.jobs += 1;
             done.cancelled += usize::from(cancelled);
             done.errors += errors;
+            done.ids.push(id);
         }
+        done.ids.sort_unstable();
         Some(done)
     }
 }
@@ -135,7 +140,8 @@ mod tests {
             BatchDone {
                 jobs: 2,
                 cancelled: 0,
-                errors: 3
+                errors: 3,
+                ids: vec![1, 2],
             }
         );
         assert!(done.may_sleep());

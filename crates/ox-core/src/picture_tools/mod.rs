@@ -11,16 +11,23 @@
 //!   into its place, with the original's created date. Undo
 //!   ([`crate::undo::Op::Replaced`]) brings the original back.
 //!
-//! Pictures are decoded upright: the EXIF orientation is applied to the
-//! pixels and reset to "normal" in the EXIF data that is written back. So a
-//! rotated JPEG is re-encoded (at quality [`ROTATE_QUALITY`]) and keeps its
-//! EXIF data (date taken, camera, …) and colour profile; the result looks
-//! right in every viewer, also in ones that ignore the orientation tag.
-//! PNG, WebP, BMP, GIF and TIFF are re-encoded losslessly (WebP always
-//! lossless: the encoder can't do lossy). GIFs give their first frame;
-//! animated pictures aren't rotated in place.
+//! Rotating or flipping a JPEG is lossless: only its EXIF orientation is
+//! rewritten ([`exif_turn`]); the pixels and every other byte stay as they
+//! are, and viewers (Oxplorer's preview and thumbnails too) turn the
+//! picture as the tag says. With [`JpegTurn::Reencode`], and when the EXIF
+//! data is too odd to rewrite, the JPEG is re-encoded instead.
+//!
+//! Re-encoding decodes pictures upright: the EXIF orientation is applied to
+//! the pixels and reset to "normal" in the EXIF data that is written back.
+//! So a re-encoded JPEG (at quality [`ROTATE_QUALITY`]) keeps its EXIF data
+//! (date taken, camera, …) and colour profile, and looks right in every
+//! viewer, also in ones that ignore the orientation tag. PNG, WebP, BMP,
+//! GIF and TIFF are re-encoded losslessly (WebP always lossless: the
+//! encoder can't do lossy). GIFs give their first frame; animated pictures
+//! aren't rotated in place.
 
 mod codec;
+mod exif_turn;
 mod job;
 
 use std::path::Path;
@@ -90,6 +97,16 @@ impl Transform {
             Self::FlipVertical => img.flipv(),
         }
     }
+}
+
+/// How rotating and flipping treats JPEGs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JpegTurn {
+    /// Only the EXIF orientation is changed (re-encoded if that can't be
+    /// done).
+    Lossless,
+    /// Re-encoded upright, for programs that ignore the orientation.
+    Reencode,
 }
 
 /// The format converted pictures are saved in.
@@ -233,7 +250,7 @@ impl Default for Convert {
 /// What to do with each picture.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Task {
-    Transform(Transform),
+    Transform(Transform, JpegTurn),
     Convert(Convert),
 }
 
@@ -311,7 +328,13 @@ fn convert(path: &Path, c: &Convert) -> Result<(Vec<u8>, String, String), String
 }
 
 /// The picture at `path`, turned: its bytes in its own format.
-fn transform(path: &Path, tf: Transform) -> Result<Vec<u8>, String> {
+fn transform(path: &Path, tf: Transform, jpeg: JpegTurn) -> Result<Vec<u8>, String> {
+    let is_jpeg = || codec::header(path).is_some_and(|(f, _)| f == ImageFormat::Jpeg);
+    if jpeg == JpegTurn::Lossless && is_jpeg() {
+        if let Some(bytes) = std::fs::read(path).ok().and_then(|b| lossless(&b, tf)) {
+            return Ok(bytes);
+        }
+    }
     let pic = codec::read(path)?;
     if codec::is_animated(path, pic.format) {
         return Err(t("Animated pictures can't be rotated or flipped.").to_owned());
@@ -326,5 +349,18 @@ fn transform(path: &Path, tf: Transform) -> Result<Vec<u8>, String> {
     )
 }
 
+/// The JPEG `bytes` turned by rewriting its EXIF orientation, checked by
+/// reading the orientation back the way the decoder does.
+fn lossless(bytes: &[u8], tf: Transform) -> Option<Vec<u8>> {
+    if !bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return None;
+    }
+    let (out, o) = exif_turn::turn_jpeg(bytes, tf)?;
+    let read = image::metadata::Orientation::from_exif_chunk(exif_turn::exif_chunk(&out)?)?;
+    (u16::from(read.to_exif()) == o).then_some(out)
+}
+
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod turn_tests;

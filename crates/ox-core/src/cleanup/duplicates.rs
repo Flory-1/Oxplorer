@@ -2,13 +2,21 @@
 //! then the same xxh3 hash of all of their contents.
 //!
 //! Comparing in stages means a big file is read in full only when another
-//! file has the same size and the same first and last few KB.
+//! file has the same size and the same first and last few KB. With
+//! [`ScanOptions::byte_compare`], files with the same hash are compared
+//! byte by byte too.
+//!
+//! The groups of files of one size are compared on a few threads (see
+//! [`threads_for`]): one on a hard disk, where reading files side by side
+//! mostly adds seeking, else up to four. A scan has one root, so all of its
+//! files are on one drive (links and mounted folders aren't followed).
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Mutex;
 use std::time::SystemTime;
 
 use xxhash_rust::xxh3::Xxh3;
@@ -165,40 +173,40 @@ pub fn find(root: &Path, opts: ScanOptions, cancel: &AtomicBool, progress: &Prog
     );
     // Same folder order as listed, which reads files near each other together.
     sizes.sort_by(|a, b| a[0].path.cmp(&b[0].path));
-    let mut buf = vec![0u8; CHUNK];
-    for same_size in sizes {
-        let size = same_size[0].size;
-        // Small files are read in full by the first stage already.
-        let whole = size <= 2 * PART;
-        for same_part in split_by(same_size, cancel, &mut report, |p| {
-            partial_hash(p, size, &mut buf, progress)
-        }) {
-            let groups = if whole {
-                vec![same_part]
-            } else {
-                split_by(same_part, cancel, &mut report, |p| {
-                    full_hash(p, &mut buf, cancel, progress)
-                })
+    // Each thread takes the next group of one size.
+    let queue: Vec<Mutex<Option<Vec<Candidate>>>> =
+        sizes.into_iter().map(|s| Mutex::new(Some(s))).collect();
+    let next = AtomicUsize::new(0);
+    let threads = threads_for(root, opts.threads).min(queue.len()).max(1);
+    let work = || {
+        let mut found = Found::default();
+        let mut buf = vec![0u8; CHUNK];
+        while !cancel.load(Ordering::Relaxed) {
+            let Some(slot) = queue.get(next.fetch_add(1, Ordering::Relaxed)) else {
+                break;
             };
-            for mut files in groups {
-                files.sort_by(|a, b| a.path.cmp(&b.path));
-                report.groups.push(DupGroup {
-                    size,
-                    files: files
-                        .into_iter()
-                        .map(|c| DupFile {
-                            path: c.path,
-                            modified: c.modified,
-                        })
-                        .collect(),
-                });
+            if let Some(same_size) = slot.lock().unwrap().take() {
+                compare_same_size(same_size, opts, cancel, progress, &mut buf, &mut found);
             }
         }
-        if cancel.load(Ordering::Relaxed) {
-            report.groups.clear();
-            report.cancelled = true;
-            return report;
-        }
+        found
+    };
+    let parts: Vec<Found> = if threads == 1 {
+        vec![work()]
+    } else {
+        std::thread::scope(|s| {
+            let handles: Vec<_> = (0..threads).map(|_| s.spawn(work)).collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        })
+    };
+    for part in parts {
+        report.groups.extend(part.groups);
+        report.unreadable += part.unreadable;
+    }
+    if cancel.load(Ordering::Relaxed) {
+        report.groups.clear();
+        report.cancelled = true;
+        return report;
     }
     report.groups.sort_by(|a, b| {
         b.wasted()
@@ -221,12 +229,78 @@ fn one_per_file(files: Vec<Candidate>) -> Vec<Candidate> {
         .collect()
 }
 
+/// What one thread found.
+#[derive(Default)]
+struct Found {
+    groups: Vec<DupGroup>,
+    unreadable: u64,
+}
+
+/// How many files are compared at the same time under `root`: `wanted`,
+/// or for 0 one on a hard disk and up to four elsewhere.
+pub fn threads_for(root: &Path, wanted: usize) -> usize {
+    if wanted > 0 {
+        return wanted;
+    }
+    if crate::disk::is_rotational(root) == Some(true) {
+        return 1;
+    }
+    std::thread::available_parallelism()
+        .map_or(2, |n| n.get())
+        .min(4)
+}
+
+/// Find the duplicates among files of one size.
+fn compare_same_size(
+    same_size: Vec<Candidate>,
+    opts: ScanOptions,
+    cancel: &AtomicBool,
+    progress: &Progress,
+    buf: &mut [u8],
+    found: &mut Found,
+) {
+    let size = same_size[0].size;
+    // Small files are read in full by the first stage already.
+    let whole = size <= 2 * PART;
+    let unreadable = &mut found.unreadable;
+    for same_part in split_by(same_size, cancel, unreadable, |p| {
+        partial_hash(p, size, buf, progress)
+    }) {
+        let mut groups = if whole {
+            vec![same_part]
+        } else {
+            split_by(same_part, cancel, unreadable, |p| {
+                full_hash(p, buf, cancel, progress)
+            })
+        };
+        if opts.byte_compare {
+            groups = groups
+                .into_iter()
+                .flat_map(|g| split_by_bytes(g, cancel, progress, unreadable))
+                .collect();
+        }
+        for mut files in groups {
+            files.sort_by(|a, b| a.path.cmp(&b.path));
+            found.groups.push(DupGroup {
+                size,
+                files: files
+                    .into_iter()
+                    .map(|c| DupFile {
+                        path: c.path,
+                        modified: c.modified,
+                    })
+                    .collect(),
+            });
+        }
+    }
+}
+
 /// Group files by `key`; groups of one are dropped, and so are files that
 /// can't be read (counted in `unreadable`).
 fn split_by(
     files: Vec<Candidate>,
     cancel: &AtomicBool,
-    report: &mut Report,
+    unreadable: &mut u64,
     mut key: impl FnMut(&Path) -> io::Result<u128>,
 ) -> Vec<Vec<Candidate>> {
     let mut groups: HashMap<u128, Vec<Candidate>> = HashMap::new();
@@ -236,10 +310,72 @@ fn split_by(
         }
         match key(&f.path) {
             Ok(k) => groups.entry(k).or_default().push(f),
-            Err(_) => report.unreadable += 1,
+            Err(_) => *unreadable += 1,
         }
     }
     groups.into_values().filter(|g| g.len() > 1).collect()
+}
+
+/// Split files with the same hash into those with really the same bytes:
+/// each file is compared with the first file of each set found so far.
+fn split_by_bytes(
+    files: Vec<Candidate>,
+    cancel: &AtomicBool,
+    progress: &Progress,
+    unreadable: &mut u64,
+) -> Vec<Vec<Candidate>> {
+    let mut sets: Vec<Vec<Candidate>> = Vec::new();
+    'files: for f in files {
+        for set in &mut sets {
+            if cancel.load(Ordering::Relaxed) {
+                return Vec::new();
+            }
+            match same_bytes(&set[0].path, &f.path, cancel, progress) {
+                Ok(true) => {
+                    set.push(f);
+                    continue 'files;
+                }
+                Ok(false) => {}
+                Err(_) => {
+                    *unreadable += 1;
+                    continue 'files;
+                }
+            }
+        }
+        sets.push(vec![f]);
+    }
+    sets.retain(|s| s.len() > 1);
+    sets
+}
+
+/// Have the two files the same bytes? Reads both side by side in chunks
+/// and stops at the first difference.
+pub fn same_bytes(
+    a: &Path,
+    b: &Path,
+    cancel: &AtomicBool,
+    progress: &Progress,
+) -> io::Result<bool> {
+    let (mut fa, mut fb) = (File::open(a)?, File::open(b)?);
+    if fa.metadata()?.len() != fb.metadata()?.len() {
+        return Ok(false);
+    }
+    let mut ba = vec![0u8; CHUNK];
+    let mut bb = vec![0u8; CHUNK];
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(io::Error::from(io::ErrorKind::Interrupted));
+        }
+        let na = read_up_to(&mut fa, &mut ba)?;
+        let nb = read_up_to(&mut fb, &mut bb)?;
+        Progress::add(&progress.hashed, (na + nb) as u64);
+        if na != nb || ba[..na] != bb[..nb] {
+            return Ok(false);
+        }
+        if na == 0 {
+            return Ok(true);
+        }
+    }
 }
 
 /// Hash of the first and the last `PART` bytes (all of a small file).
@@ -349,4 +485,49 @@ fn list(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn files_with_the_same_hash_but_other_bytes_are_split() {
+        // xxh3 collisions can't be made: hand the byte compare a "group of
+        // the same hash" whose files differ.
+        let dir = tempfile::tempdir().unwrap();
+        let file = |name: &str, body: &[u8]| {
+            let path = dir.path().join(name);
+            fs::write(&path, body).unwrap();
+            Candidate {
+                path,
+                size: body.len() as u64,
+                modified: None,
+            }
+        };
+        let group = vec![
+            file("a", b"same bytes"),
+            file("x", b"other byte"),
+            file("b", b"same bytes"),
+            file("y", b"other byte"),
+            file("z", b"third one!"),
+        ];
+        let mut unreadable = 0;
+        let sets = split_by_bytes(
+            group,
+            &AtomicBool::new(false),
+            &Progress::default(),
+            &mut unreadable,
+        );
+        let names: Vec<Vec<String>> = sets
+            .iter()
+            .map(|s| {
+                s.iter()
+                    .map(|c| c.path.file_name().unwrap().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .collect();
+        assert_eq!(names, [vec!["a", "b"], vec!["x", "y"]]);
+        assert_eq!(unreadable, 0);
+    }
 }

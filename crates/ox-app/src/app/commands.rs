@@ -90,10 +90,7 @@ fn same_modifiers(a: Modifiers, b: Modifiers) -> bool {
 
 /// The parsed shortcut of `c`, if it has a valid one.
 pub fn shortcut_of(c: &CustomCommand) -> Option<KeyboardShortcut> {
-    match c.shortcut.trim() {
-        "" => None,
-        s => crate::shortcuts::parse(s),
-    }
+    crate::shortcuts::parse_custom(&c.shortcut)
 }
 
 impl OxApp {
@@ -209,19 +206,7 @@ impl OxApp {
     /// over them (the settings warn about it), and the modifiers have to
     /// match exactly, so Ctrl+Shift+X doesn't also count as Ctrl+X.
     pub(super) fn command_shortcuts(&mut self, ctx: &Context) {
-        let keys: Vec<(usize, KeyboardShortcut)> = self
-            .settings
-            .commands
-            .0
-            .iter()
-            .enumerate()
-            .filter_map(|(i, c)| shortcut_of(c).map(|k| (i, k)))
-            .filter(|(_, k)| {
-                !crate::shortcuts::COMMANDS
-                    .iter()
-                    .any(|c| self.keymap.keys(c.cmd).contains(k))
-            })
-            .collect();
+        let keys = self.keymap.custom_keys();
         if keys.is_empty() {
             return;
         }
@@ -248,7 +233,9 @@ impl OxApp {
         let Some(index) = hit else {
             return;
         };
-        let command = &self.settings.commands.0[index];
+        let Some(command) = self.settings.commands.0.get(index) else {
+            return;
+        };
         let folder = self.current_folder();
         let target = self.command_selection();
         let action = match &target {

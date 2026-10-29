@@ -11,7 +11,7 @@ impl Tabs {
                 .map(|t| SessionTab {
                     location: match t.location() {
                         // Search results aren't worth restoring; reopen the folder instead.
-                        Location::Search { root: Some(r), .. } => Location::Folder(r.clone()),
+                        Location::Search { root: Some(r), .. } => Location::search_root(r.clone()),
                         Location::Search { root: None, .. } => Location::Home,
                         other => other.clone(),
                     },

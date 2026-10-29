@@ -368,17 +368,11 @@ impl Walker<'_> {
     }
 
     fn files(&mut self, a: &Side, b: &Side) -> Result<Status, Cancelled> {
-        let same_date = match (a.modified, b.modified) {
-            (Some(x), Some(y)) => {
-                let d = x.duration_since(y).or_else(|_| y.duration_since(x));
-                d.is_ok_and(|d| d <= TOLERANCE)
-            }
-            _ => true,
-        };
+        let same_date = same_time(a.modified, b.modified);
         let same = if a.size != b.size {
             false
         } else if self.options.content {
-            match self.same_contents(&a.path, &b.path) {
+            match same_contents(&a.path, &b.path, self.cancel, &mut self.buf) {
                 Ok(same) => same,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => return Err(Cancelled),
                 Err(_) => {
@@ -399,24 +393,40 @@ impl Walker<'_> {
             Status::NewerRight
         })
     }
+}
 
-    /// Byte-by-byte comparison; stops at the first difference.
-    /// A cancel shows up as `ErrorKind::Interrupted`.
-    fn same_contents(&mut self, a: &Path, b: &Path) -> io::Result<bool> {
-        let (mut fa, mut fb) = (File::open(a)?, File::open(b)?);
-        let (ba, bb) = (&mut self.buf.0, &mut self.buf.1);
-        loop {
-            if self.cancel.load(Ordering::Relaxed) {
-                return Err(io::ErrorKind::Interrupted.into());
-            }
-            let n = read_full(&mut fa, ba)?;
-            let m = read_full(&mut fb, bb)?;
-            if n != m || ba[..n] != bb[..m] {
-                return Ok(false);
-            }
-            if n == 0 {
-                return Ok(true);
-            }
+/// Dates that count as the same (missing dates too): within [`TOLERANCE`].
+pub(crate) fn same_time(a: Option<SystemTime>, b: Option<SystemTime>) -> bool {
+    match (a, b) {
+        (Some(x), Some(y)) => {
+            let d = x.duration_since(y).or_else(|_| y.duration_since(x));
+            d.is_ok_and(|d| d <= TOLERANCE)
+        }
+        _ => true,
+    }
+}
+
+/// Byte-by-byte comparison with two buffers of the same size; stops at the
+/// first difference. A cancel shows up as `ErrorKind::Interrupted`.
+pub(crate) fn same_contents(
+    a: &Path,
+    b: &Path,
+    cancel: &AtomicBool,
+    buf: &mut (Vec<u8>, Vec<u8>),
+) -> io::Result<bool> {
+    let (mut fa, mut fb) = (File::open(a)?, File::open(b)?);
+    let (ba, bb) = (&mut buf.0, &mut buf.1);
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(io::ErrorKind::Interrupted.into());
+        }
+        let n = read_full(&mut fa, ba)?;
+        let m = read_full(&mut fb, bb)?;
+        if n != m || ba[..n] != bb[..m] {
+            return Ok(false);
+        }
+        if n == 0 {
+            return Ok(true);
         }
     }
 }

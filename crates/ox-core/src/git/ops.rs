@@ -7,7 +7,10 @@
 
 use std::io;
 use std::path::Path;
+use std::process::Output;
+use std::sync::atomic::AtomicBool;
 
+use super::progress::{parse_progress, Progress};
 use super::{cmd, Branch, Head};
 
 /// Run `git` with `args` (after `--literal-pathspecs`) in the repository
@@ -15,7 +18,36 @@ use super::{cmd, Branch, Head};
 fn run_op(root: &Path, args: &[&str]) -> io::Result<String> {
     let mut cmd = cmd::command(root);
     cmd.arg("--literal-pathspecs").args(args);
-    let out = cmd::output(&mut cmd, cmd::WRITE_TIMEOUT)?;
+    printed(cmd::output(&mut cmd, cmd::WRITE_TIMEOUT)?)
+}
+
+/// [`run_op`] without `--literal-pathspecs`, for commands that take no
+/// paths: `git stash` cleans up untracked files with the pathspec `:/`,
+/// which taken literally matches nothing.
+pub(super) fn run_stash(root: &Path, args: &[&str]) -> io::Result<String> {
+    let mut cmd = cmd::command(root);
+    cmd.args(args);
+    printed(cmd::output(&mut cmd, cmd::WRITE_TIMEOUT)?)
+}
+
+/// [`run_op`] for a command that takes `--progress`: each progress line
+/// goes to `on_progress` as git writes it; setting `cancel` stops git.
+fn run_watched(
+    root: &Path,
+    args: &[&str],
+    cancel: &AtomicBool,
+    on_progress: &mut dyn FnMut(Progress),
+) -> io::Result<String> {
+    let mut cmd = cmd::command(root);
+    cmd.arg("--literal-pathspecs").args(args);
+    let out = cmd::output_watched(&mut cmd, cmd::WRITE_TIMEOUT, cancel, &mut |line| {
+        on_progress(parse_progress(line))
+    })?;
+    printed(out)
+}
+
+/// What git printed, or that as the error when it failed.
+fn printed(out: Output) -> io::Result<String> {
     let text = [&out.stdout, &out.stderr]
         .iter()
         .map(|b| String::from_utf8_lossy(b).trim().to_owned())
@@ -130,10 +162,7 @@ pub fn switch(root: &Path, branch: &Branch, all: &[Branch]) -> io::Result<String
 /// then switch. The stash stays for `git stash pop` later.
 pub fn stash_and_switch(root: &Path, branch: &Branch, all: &[Branch]) -> io::Result<String> {
     let message = format!("Oxplorer: before switching to {}", branch.name);
-    let stashed = run_op(
-        root,
-        &["stash", "push", "--include-untracked", "-m", &message],
-    )?;
+    let stashed = super::stash::stash_push(root, &message)?;
     let switched = switch(root, branch, all)?;
     Ok(format!("{stashed}\n{switched}").trim().to_owned())
 }
@@ -149,20 +178,36 @@ pub fn would_overwrite(error: &str) -> bool {
     error.contains("would be overwritten") || error.contains("überschrieben")
 }
 
-pub fn fetch(root: &Path) -> io::Result<String> {
-    run_op(root, &["fetch"])
+/// `git fetch`. Fetch, pull and push hand their progress to `on_progress`
+/// and stop when `cancel` is set.
+pub fn fetch(
+    root: &Path,
+    cancel: &AtomicBool,
+    on_progress: &mut dyn FnMut(Progress),
+) -> io::Result<String> {
+    run_watched(root, &["fetch", "--progress"], cancel, on_progress)
 }
 
 /// `git pull` as configured (merge or rebase), without an editor.
-pub fn pull(root: &Path) -> io::Result<String> {
-    run_op(root, &["pull", "--no-edit"])
+pub fn pull(
+    root: &Path,
+    cancel: &AtomicBool,
+    on_progress: &mut dyn FnMut(Progress),
+) -> io::Result<String> {
+    let args = ["pull", "--progress", "--no-edit"];
+    run_watched(root, &args, cancel, on_progress)
 }
 
 /// `git push`; a branch without an upstream is pushed to the default
 /// remote (`origin`, or the only one) and tracks it from then on.
-pub fn push(root: &Path, head: &Head) -> io::Result<String> {
+pub fn push(
+    root: &Path,
+    head: &Head,
+    cancel: &AtomicBool,
+    on_progress: &mut dyn FnMut(Progress),
+) -> io::Result<String> {
     if head.upstream.is_some() || head.branch.is_none() {
-        return run_op(root, &["push"]);
+        return run_watched(root, &["push", "--progress"], cancel, on_progress);
     }
     let remotes = super::run(root, &["remote"])?;
     let remotes = String::from_utf8_lossy(&remotes);
@@ -172,7 +217,10 @@ pub fn push(root: &Path, head: &Head) -> io::Result<String> {
         .find(|r| *r == "origin")
         .or_else(|| remotes.lines().map(str::trim).find(|r| !r.is_empty()));
     match remote {
-        Some(remote) => run_op(root, &["push", "--set-upstream", remote, "HEAD"]),
+        Some(remote) => {
+            let args = ["push", "--progress", "--set-upstream", remote, "HEAD"];
+            run_watched(root, &args, cancel, on_progress)
+        }
         None => Err(io::Error::other(crate::i18n::t(
             "This repository has no remote to push to.",
         ))),
@@ -182,7 +230,9 @@ pub fn push(root: &Path, head: &Head) -> io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::super::diff::{self, DiffOf, LineKind};
-    use super::super::{branches, changes, Group};
+    use super::super::{
+        branches, changes, stash_apply, stash_drop, stash_list, stash_pop, stash_push, Group,
+    };
     use super::*;
     use std::process::Command;
 
@@ -299,7 +349,41 @@ mod tests {
         assert_eq!(changes(root).unwrap().head.branch.as_deref(), Some("main"));
         assert_eq!(read("a.txt"), "one\ntwo\n");
 
-        // A clone: the remote branch "origin/feature" becomes a local
+        // Stashes: the one made for the switch, one with a message; apply,
+        // pop and drop them.
+        let list = stash_list(root).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].branch.as_deref(), Some("feature"));
+        assert_eq!(list[0].message, "Oxplorer: before switching to main");
+        write("a.txt", "mine\n");
+        write("new.txt", "untracked too");
+        stash_push(root, " mine ").unwrap();
+        assert_eq!(read("a.txt"), "one\ntwo\n");
+        assert!(!root.join("new.txt").exists());
+        let list = stash_list(root).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!((list[0].index, list[0].message.as_str()), (0, "mine"));
+        assert_eq!(list[0].branch.as_deref(), Some("main"));
+        assert_eq!(list[1].index, 1);
+        assert!(list[0].time > 0);
+        stash_apply(root, &list[0]).unwrap();
+        assert_eq!(read("a.txt"), "mine\n");
+        assert_eq!(stash_list(root).unwrap().len(), 2, "apply keeps it");
+        discard(root, &["a.txt"]).unwrap();
+        std::fs::remove_file(root.join("new.txt")).unwrap();
+        stash_pop(root, &list[0]).unwrap();
+        assert_eq!(read("a.txt"), "mine\n");
+        let after = stash_list(root).unwrap();
+        assert_eq!(after.len(), 1, "pop removes it");
+        // `list[0]` is gone: stash@{0} is another one now.
+        let err = stash_drop(root, &list[0]).unwrap_err().to_string();
+        assert!(err.contains("changed"), "{err}");
+        stash_drop(root, &after[0]).unwrap();
+        assert!(stash_list(root).unwrap().is_empty());
+        discard(root, &["a.txt"]).unwrap();
+        std::fs::remove_file(root.join("new.txt")).unwrap();
+
+        // A clone:the remote branch "origin/feature" becomes a local
         // branch tracking it, and is ahead of nothing.
         let clone = &tmp.path().join("clone");
         assert!(git(
@@ -319,6 +403,17 @@ mod tests {
         assert!(git(clone, &["config", "user.email", "ada@example.com"]));
         assert!(git(clone, &["config", "commit.gpgsign", "false"]));
         commit(clone, "Add b", "", false).unwrap();
-        assert_eq!(changes(clone).unwrap().head.ahead, 1);
+        let head = changes(clone).unwrap().head;
+        assert_eq!(head.ahead, 1);
+
+        // Push and fetch with progress; a cancelled fetch stops.
+        let no = AtomicBool::new(false);
+        let mut seen = Vec::new();
+        push(clone, &head, &no, &mut |p| seen.push(p)).unwrap();
+        assert_eq!(changes(clone).unwrap().head.ahead, 0);
+        assert!(seen.iter().all(|p| !p.line.is_empty()));
+        fetch(clone, &no, &mut |_| {}).unwrap();
+        let err = fetch(clone, &AtomicBool::new(true), &mut |_| {}).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::Interrupted);
     }
 }

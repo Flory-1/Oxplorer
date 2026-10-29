@@ -84,6 +84,18 @@ pub fn folder_argument(arg: &str) -> String {
     }
 }
 
+/// Set a string value under `HKCU\Software\Classes\<key>` (creating it).
+#[cfg(windows)]
+pub(crate) fn set_class_value(key: &str, name: &str, value: &str) -> io::Result<()> {
+    imp::set(key, Some(name), value)
+}
+
+/// Delete `HKCU\Software\Classes\<key>` with everything in it.
+#[cfg(windows)]
+pub(crate) fn delete_class_key(key: &str) {
+    let _ = imp::delete_tree(key);
+}
+
 #[cfg(windows)]
 mod imp {
     use super::{open_command, Path, VERB, WIN_E_CLSID};
@@ -114,7 +126,7 @@ mod imp {
 
     /// Set a string value (`None` name = the key's default value), creating
     /// the key if needed.
-    fn set(key: &str, name: Option<&str>, value: &str) -> io::Result<()> {
+    pub(super) fn set(key: &str, name: Option<&str>, value: &str) -> io::Result<()> {
         let path = wide(format!(r"{CLASSES}\{key}"));
         let mut hkey = HKEY::default();
         // SAFETY: buffers outlive the calls; the key is closed below.
@@ -171,7 +183,7 @@ mod imp {
     }
 
     /// Delete `key` with everything in it.
-    fn delete_tree(key: &str) -> io::Result<()> {
+    pub(super) fn delete_tree(key: &str) -> io::Result<()> {
         let path = wide(format!(r"{CLASSES}\{key}"));
         // SAFETY: plain registry call.
         let err = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, PCWSTR(path.as_ptr())) };

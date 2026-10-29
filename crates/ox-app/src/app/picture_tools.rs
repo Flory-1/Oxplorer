@@ -5,7 +5,7 @@
 
 use super::*;
 use ox_core::i18n::count;
-use ox_core::picture_tools::{self as pt, Convert, Job, Task, Transform};
+use ox_core::picture_tools::{self as pt, Convert, Job, JpegTurn, Task, Transform};
 use ox_core::undo::{Kind, Op};
 
 use crate::ui::picture_tools::PictureDialog;
@@ -66,7 +66,12 @@ impl OxApp {
                 } else {
                     Kind::Rotate
                 };
-                self.start_pictures(Task::Transform(tf), paths, kind);
+                let jpeg = if self.settings.preview.reencode_rotated_jpegs {
+                    JpegTurn::Reencode
+                } else {
+                    JpegTurn::Lossless
+                };
+                self.start_pictures(Task::Transform(tf, jpeg), paths, kind);
             }
             PictureAction::Dialog(paths, resize) => {
                 let last = self.pictures.last.clone().unwrap_or_default();

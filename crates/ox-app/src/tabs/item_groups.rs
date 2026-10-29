@@ -16,10 +16,12 @@ impl Tab {
         let view = &mut self.view;
         let tag_of = |e: &FileEntry| tags.map_or_else(Vec::new, |t| t.tags(&e.path).to_vec());
         let tag_label = |c: TagColor| tags.map_or_else(String::new, |t| t.label(c).to_owned());
+        let date_taken = |e: &FileEntry| view.props.date_taken(e);
         let cx = GroupContext {
             today: GroupContext::today(),
             tags: &tag_of,
             tag_label: &tag_label,
+            date_taken: &date_taken,
         };
         if by == GroupBy::Tag && tags.is_none() {
             // Shown ungrouped until the next frame groups them.

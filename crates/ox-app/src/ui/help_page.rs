@@ -113,6 +113,8 @@ const TOPICS: &[Topic] = &[
                  current ones; \"Paste after current transfers\" queues a paste that way. \
                  Settings → Copy engine: what happens when all transfers are done.",
                 "Settings → Copy engine: verify copies, limit the speed, and see the history.",
+                "When transfers are done while Oxplorer is in the background, Windows shows a \
+                 notification; click it to come back. Settings → Copy engine turns it off.",
                 "The clipboard is shared with Windows Explorer in both directions.",
             ]),
         ],
@@ -156,6 +158,9 @@ const TOPICS: &[Topic] = &[
                  Document tab by the same preview handlers Explorer uses.",
                 "CSV files as a table, JSON, XML, YAML and TOML as a tree you can fold, SQLite \
                  databases as tables. The Hex tab shows the bytes of any file.",
+                "These views also work for items inside zip and 7z archives.",
+                "Select two text files → right-click → Compare these two files shows what \
+                 differs between them, in one column or side by side.",
             ]),
         ],
     },
@@ -173,6 +178,8 @@ const TOPICS: &[Topic] = &[
              playing while browsing turns that off.",
             "Right-click pictures → Picture tools to rotate, flip, convert or resize them. \
              Replaced originals go to the Recycle Bin, and Ctrl+Z brings them back.",
+            "Rotating or flipping a JPEG only changes the orientation stored in the photo, so \
+             nothing of the picture is lost.",
         ])],
     },
     Topic {
@@ -203,6 +210,10 @@ const TOPICS: &[Topic] = &[
              show in the transfer panel.",
             "The comparison follows the panes: it's made again when a pane shows another \
              folder or its files change.",
+            "Right-click a folder → Mirror to, or 🔁 Mirror in the compare bar, makes another \
+             folder like this one (Mirror) or only copies what's new or changed (Update). A \
+             preview shows first what will be copied, updated and removed; untick what you \
+             want to keep. Removed items go to the Recycle Bin.",
         ])],
     },
     Topic {
@@ -220,6 +231,9 @@ const TOPICS: &[Topic] = &[
             "The search box remembers your searches. Up and Down choose an earlier search or \
              a completion of what you type (ki → kind:); Enter runs it, Tab puts it in the \
              box. Settings → Search → Remember searches turns the history off.",
+            "Settings → Search → Text index keeps the words of your documents (also PDF, \
+             Word, Excel and PowerPoint), so content: searches in those folders are fast.",
+            "In a library, Enter searches all of the library's folders.",
             "See Search syntax for everything you can type.",
         ])],
     },
@@ -280,6 +294,8 @@ const TOPICS: &[Topic] = &[
              contents and the space they waste. Tick the copies you don't need, or use Select \
              all but the newest, and Delete selected moves them to the Recycle Bin (Ctrl+Z \
              brings them back).",
+            "Compare contents byte by byte reads duplicates again after their checksums \
+             match, to be completely sure.",
             "Clean up → Find empty folders lists the folders with nothing in them, to review \
              and delete the same way.",
         ])],
@@ -303,6 +319,9 @@ const TOPICS: &[Topic] = &[
             "Settings → Custom commands adds your own command lines to the right-click menu \
              and the command palette. {path}, {paths}, {name}, {stem}, {ext}, {parent}, \
              {folder} and {n} are filled in with the selected items.",
+            "Their shortcuts are on Settings → Shortcuts too, next to the built-in ones.",
+            "The Git tab's Branches view lists your stashes to apply, pop or drop. Fetch, pull \
+             and push show their progress and can be cancelled.",
         ])],
     },
     Topic {
@@ -316,6 +335,12 @@ const TOPICS: &[Topic] = &[
              check. If the key changes later, it warns and doesn't connect until you confirm.",
             "Passwords are kept in the Windows Credential Manager only when you tick Remember \
              the password, never in the settings.",
+            "Transfers with servers continue where they stopped after the connection dropped, \
+             or from the transfer panel after a restart. Copying from one server to another \
+             works too.",
+            "A file you open from a server opens as a downloaded copy. When you save it, \
+             Oxplorer offers to upload the changes, and warns first if the server's file \
+             changed in the meantime.",
             "Your WSL Linux distributions are under This PC. Right-click a folder in one → \
              Open in WSL terminal; Copy path as → As Linux path gives its Linux path.",
         ])],
@@ -344,7 +369,8 @@ const TOPICS: &[Topic] = &[
         blocks: &[
             Text(
                 "Ctrl+Z undoes the last file operation, Ctrl+Y (or Ctrl+Shift+Z) redoes it. \
-                 The last 50 operations are remembered until Oxplorer closes.",
+                 The last 100 operations are remembered, also after a restart (Settings → \
+                 Browsing → Keep undo history after restart).",
             ),
             List(&[
                 "Rename and bulk rename: the old names come back.",
@@ -368,8 +394,11 @@ const TOPICS: &[Topic] = &[
             "Each folder remembers its view, sort order, columns and grouping. View → Reset \
              view of this folder forgets it; Use this view for all folders makes it the \
              default. Settings → Browsing turns it off.",
-            "Sort → Group by puts items into groups by type, date modified, size or tag. Click \
-             a group's header to fold it away.",
+            "Click a column header to sort by it, also by dimensions, length, date taken, \
+             authors and file version. Those are read in the background, so items move into \
+             place as their values come in.",
+            "Sort → Group by puts items into groups by type, date modified, month, size or tag. \
+             Click a group's header to fold it away.",
             "In the grid, Ctrl+mouse wheel or the slider in the status bar makes the icons \
              smaller or larger.",
         ])],
@@ -410,8 +439,10 @@ const TOPICS: &[Topic] = &[
              this device or always kept. Right-click → Always keep on this device or Free up \
              space changes it. Online-only files aren't downloaded just for a preview.",
             "The sidebar's Libraries section shows Windows' libraries (all their folders in one \
-             view) and the Gallery: every picture and video of the Pictures library, newest \
-             first.",
+             view, refreshed when files change) and the Gallery: every picture and video of the \
+             Pictures library, newest first and grouped by month.",
+            "In the New link dialog, Browse… picks what the link points to, and the field \
+             completes folders and files as you type.",
         ])],
     },
     Topic {
@@ -460,7 +491,7 @@ const TOPICS: &[Topic] = &[
                 ),
                 (
                     "content:\"TODO\"",
-                    "text inside files (slower, can't use the index)",
+                    "text inside files (fast in the folders of the text index)",
                 ),
                 (
                     "tag:red,blue",
@@ -536,6 +567,12 @@ const TOPICS: &[Topic] = &[
                 "With Live updates on, new, renamed and deleted files show up in the index \
                  within seconds. Run Oxplorer as administrator once to build the index of NTFS \
                  drives from their master file table, which is much faster.",
+            ),
+            Text(
+                "Or install the optional Fast index service (installer, for all users) and turn \
+                 it on in Settings → Search: the master file table is then read without \
+                 administrator rights, and what changed while Oxplorer was closed is caught up \
+                 from the change journal instead of building the index again.",
             ),
         ],
     },

@@ -1,6 +1,6 @@
 //! Header navigation row: back/forward, address bar, breadcrumbs and search box.
 
-mod suggest;
+pub(in crate::ui) mod suggest;
 
 use super::*;
 use crate::app::HistoryAction;
@@ -83,12 +83,16 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) -> Rect 
         ui.set_width(width - 14.0);
         ui.set_height(24.0);
         if app.ui.address_editing {
+            let id = ui.make_persistent_id("address_bar");
+            let dropdown = Dropdown::before(ui, id);
             let edit = egui::TextEdit::singleline(&mut app.ui.address_text)
+                .id(id)
                 .frame(egui::Frame::NONE)
                 .desired_width(f32::INFINITY)
                 .align(Align2::LEFT_CENTER)
-                .font(FontId::proportional(13.5));
-            let resp = ui.add(edit);
+                .font(FontId::proportional(13.5))
+                .event_filter(dropdown.event_filter());
+            let resp = dropdown.add_field(ui, |ui| ui.add(edit));
             if app.ui.focus_address {
                 resp.request_focus();
                 app.ui.focus_address = false;
@@ -101,10 +105,25 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) -> Rect 
                     state.store(ui.ctx(), resp.id);
                 }
             }
+            // Folders and files that complete what's typed (not the path
+            // shown when editing starts).
+            let text = &app.ui.address_text;
+            let shown = location
+                .folder()
+                .is_some_and(|p| p.display().to_string() == *text);
+            let suggestions = if shown || ox_core::remote::url::is_remote_text(text) {
+                Vec::new()
+            } else {
+                suggest::path_suggestions(ui, id, text, location.folder())
+            };
+            if let Some(Picked::Take(s, _)) = dropdown.show(ui, &resp, &resp, text, suggestions) {
+                app.ui.address_text = s.text;
+                suggest::cursor_to_end(ui, id, &app.ui.address_text);
+            }
             if resp.lost_focus() {
                 if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     let text = app.ui.address_text.trim().trim_matches('"').to_owned();
-                    let path = PathBuf::from(expand_env(&text));
+                    let path = PathBuf::from(ox_core::path_complete::expand(&text));
                     if text.is_empty() {
                     } else if ox_core::remote::url::is_remote_text(&text) {
                         let typed = crate::app::RemoteAction::OpenTyped(text);
@@ -191,7 +210,7 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) -> Rect 
                 Location::Search { root, query } => {
                     let place = root
                         .as_deref()
-                        .map(display_name)
+                        .map(|r| app.search_place(r))
                         .unwrap_or_else(|| tr("This PC").into());
                     ui.label(ox_core::trf!(
                         "🔍  Search results for \"{query}\" in {place}",
@@ -213,25 +232,6 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) -> Rect 
         });
     });
     field.response.rect
-}
-
-/// `%USERPROFILE%\Desktop` → `C:\Users\me\Desktop`, and `~` → home on all platforms.
-fn expand_env(text: &str) -> String {
-    let mut out = text.to_owned();
-    if let Some(rest) = out.strip_prefix('~') {
-        out = format!("{}{rest}", ox_core::places::home_dir().display());
-    }
-    while let Some(start) = out.find('%') {
-        let Some(len) = out[start + 1..].find('%') else {
-            break;
-        };
-        let name = &out[start + 1..start + 1 + len];
-        match std::env::var(name) {
-            Ok(v) => out.replace_range(start..start + len + 2, &v),
-            Err(_) => break,
-        }
-    }
-    out
 }
 
 fn breadcrumbs(ui: &mut Ui, path: &Path, actions: &mut Vec<Action>) {
@@ -406,21 +406,24 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
     } else {
         &[]
     };
-    let tab = app.tabs.active_mut();
-    let live_here = live && matches!(tab.location(), Location::Home | Location::Search { .. });
-    let in_search = matches!(tab.location(), Location::Search { .. });
-    let (root, place) = match tab.location() {
+    let search_place = |r: &Path| app.search_place(r);
+    let (root, place) = match app.tabs.active().location() {
         Location::Folder(p) => (Some(p.clone()), display_name(p)),
         Location::Search { root, .. } => (
             root.clone(),
             root.as_deref()
-                .map(display_name)
+                .map(search_place)
                 .unwrap_or(tr("This PC").into()),
         ),
+        // A library searches all its folders.
+        Location::Library { name, file } => (Some(file.clone()), name.clone()),
         Location::RecycleBin => (None, tr("Recycle Bin").into()),
         Location::Remote(a) => (None, a.title()),
         _ => (None, tr("This PC").into()),
     };
+    let tab = app.tabs.active_mut();
+    let live_here = live && matches!(tab.location(), Location::Home | Location::Search { .. });
+    let in_search = matches!(tab.location(), Location::Search { .. });
     // No search in the Recycle Bin or on a server.
     let in_bin = tab.location().is_bin() || tab.location().is_remote();
     let dropdown = Dropdown::before(ui, id);

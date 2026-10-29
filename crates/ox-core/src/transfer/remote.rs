@@ -1,26 +1,40 @@
-//! Downloads and uploads: jobs with one side on a server ([`RemoteSide`]).
+//! Downloads, uploads and copies between servers: jobs with a server side
+//! ([`RemoteSide`]).
 //!
 //! They use the job's counters, pause and cancel, the speed limit, the
-//! conflict decision and the error questions like local jobs, but run a
-//! plan of their own, so the local fast paths stay untouched. What only
-//! makes sense on local disks doesn't apply: `CopyFileExW`, renames within
-//! a volume, the journal (resuming after a crash), verification, and
-//! permissions/streams. Remote paths are carried as their addresses
-//! ([`RemoteAddr::to_path`]).
+//! conflict decision, the error questions and the journal like local jobs,
+//! but run a plan of their own, so the local fast paths stay untouched.
+//! What only makes sense on local disks doesn't apply: `CopyFileExW`,
+//! renames within a volume, permissions/streams. Remote paths are carried
+//! as their addresses ([`RemoteAddr::to_path`]).
+//!
+//! Files are written to `.name.oxpart` and renamed when complete; a
+//! partial one is continued from where it stopped when the connection
+//! dropped (automatic retries, the "Retry" question) and when an
+//! interrupted job is resumed from its journal (see `remote_file.rs`).
+//! Copies between two servers stream through Oxplorer with a small
+//! buffer. Verification compares sizes, and checksums where the server
+//! offers them (see `remote_verify.rs`).
 
 use std::collections::HashMap;
 use std::fmt;
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use super::journal::Stamp;
 use super::throttle::Throttle;
-use super::{ConflictPolicy, EngineConfig, ErrorChoice, Job, JobState, TransferKind};
+use super::{ConflictPolicy, EngineConfig, Job, JobState, TransferKind};
 use crate::fsops;
 use crate::remote::{RemoteAddr, RemoteError, RemoteFs};
+
+#[path = "remote_file.rs"]
+mod file;
+#[path = "remote_verify.rs"]
+mod verify;
 
 /// The server side of a job. Paths of the job on this server are its
 /// addresses; all other paths are local.
@@ -28,11 +42,18 @@ use crate::remote::{RemoteAddr, RemoteError, RemoteFs};
 pub struct RemoteSide {
     pub fs: Arc<dyn RemoteFs>,
     pub server: RemoteAddr,
+    /// The destination server of a copy between servers (it may be the
+    /// same server: a copy within it). The job's sources are on `server`.
+    pub to: Option<Box<RemoteSide>>,
 }
 
 impl fmt::Debug for RemoteSide {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.server.server_url())
+        f.write_str(&self.server.server_url())?;
+        if let Some(to) = &self.to {
+            write!(f, " → {to:?}")?;
+        }
+        Ok(())
     }
 }
 
@@ -41,7 +62,40 @@ impl RemoteSide {
         Self {
             fs,
             server: server.with_path(""),
+            to: None,
         }
+    }
+
+    /// From this server to `dest` (a copy between servers).
+    pub fn to(mut self, dest: RemoteSide) -> Self {
+        self.to = Some(Box::new(RemoteSide { to: None, ..dest }));
+        self
+    }
+
+    /// The server side(s) to continue `req` with (an interrupted download,
+    /// upload or copy between servers, see [`super::journal::Pending`]),
+    /// connected through `connect`. `Ok(None)`: no remote paths.
+    pub fn for_request(
+        req: &super::TransferRequest,
+        connect: &dyn Fn(&RemoteAddr) -> crate::remote::RemoteResult<Arc<dyn RemoteFs>>,
+    ) -> crate::remote::RemoteResult<Option<Self>> {
+        let from = (req.sources.iter().chain(req.pairs.iter().map(|(s, _)| s)))
+            .find_map(|p| RemoteAddr::from_path(p));
+        let dest = RemoteAddr::from_path(&req.destination)
+            .or_else(|| req.pairs.iter().find_map(|(_, d)| RemoteAddr::from_path(d)));
+        let side = |a: &RemoteAddr| connect(a).map(|fs| RemoteSide::new(fs, a));
+        Ok(match (from, dest) {
+            (Some(f), Some(d)) => Some(side(&f)?.to(side(&d)?)),
+            (Some(a), None) | (None, Some(a)) => Some(side(&a)?),
+            (None, None) => None,
+        })
+    }
+
+    /// The servers of the job (their keys, for the queue).
+    pub fn servers(&self) -> Vec<String> {
+        let mut keys = vec![self.server.server_key()];
+        keys.extend(self.to.iter().map(|t| t.server.server_key()));
+        keys
     }
 
     /// The remote path of `p`, if it is on this server.
@@ -212,6 +266,12 @@ struct Task {
     size: u64,
     modified: Option<SystemTime>,
     conflict: bool,
+    /// Resuming from the journal: a partial copy of this very original
+    /// may be continued.
+    resume: bool,
+    /// Resuming: whatever is at the destination was (being) written by
+    /// this job, so it is replaced without asking.
+    replace: bool,
 }
 
 #[derive(Default)]
@@ -322,7 +382,54 @@ impl Planner<'_> {
             size: meta.size,
             modified: meta.modified,
             conflict,
+            resume: false,
+            replace: false,
         });
+    }
+
+    /// Resuming from the journal: drop the files completely transferred
+    /// before (when the original and the copy are unchanged), and let the
+    /// ones cut off be continued (when the original is unchanged).
+    fn apply_resume(&mut self) {
+        let job = self.job;
+        let Some(pending) = job.journal.resume() else {
+            return;
+        };
+        let (mut done_files, mut done_bytes) = (0, 0);
+        let mut files = std::mem::take(&mut self.plan.files);
+        files.retain_mut(|task| {
+            let Some(entry) = pending.file(&task.src) else {
+                return true;
+            };
+            task.dst = entry.dst.clone();
+            let orig = Stamp::new(task.size, task.modified);
+            match entry.done {
+                Some((was, copy)) => {
+                    let now = self.dst_meta(&task.dst);
+                    // Server dates are rounded: a remote copy is checked by size.
+                    let copy_ok = now.is_some_and(|m| {
+                        m.size == copy.size
+                            && (copy.modified.is_none() || Stamp::new(m.size, m.modified) == copy)
+                    });
+                    if was == orig && copy_ok {
+                        done_files += 1;
+                        done_bytes += task.size;
+                        return false;
+                    }
+                    task.conflict = now.is_some();
+                }
+                None => {
+                    task.conflict = false;
+                    task.replace = true;
+                    task.resume = entry.part == Some(orig);
+                }
+            }
+            true
+        });
+        self.plan.files = files;
+        // Counted as done (they are part of the totals).
+        job.done_files.fetch_add(done_files, Ordering::Relaxed);
+        job.done_bytes.fetch_add(done_bytes, Ordering::Relaxed);
     }
 
     /// Decide every conflicting file, like [`super::plan::Plan::apply_policy`].
@@ -418,11 +525,10 @@ fn name_of(p: &Path) -> Option<String> {
 pub(super) fn run(job: &Job, side: &RemoteSide, cfg: &EngineConfig, notify: &dyn Fn()) {
     job.set_state(JobState::Scanning);
     notify();
-    let upload = side.path_of(&job.destination).is_some();
-    let (src, dst) = if upload {
-        (End::Local, End::Remote(side))
-    } else {
-        (End::Remote(side), End::Local)
+    let (src, dst) = match side.to.as_deref() {
+        Some(to) => (End::Remote(side), End::Remote(to)),
+        None if side.path_of(&job.destination).is_some() => (End::Local, End::Remote(side)),
+        None => (End::Remote(side), End::Local),
     };
     let mut planner = Planner {
         job,
@@ -449,12 +555,16 @@ pub(super) fn run(job: &Job, side: &RemoteSide, cfg: &EngineConfig, notify: &dyn
             None => job.push_error(s, "Can't copy or move a drive root."),
         }
     }
+    planner.apply_resume();
     if job.is_cancelled() {
         job.set_state(JobState::Cancelled);
         return;
     }
 
     let mut policy = job.conflict_policy;
+    if let Some(p) = job.journal.decided_policy() {
+        policy = p;
+    }
     if planner.plan.files.iter().any(|f| f.conflict) && policy == ConflictPolicy::Ask {
         *job.conflicts.lock().unwrap() = planner
             .plan
@@ -473,17 +583,23 @@ pub(super) fn run(job: &Job, side: &RemoteSide, cfg: &EngineConfig, notify: &dyn
             }
         }
     }
+    job.journal.record_policy(policy);
     planner.apply_policy(policy);
     let plan = planner.plan;
 
-    let workers = side.fs.parallel().clamp(1, 8).min(plan.files.len().max(1));
+    let parallel = match (src, dst) {
+        (End::Remote(a), End::Remote(b)) => a.fs.parallel().min(b.fs.parallel()),
+        (End::Remote(s), _) | (_, End::Remote(s)) => s.fs.parallel(),
+        _ => 1,
+    };
+    let workers = parallel.clamp(1, 8).min(plan.files.len().max(1));
     job.workers.store(workers as u64, Ordering::Relaxed);
     job.set_state(JobState::Running);
     notify();
     execute(job, &plan, src, dst, cfg, workers);
     // Downloads can be undone like local copies; uploads aren't listed
     // (undo only knows local files).
-    if !upload {
+    if matches!(dst, End::Local) {
         job.created
             .lock()
             .unwrap()
@@ -506,12 +622,13 @@ fn execute(job: &Job, plan: &Plan, src: End<'_>, dst: End<'_>, cfg: &EngineConfi
         }
     }
     let throttle = Throttle::new(cfg.speed_limit);
-    let ctx = Ctx {
+    let ctx = file::Ctx {
         src,
         dst,
         throttle: throttle.as_ref(),
         ask: cfg.ask_on_error,
         keep_dates: cfg.preserve_timestamps,
+        verify: cfg.verify,
     };
     let (tx, rx) = crossbeam_channel::unbounded();
     for task in &plan.files {
@@ -528,7 +645,7 @@ fn execute(job: &Job, plan: &Plan, src: End<'_>, dst: End<'_>, cfg: &EngineConfi
                         break;
                     }
                     job.set_current(&task.src);
-                    while transfer_file(job, task, ctx) {}
+                    file::transfer(job, task, ctx);
                 }
             });
         }
@@ -541,186 +658,10 @@ fn execute(job: &Job, plan: &Plan, src: End<'_>, dst: End<'_>, cfg: &EngineConfi
     }
 }
 
-struct Ctx<'a> {
-    src: End<'a>,
-    dst: End<'a>,
-    throttle: Option<&'a Throttle>,
-    ask: bool,
-    keep_dates: bool,
-}
-
-/// Counts the bytes, applies the speed limit and stops when cancelled.
-struct Meter<'a, T> {
-    inner: T,
-    job: &'a Job,
-    throttle: Option<&'a Throttle>,
-    reported: u64,
-}
-
-impl<T> Meter<'_, T> {
-    fn count(&mut self, n: usize) -> io::Result<()> {
-        self.reported += n as u64;
-        self.job.done_bytes.fetch_add(n as u64, Ordering::Relaxed);
-        if let Some(t) = self.throttle {
-            t.consume(n as u64);
-        }
-        if self.job.checkpoint() {
-            Ok(())
-        } else {
-            // Not `Interrupted`: copy loops retry those.
-            Err(io::Error::other(crate::i18n::t("Cancelled")))
-        }
-    }
-}
-
-impl<T: Write> Write for Meter<'_, T> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let n = self.inner.write(buf)?;
-        self.count(n)?;
-        Ok(n)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.inner.flush()
-    }
-}
-
-impl<T: Read> Read for Meter<'_, T> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let n = self.inner.read(buf)?;
-        self.count(n)?;
-        Ok(n)
-    }
-}
-
-/// The temporary name a file is written to before it gets its real name.
-fn temp_name(end: End<'_>, dst: &Path) -> PathBuf {
-    let parent = parent_of(dst).unwrap_or_default();
-    let name = name_of(dst).unwrap_or_default();
-    end.join(&parent, &format!(".{name}.oxpart"))
-}
-
-/// Returns `true` if the file failed and should be tried again.
-fn transfer_file(job: &Job, task: &Task, ctx: &Ctx<'_>) -> bool {
-    let mut reported = 0u64;
-    let result = match (ctx.src, ctx.dst) {
-        (End::Remote(side), End::Local) => download(job, side, task, ctx, &mut reported),
-        (End::Local, End::Remote(side)) => upload(job, side, task, ctx, &mut reported),
-        _ => Err("unsupported".to_owned()),
-    };
-    // Keep the byte counter consistent however the file ended.
-    if task.size > reported {
-        job.done_bytes
-            .fetch_add(task.size - reported, Ordering::Relaxed);
-    }
-    let result = result.and_then(|()| {
-        if job.kind == TransferKind::Move {
-            ctx.src.remove_file(&task.src)
-        } else {
-            Ok(())
-        }
-    });
-    match result {
-        Ok(()) => {
-            job.done_files.fetch_add(1, Ordering::Relaxed);
-        }
-        Err(_) if job.is_cancelled() => {}
-        Err(message) => {
-            if ctx.ask && job.ask_about_error(&task.src, &task.dst, &message) == ErrorChoice::Retry
-            {
-                job.done_bytes
-                    .fetch_sub(task.size.max(reported), Ordering::Relaxed);
-                return true;
-            }
-            job.push_file_error(&task.src, Some(&task.dst), message);
-        }
-    }
-    false
-}
-
-fn download(
-    job: &Job,
-    side: &RemoteSide,
-    task: &Task,
-    ctx: &Ctx<'_>,
-    reported: &mut u64,
-) -> Result<(), String> {
-    let path = End::rpath(side, &task.src)?;
-    let tmp = temp_name(End::Local, &task.dst);
-    let file = fs::File::create(&tmp).map_err(|e| e.to_string())?;
-    let mut meter = Meter {
-        inner: io::BufWriter::with_capacity(1024 * 1024, file),
-        job,
-        throttle: ctx.throttle,
-        reported: 0,
-    };
-    let got = side.fs.read_to(&path, &mut meter).map_err(remote_err);
-    *reported = meter.reported;
-    let finished = got.and_then(|_| {
-        let file = meter
-            .inner
-            .into_inner()
-            .map_err(|e| e.error().to_string())?;
-        if ctx.keep_dates {
-            if let Some(t) = task.modified {
-                let _ = file.set_modified(t);
-            }
-        }
-        drop(file);
-        if task.conflict {
-            let _ = fsops::remove_file_forced(&task.dst);
-        }
-        fs::rename(&tmp, &task.dst).map_err(|e| e.to_string())
-    });
-    if finished.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    finished
-}
-
-fn upload(
-    job: &Job,
-    side: &RemoteSide,
-    task: &Task,
-    ctx: &Ctx<'_>,
-    reported: &mut u64,
-) -> Result<(), String> {
-    let dst = End::rpath(side, &task.dst)?;
-    let via_temp = side.fs.upload_via_temp();
-    let target = if via_temp {
-        End::rpath(side, &temp_name(ctx.dst, &task.dst))?
-    } else {
-        dst.clone()
-    };
-    let file = fs::File::open(&task.src).map_err(|e| e.to_string())?;
-    let mut meter = Meter {
-        inner: io::BufReader::with_capacity(1024 * 1024, file),
-        job,
-        throttle: ctx.throttle,
-        reported: 0,
-    };
-    let sent = side.fs.write_from(&target, &mut meter, task.size);
-    *reported = meter.reported;
-    let finished = sent.and_then(|()| {
-        if via_temp {
-            if task.conflict {
-                let _ = side.fs.remove_file(&dst);
-            }
-            side.fs.rename(&target, &dst)?;
-        }
-        if ctx.keep_dates {
-            if let Some(t) = task.modified {
-                let _ = side.fs.set_modified(&dst, t);
-            }
-        }
-        Ok(())
-    });
-    if finished.is_err() && via_temp {
-        let _ = side.fs.remove_file(&target);
-    }
-    finished.map_err(remote_err)
-}
-
 #[cfg(test)]
 #[path = "remote_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "remote_more_tests.rs"]
+mod more_tests;

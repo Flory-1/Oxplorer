@@ -14,6 +14,7 @@ pub(crate) mod link_dialog;
 mod links;
 mod menus;
 mod mini_player;
+mod mirror;
 pub(crate) mod palette;
 pub(crate) mod picture_tools;
 pub(crate) mod preview;
@@ -23,6 +24,7 @@ mod select_pattern;
 mod sessions;
 mod settings_page;
 mod sidebar;
+pub(crate) mod text_compare;
 mod transfers;
 mod wsl;
 
@@ -142,8 +144,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         preview_window(app, ui.ctx());
     }
     quick_look::show(app, ui.ctx());
+    text_compare::show(app, ui.ctx());
     dialogs::show(app, ui.ctx());
     remote::show(app, ui.ctx());
+    mirror::show(app, ui.ctx());
     palette::show(app, ui.ctx());
     toasts(app, ui.ctx());
     transfers::countdown(app, ui.ctx());

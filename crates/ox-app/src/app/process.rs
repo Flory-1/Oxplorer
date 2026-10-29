@@ -510,8 +510,10 @@ impl OxApp {
             }
             Action::Tab(t) => self.process_tab(t),
             Action::Compare(a) => self.process_compare(a),
+            Action::Mirror(a) => self.process_mirror(a),
             Action::Cleanup(a) => self.process_cleanup(a),
             Action::Pictures(a) => self.process_pictures(a),
+            Action::CompareTextFiles(a, b) => crate::ui::text_compare::open(self, a, b),
             Action::Command(a) => self.command_action(a),
             Action::ToggleFlatView => self.toggle_flat_view(),
             Action::ShowInFolder(path) => self.show_in_folder(path),

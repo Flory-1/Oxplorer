@@ -132,8 +132,9 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         thumbs: (app.settings.appearance.thumbnails
             && !app.tabs.active().location().is_bin()
             && !app.tabs.active().location().is_read_only()
-            && !app.tabs.active().location().is_remote())
-        .then_some(&app.thumbs),
+            && (!app.tabs.active().location().is_remote()
+                || app.settings.appearance.remote_thumbnails))
+            .then_some(&app.thumbs),
         props: (!app.tabs.active().location().is_bin()
             && !app.tabs.active().location().is_read_only()
             && !app.tabs.active().location().is_remote())

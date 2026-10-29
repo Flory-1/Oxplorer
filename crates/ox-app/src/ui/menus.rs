@@ -259,6 +259,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         actions.push(Action::Compress(sel.clone()));
     }
     super::picture_tools::menu(ui, &sel, actions);
+    super::text_compare::menu(ui, &sel, actions);
     super::commands::item_menu(ui, &sel, actions);
     let theme_file = sel.len() == 1
         && sel[0]
@@ -281,6 +282,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         }
         super::wsl::terminal_button(ui, dir, actions);
         super::cleanup::menu(ui, dir, actions);
+        super::mirror::menu(ui, dir, t.destinations, actions);
         disk_usage_button(ui, dir, actions);
     }
     if ui

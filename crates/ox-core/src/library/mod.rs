@@ -95,6 +95,12 @@ fn stem(file: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// A `.library-ms` file (the root of a search from a library).
+pub fn is_library_file(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("library-ms"))
+}
+
 /// The folder with the user's libraries (Windows only).
 pub fn libraries_dir() -> Option<PathBuf> {
     if !cfg!(windows) {
@@ -132,10 +138,7 @@ fn list_in(dir: &Path) -> Vec<Library> {
     let mut out: Vec<Library> = items
         .flatten()
         .map(|i| i.path())
-        .filter(|p| {
-            p.extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("library-ms"))
-        })
+        .filter(|p| is_library_file(p))
         .filter_map(|p| load(&p))
         .collect();
     out.sort_by_key(order);
@@ -247,6 +250,13 @@ mod tests {
     </searchConnectorDescription>
   </searchConnectorDescriptionList>
 </libraryDescription>"#;
+
+    #[test]
+    fn knows_library_files() {
+        assert!(is_library_file(Path::new(r"C:\x\Documents.library-ms")));
+        assert!(is_library_file(Path::new("Music.Library-MS")));
+        assert!(!is_library_file(Path::new(r"C:\Users\me\Documents")));
+    }
 
     #[test]
     fn parses_the_documents_library() {

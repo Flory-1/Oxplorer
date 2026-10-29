@@ -33,6 +33,7 @@
 mod archives;
 mod query;
 mod tagged;
+mod text_index;
 mod walk;
 
 pub(crate) use query::wildcard;
@@ -84,6 +85,7 @@ pub struct SearchHandle {
     pub events: Receiver<SearchEvent>,
     cancel: Arc<AtomicBool>,
     scanned: Arc<AtomicU64>,
+    text_index: Arc<AtomicBool>,
 }
 
 impl SearchHandle {
@@ -94,6 +96,11 @@ impl SearchHandle {
     /// Number of files and folders looked at so far.
     pub fn scanned(&self) -> u64 {
         self.scanned.load(Ordering::Relaxed)
+    }
+
+    /// `content:` was answered with the help of the text index.
+    pub fn from_text_index(&self) -> bool {
+        self.text_index.load(Ordering::Relaxed)
     }
 }
 
@@ -148,11 +155,16 @@ pub fn start_indexed(
         events: rx,
         cancel: cancel.clone(),
         scanned: Arc::new(AtomicU64::new(index.len() as u64)),
+        text_index: Arc::new(AtomicBool::new(false)),
     };
+    let text_index = handle.text_index.clone();
+    let mut query = query;
     std::thread::Builder::new()
         .name("search-index".into())
         .spawn(move || {
             let started = Instant::now();
+            let roots: Vec<PathBuf> = within.iter().cloned().collect();
+            text_index.store(query.resolve_text_index(&roots), Ordering::Relaxed);
             let (ids, truncated) = index.search(
                 &query,
                 &crate::index::IndexQuery {
@@ -197,10 +209,16 @@ pub fn start(
         events: rx,
         cancel: cancel.clone(),
         scanned: scanned.clone(),
+        text_index: Arc::new(AtomicBool::new(false)),
     };
+    let text_index = handle.text_index.clone();
+    let mut query = query;
     std::thread::Builder::new()
         .name("search".into())
-        .spawn(move || walk::run(roots, query, opts, tx, cancel, scanned, Arc::new(notify)))
+        .spawn(move || {
+            text_index.store(query.resolve_text_index(&roots), Ordering::Relaxed);
+            walk::run(roots, query, opts, tx, cancel, scanned, Arc::new(notify))
+        })
         .expect("failed to spawn search thread");
     handle
 }
