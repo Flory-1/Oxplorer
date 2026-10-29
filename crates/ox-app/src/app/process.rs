@@ -135,7 +135,15 @@ impl OxApp {
                     .first()
                     .and_then(|p| p.parent())
                     .map(Path::to_path_buf);
-                self.run_background(tr("Delete"), dir, move || fsops::delete(&paths, to_trash));
+                let undo = self.undo.recorder();
+                self.run_background(tr("Delete"), dir, move || {
+                    let since = ox_core::undo::now();
+                    let result = fsops::delete(&paths, to_trash);
+                    if to_trash {
+                        undo.trashed(&paths, since);
+                    }
+                    result
+                });
                 self.tabs.active_mut().view.clear_selection();
             }
             Action::Rename(path) => {
@@ -502,8 +510,12 @@ impl OxApp {
                     .first()
                     .and_then(|p| p.parent())
                     .map(Path::to_path_buf);
+                let undo = self.undo.recorder();
                 self.run_background(tr("Move to Recycle Bin"), dir, move || {
-                    fsops::delete(&paths, true)
+                    let since = ox_core::undo::now();
+                    let result = fsops::delete(&paths, true);
+                    undo.trashed(&paths, since);
+                    result
                 });
             }
         }

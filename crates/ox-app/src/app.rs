@@ -9,6 +9,7 @@ mod input;
 mod poll;
 mod process;
 mod properties;
+mod undo;
 mod window;
 pub use action::{Action, TabAction};
 pub use properties::Properties;
@@ -175,6 +176,8 @@ pub struct OxApp {
     index_settings: Option<(Vec<PathBuf>, Vec<String>)>,
     /// Results of background work started by actions (Git, the editor).
     notices: (Sender<Notice>, Receiver<Notice>),
+    /// What Ctrl+Z / Ctrl+Y can undo and redo.
+    pub undo: undo::UndoState,
 }
 
 /// What background work started by an action reports back.
@@ -297,6 +300,7 @@ impl OxApp {
             index_next: None,
             index_force: false,
             index_settings: None,
+            undo: Default::default(),
         }
     }
 
@@ -363,6 +367,7 @@ impl OxApp {
         self.poll_git();
         self.poll_watcher();
         self.poll_jobs();
+        self.poll_undo();
         self.poll_background();
         self.poll_notices();
         self.poll_dropped_files(ctx);
@@ -684,6 +689,7 @@ impl OxApp {
     }
 
     fn after_create(&mut self, dir: &Path, created: PathBuf) {
+        self.undo.created(&created);
         self.mark_changed(Some(dir));
         self.tabs.active_mut().view.select_after_load = Some(created.clone());
         self.process(Action::Rename(created));

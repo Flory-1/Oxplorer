@@ -220,6 +220,8 @@ pub struct Job {
     started: Mutex<Instant>,
     finished: Mutex<Option<Instant>>,
     speed: Mutex<SpeedMeter>,
+    /// See [`Job::created`].
+    created: Mutex<Vec<(PathBuf, PathBuf)>>,
 }
 
 impl Job {
@@ -250,6 +252,7 @@ impl Job {
             started: Mutex::new(Instant::now()),
             finished: Mutex::new(None),
             speed: Mutex::new(SpeedMeter::default()),
+            created: Mutex::new(Vec::new()),
         }
     }
 
@@ -325,6 +328,15 @@ impl Job {
             conflict: ConflictPolicy::Ask,
             pairs,
         })
+    }
+
+    /// What the job put in place, as (source, destination) pairs: each new
+    /// top-level item (with its final name, e.g. after "keep both"), new
+    /// items inside folders that were merged into existing ones and, for
+    /// moves, replaced files. Skipped items are not listed. Complete once
+    /// the job is finished (used to undo it).
+    pub fn created(&self) -> Vec<(PathBuf, PathBuf)> {
+        self.created.lock().unwrap().clone()
     }
 
     /// Total number of items the job was started with.
@@ -645,12 +657,19 @@ fn run_job(job: &Job, cfg: &EngineConfig, notify: &dyn Fn()) {
         }
     }
     plan.apply_policy(job, policy);
+    let roots = std::mem::take(&mut plan.roots);
 
     let workers = worker_count(job, cfg);
     job.workers.store(workers as u64, Ordering::Relaxed);
     job.set_state(JobState::Running);
     notify();
     plan::execute(job, plan, cfg, workers);
+    // Whatever reached its destination (also when cancelled or partly failed).
+    job.created.lock().unwrap().extend(
+        roots
+            .into_iter()
+            .filter(|(_, dst)| crate::fsops::exists(dst)),
+    );
 
     job.set_state(if job.is_cancelled() {
         JobState::Cancelled

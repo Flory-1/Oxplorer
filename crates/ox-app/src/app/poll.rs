@@ -134,6 +134,7 @@ impl OxApp {
             if let Err(e) = ox_core::transfer::history::append(&job) {
                 log::warn!("could not write transfer log: {e}");
             }
+            self.record_job(&job);
             self.mark_changed(Some(&job.destination));
             if job.kind == TransferKind::Move && !self.tags.is_empty() {
                 // Tags follow moved items (those that left their old place).

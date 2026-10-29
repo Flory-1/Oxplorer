@@ -34,6 +34,7 @@ pub mod textinfo;
 pub mod themes;
 pub mod titlebar;
 pub mod transfer;
+pub mod undo;
 pub mod update;
 pub mod watcher;
 

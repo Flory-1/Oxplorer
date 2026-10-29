@@ -28,6 +28,8 @@ pub(super) struct Plan {
     pub files: Vec<FileTask>,
     /// Source folders to remove after a cross-volume move, children before parents.
     pub cleanup_dirs: Vec<PathBuf>,
+    /// Candidates for [`Job::created`](super::Job::created) (source, destination).
+    pub roots: Vec<(PathBuf, PathBuf)>,
 }
 
 impl Plan {
@@ -47,6 +49,7 @@ impl Plan {
     pub fn apply_policy(&mut self, job: &Job, policy: ConflictPolicy) {
         let mut skipped_bytes = 0;
         let mut skipped_files = 0;
+        let mut roots = Vec::new();
         self.files.retain_mut(|task| {
             if !task.conflict {
                 return true;
@@ -72,9 +75,13 @@ impl Plan {
             if !keep {
                 skipped_bytes += task.size;
                 skipped_files += 1;
+            } else if policy == ConflictPolicy::KeepBoth || job.kind == TransferKind::Move {
+                // A replaced file can't come back, but a moved one can go back.
+                roots.push((task.src.clone(), task.dst.clone()));
             }
             keep
         });
+        self.roots.extend(roots);
         job.total_bytes.fetch_sub(skipped_bytes, Ordering::Relaxed);
         job.total_files.fetch_sub(skipped_files, Ordering::Relaxed);
         job.skipped_files
@@ -92,7 +99,13 @@ pub(super) fn build(job: &Job) -> Plan {
                 if let Some(parent) = dst.parent() {
                     plan.dirs.push(parent.to_path_buf());
                 }
+                note_new(&mut plan, src, dst);
                 add_file(job, src.clone(), dst.clone(), &meta, &mut plan);
+            }
+            // A whole folder with its exact target (used to undo a move).
+            Ok(meta) if !is_link_dir(&meta) => {
+                let merge = note_new(&mut plan, src, dst);
+                scan_dir(job, src, dst, &mut plan, merge);
             }
             Ok(_) => job.push_error(src, crate::i18n::t("Expected a file but found a folder.")),
             Err(e) => job.push_error(src, e.to_string()),
@@ -135,6 +148,7 @@ pub(super) fn build(job: &Job) -> Plan {
 
         // Fast path: a move to a free name on the same volume is just a rename.
         if job.kind == TransferKind::Move && !fsops::exists(&dst) && fs::rename(src, &dst).is_ok() {
+            job.created.lock().unwrap().push((src.clone(), dst));
             job.total_files.fetch_add(1, Ordering::Relaxed);
             job.done_files.fetch_add(1, Ordering::Relaxed);
             continue;
@@ -150,20 +164,33 @@ pub(super) fn build(job: &Job) -> Plan {
                     continue;
                 }
             }
-            scan_dir(job, src, &dst, &mut plan);
+            let merge = note_new(&mut plan, src, &dst);
+            scan_dir(job, src, &dst, &mut plan, merge);
         } else if meta.is_dir() {
             job.push_error(
                 src,
                 crate::i18n::t("Skipped a linked folder (symbolic link or junction)."),
             );
         } else {
+            note_new(&mut plan, src, &dst);
             add_file(job, src.clone(), dst, &meta, &mut plan);
         }
     }
     plan
 }
 
-fn scan_dir(job: &Job, src: &Path, dst: &Path, plan: &mut Plan) {
+/// Remember `dst` as a new item if it doesn't exist yet. Returns whether it
+/// exists (a folder that is merged into; a file conflict is decided later).
+fn note_new(plan: &mut Plan, src: &Path, dst: &Path) -> bool {
+    let exists = fsops::exists(dst);
+    if !exists {
+        plan.roots.push((src.to_path_buf(), dst.to_path_buf()));
+    }
+    exists
+}
+
+/// `merge`: `dst` already exists, so new items inside it are remembered one by one.
+fn scan_dir(job: &Job, src: &Path, dst: &Path, plan: &mut Plan, merge: bool) {
     plan.dirs.push(dst.to_path_buf());
     job.set_current(src);
     let entries = match fs::read_dir(src) {
@@ -193,6 +220,7 @@ fn scan_dir(job: &Job, src: &Path, dst: &Path, plan: &mut Plan) {
             }
         };
         let target = dst.join(entry.file_name());
+        let exists = merge && note_new(plan, &path, &target);
         if meta.is_dir() {
             if is_link_dir(&meta) {
                 job.push_error(
@@ -200,7 +228,7 @@ fn scan_dir(job: &Job, src: &Path, dst: &Path, plan: &mut Plan) {
                     crate::i18n::t("Skipped a linked folder (symbolic link or junction)."),
                 );
             } else {
-                scan_dir(job, &path, &target, plan);
+                scan_dir(job, &path, &target, plan, exists);
             }
         } else {
             add_file(job, path, target, &meta, plan);

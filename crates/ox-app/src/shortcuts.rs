@@ -28,6 +28,8 @@ pub enum Command {
     Copy,
     Cut,
     Paste,
+    Undo,
+    Redo,
     CopyPath,
     NewFolder,
     Delete,
@@ -108,6 +110,8 @@ pub const COMMANDS: &[CommandInfo] = &[
     info(Command::Copy, "copy", "Copy", &["Ctrl+C"]),
     info(Command::Cut, "cut", "Cut", &["Ctrl+X"]),
     info(Command::Paste, "paste", "Paste", &["Ctrl+V"]),
+    info(Command::Undo, "undo", "Undo", &["Ctrl+Z"]),
+    info(Command::Redo, "redo", "Redo", &["Ctrl+Y", "Ctrl+Shift+Z"]),
     info(
         Command::CopyPath,
         "copy_path",

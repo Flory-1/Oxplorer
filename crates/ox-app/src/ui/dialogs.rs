@@ -4,6 +4,7 @@ use egui::{Color32, Context, Id, Key, RichText, Ui};
 use ox_core::entry::{display_name, FileEntry};
 use ox_core::i18n::t as tr;
 use ox_core::rename::{self, Case};
+use ox_core::undo::{Kind, Op};
 use ox_core::{format, fsops};
 
 use super::preview;
@@ -167,12 +168,13 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
                                     "Renamed {v1}",
                                     v1 = ox_core::i18n::count(n as u64, "item")
                                 )));
-                                actions.push(Action::PathsMoved(
-                                    plan.iter()
-                                        .filter(|p| p.changes())
-                                        .map(|p| (p.from.clone(), p.to.clone()))
-                                        .collect(),
-                                ));
+                                let pairs: Vec<_> = plan
+                                    .iter()
+                                    .filter(|p| p.changes())
+                                    .map(|p| (p.from.clone(), p.to.clone()))
+                                    .collect();
+                                app.undo.record(Kind::Rename, Op::Renamed(pairs.clone()));
+                                actions.push(Action::PathsMoved(pairs));
                                 app.tabs.mark_stale(None);
                                 keep = false;
                             }
@@ -230,6 +232,10 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
                             match fsops::rename(path, text.trim()) {
                                 Ok(new_path) => {
                                     keep = false;
+                                    app.undo.record(
+                                        Kind::Rename,
+                                        Op::Renamed(vec![(path.clone(), new_path.clone())]),
+                                    );
                                     actions.push(Action::PathsMoved(vec![(
                                         path.clone(),
                                         new_path.clone(),

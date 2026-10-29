@@ -249,6 +249,25 @@ const TOPICS: &[Topic] = &[
     },
     Topic {
         section: 1,
+        title: "Undo and redo",
+        blocks: &[
+            Text(
+                "Ctrl+Z undoes the last file operation, Ctrl+Y (or Ctrl+Shift+Z) redoes it. \
+                 The last 50 operations are remembered until Oxplorer closes.",
+            ),
+            List(&[
+                "Rename and bulk rename: the old names come back.",
+                "Move: the items are moved back.",
+                "Copy, new file: the copies go to the Recycle Bin. New folder: it is removed \
+                 while it's still empty.",
+                "Delete to the Recycle Bin: the items are restored.",
+                "Nothing is undone if the items have been changed, moved or replaced since. \
+                 Permanent deletes can't be undone, and replaced files don't come back.",
+            ]),
+        ],
+    },
+    Topic {
+        section: 1,
         title: "Windows integration",
         blocks: &[List(&[
             "Files have the same icons as in Explorer.",
