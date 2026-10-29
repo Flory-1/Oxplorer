@@ -52,6 +52,8 @@ pub(super) enum Loaded {
         info: Vec<(&'static str, String)>,
         chars: Vec<char>,
     },
+    /// A data file: its table or tree (see `data`).
+    Data(Box<data::LoadedData>),
     Nothing,
     Error(String),
 }
@@ -200,6 +202,9 @@ pub(super) fn load(entry: FileEntry, show_hidden: bool, large: bool) -> Loaded {
             Err(e) if e.kind() == std::io::ErrorKind::Unsupported => Loaded::Nothing,
             Err(e) => Loaded::Error(ox_core::trf!("Can't show this PDF: {e}", e = e)),
         };
+    }
+    if let Some(data) = data::load(&entry) {
+        return data;
     }
     if is_text(&entry) || entry.size == 0 {
         return read_text(&entry.path);
