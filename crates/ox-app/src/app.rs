@@ -14,6 +14,8 @@ mod input;
 mod instances;
 mod library;
 mod links;
+mod picture_tools;
+mod player;
 mod poll;
 mod process;
 mod properties;
@@ -30,6 +32,8 @@ pub use cleanup::{CleanupAction, CleanupView, ConfirmCleanup};
 pub use compare::{CompareAction, CompareState};
 pub use disk_usage::{DiskUsageAction, DiskUsageScans};
 pub use instances::Start;
+pub use picture_tools::{doing as doing_pictures, PictureAction, PictureTools};
+pub use player::{PlayerAction, Session as PlayerSession, RATES};
 pub use properties::Properties;
 pub use search_history::{HistoryAction, RecentSearches};
 pub use select::SelectAction;
@@ -103,6 +107,8 @@ pub enum Dialog {
         select: bool,
         focus: bool,
     },
+    /// Convert or resize pictures.
+    Pictures(Box<crate::ui::picture_tools::PictureDialog>),
 }
 
 /// A file operation running on a helper thread (label, result, folder to refresh).
@@ -176,6 +182,8 @@ pub struct OxApp {
     folder_views_saved: Instant,
     pub index: IndexService,
     pub preview: crate::ui::preview::PreviewState,
+    /// The built-in player (plays on while browsing; see `app/player.rs`).
+    pub player: PlayerSession,
     /// Quick Look, while it is open (Space).
     pub quick_look: Option<crate::ui::quick_look::QuickLook>,
     pub folder_sizes: FolderSizes,
@@ -191,7 +199,7 @@ pub struct OxApp {
     /// the mouse button go up; tell it on the next frame.
     release_pointer: bool,
     /// The window is transparent, so a backdrop can show through it.
-    see_through: bool,
+    pub(crate) see_through: bool,
     /// Backdrop, dark mode and "no title bar" last given to the window.
     window_style: Option<(Backdrop, bool, bool)>,
     /// Whether the window's title bar was last removed (`Some(true)`) or given back.
@@ -243,6 +251,8 @@ pub struct OxApp {
     gallery_walks: Vec<(TabId, Arc<AtomicBool>)>,
     /// Find duplicates / empty folders: the pages' scans and ticks.
     pub cleanups: cleanup::Cleanups,
+    /// Picture tools: the running job (rotate, convert, …).
+    pub pictures: PictureTools,
 }
 
 /// What background work started by an action reports back.
@@ -354,6 +364,7 @@ impl OxApp {
                 })
             },
             preview: Default::default(),
+            player: PlayerSession::main(),
             quick_look: None,
             disk_usage: Default::default(),
             folder_sizes: {
@@ -394,6 +405,7 @@ impl OxApp {
             libraries_at: None,
             gallery_walks: Vec::new(),
             cleanups: Default::default(),
+            pictures: Default::default(),
         }
     }
 
@@ -468,9 +480,11 @@ impl OxApp {
         self.poll_git();
         self.poll_cloud();
         self.poll_libraries();
+        self.poll_player(ctx);
         self.poll_watcher();
         self.poll_jobs();
         self.poll_undo();
+        self.poll_pictures();
         self.poll_transfer_watch(ctx);
         self.poll_background();
         self.poll_notices();
@@ -917,6 +931,7 @@ impl eframe::App for OxApp {
         self.pre_frame(&ctx);
         self.style_window(&ctx, frame);
         ui::show(self, ui);
+        ui::preview::place_documents(self, &ctx, frame);
         self.publish_title_bar(&ctx);
         self.drag_out_of_window(&ctx);
         self.drag_tab_out(&ctx);

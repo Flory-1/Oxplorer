@@ -63,6 +63,7 @@ impl OxApp {
         let read_only = self.tabs.active().location().is_read_only();
         let has_sel = !selection.is_empty();
         let quick_look = self.quick_look.is_some();
+        let playing = self.player.playback.is_some();
         if quick_look {
             self.quick_look_keys(ctx);
         }
@@ -88,6 +89,7 @@ impl OxApp {
             C::OpenInEditor => {
                 shows_files && !in_bin && !read_only && (has_sel || folder.is_some())
             }
+            C::PlayerPlayPause | C::PlayerNext | C::PlayerPrevious => playing,
             _ => true,
         };
         let (pressed, back, forward) = ctx.input_mut(|i| {
@@ -158,6 +160,9 @@ impl OxApp {
                 C::Properties => actions.push(Action::Properties(selection.clone())),
                 C::ShellMenu => actions.push(Action::ShellMenu(selection.clone())),
                 C::ToggleTerminal => actions.push(Action::ToggleTerminal),
+                C::PlayerPlayPause => actions.push(Action::Player(PlayerAction::PlayPause)),
+                C::PlayerNext => actions.push(Action::Player(PlayerAction::Next)),
+                C::PlayerPrevious => actions.push(Action::Player(PlayerAction::Previous)),
                 C::OpenInEditor => actions.push(Action::OpenInEditor(if has_sel {
                     selection.clone()
                 } else {

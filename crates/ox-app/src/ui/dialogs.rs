@@ -327,6 +327,7 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
                 }
             }
             Dialog::NewLink(d) => keep = super::link_dialog::show(ui, d, app),
+            Dialog::Pictures(d) => keep = super::picture_tools::dialog(ui, d, &mut actions),
             Dialog::SessionName { old, text, focus } => {
                 keep =
                     super::sessions::name_dialog(ui, &app.sessions, old, text, focus, &mut actions);

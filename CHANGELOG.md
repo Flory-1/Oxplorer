@@ -5,7 +5,31 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-10-29
+
 ### Added
+- **Office documents and mails in the preview**: a *Document* tab shows Word, Excel, PowerPoint,
+  Outlook (.msg), Visio, RTF and everything else Windows can preview, with the same preview
+  handlers Explorer uses. They run in Windows' own preview process, so a handler that crashes
+  can't take Oxplorer with it. Settings → Preview → *Office documents and mails*.
+- **More picture formats**: SVG drawings, and HEIC/HEIF, AVIF, JPEG XL, JPEG XR and camera RAW
+  files through the codecs installed in Windows (when one is missing, the preview says which
+  extension to get from the Microsoft Store). Animated GIF and WebP play in the preview and in
+  Quick Look, and photos are turned the way the camera says.
+- **Photo details**: camera, lens, exposure time, aperture, ISO, focal length, flash and the
+  location in the Info tab, with *Open in map* (OpenStreetMap, only when you click it).
+- **Data files**: CSV and TSV as a table; JSON, XML, YAML and TOML as a tree you can fold, with
+  *Copy value* and *Copy path*; SQLite databases as tables (opened read-only, never locked).
+- **Hex view** for every file: offset, bytes and text, reading only what's on screen, so huge
+  files open instantly. Go to an offset, select and copy as hex or text.
+- **Player**: previous / next file of the folder (Ctrl+Left / Ctrl+Right, Ctrl+Space plays
+  and pauses), repeat all or one, shuffle, playback speed from 0.5× to 2×, a queue, *Play all*
+  for a folder or the selection, `.m3u` playlists and `.srt` / `.vtt` subtitles next to the
+  video. Playback goes on in a **mini player** at the bottom of the window while you browse
+  (Settings → Preview → *Keep playing while browsing*).
+- **Picture tools** (right-click pictures → *Picture tools*): rotate, flip, convert to PNG, JPG
+  or WebP and resize one or many pictures, next to the originals, into a folder or in place.
+  Replaced originals go to the Recycle Bin, so Ctrl+Z brings them back; photo details are kept.
 - **Live index updates**: the search index follows new, deleted, renamed and changed files as
   they happen (within about 2 seconds) instead of waiting for the next refresh. Settings →
   Search → *Live updates*; removable and network drives aren't watched, so USB sticks can still
@@ -31,10 +55,6 @@ The release workflow publishes the section of the tagged version as the release 
   you use. It works across whole drives instantly.
 - **Search inside archives**: `archives:yes` or the *Inside archives* chip also finds the files
   in zip, 7z and tar archives by name; results open inside the archive.
-
-## [1.0.3] - 2026-10-29
-
-### Added
 - **Column chooser**: right-click the details header (or View → Columns) to show or hide
   columns, drag a header to move it and an edge to resize it. New columns: date created,
   dimensions, length, date taken, authors, file version, attributes and, in OneDrive or Dropbox

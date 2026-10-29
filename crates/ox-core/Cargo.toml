@@ -26,6 +26,16 @@ sevenz-rust2 = { version = "0.24", default-features = false, features = ["bzip2"
 sha2 = "0.10"
 md-5 = "0.10"
 kamadak-exif = "0.6"
+# Picture tools (rotate, convert, resize).
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "gif", "tiff"] }
+# SVG drawings (texts in the system's fonts; no embedded JPEG/GIF/WebP).
+resvg = { version = "0.47", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
+# Data files in the preview: JSON, XML, YAML trees and SQLite tables.
+serde_json = "1"
+quick-xml = "0.42"
+yaml-rust2 = { version = "0.13", default-features = false }
+# Bundled: SQLite is compiled in (opened read-only, never written).
+rusqlite = { version = "0.41", default-features = false, features = ["bundled", "hooks"] }
 
 [target.'cfg(windows)'.dependencies]
 clipboard-win = { version = "5", features = ["std"] }
@@ -44,6 +54,7 @@ windows = { version = "0.62", features = [
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
+    "Win32_Graphics_Imaging",
     "Win32_NetworkManagement_WNet",
     "Win32_Networking_WinHttp",
     "Win32_Storage_CloudFilters",
@@ -55,6 +66,7 @@ windows = { version = "0.62", features = [
     "Win32_System_Ole",
     "Win32_System_Power",
     "Win32_System_Registry",
+    "Win32_System_Threading",
     "Win32_System_Variant",
     "Win32_System_WinRT_Direct3D11",
     "Win32_UI_Controls",

@@ -149,8 +149,31 @@ const TOPICS: &[Topic] = &[
                  (click a commit to copy its hash).",
                 "Text files: encoding, line endings and indentation in the Info tab. Compute \
                  checksums gives the SHA-256 and MD5 of any file.",
+                "Pictures also in SVG, HEIC, AVIF, JPEG XL and camera RAW (with the codecs \
+                 installed in Windows), and animated GIF and WebP play. For photos the Info tab \
+                 shows the camera, exposure and location, with Open in map.",
+                "Word, Excel, PowerPoint, Outlook mails and other documents are shown in the \
+                 Document tab by the same preview handlers Explorer uses.",
+                "CSV files as a table, JSON, XML, YAML and TOML as a tree you can fold, SQLite \
+                 databases as tables. The Hex tab shows the bytes of any file.",
             ]),
         ],
+    },
+    Topic {
+        section: 1,
+        title: "Player and picture tools",
+        blocks: &[List(&[
+            "⏮ and ⏭ (Ctrl+Left and Ctrl+Right) play the previous or next file of the folder, \
+             Ctrl+Space plays and pauses. The player also has shuffle, repeat, speed and a \
+             queue.",
+            "Right-click a folder or several songs or videos → Play all. Playlists (.m3u) play \
+             when you open them, and subtitles (.srt, .vtt) next to a video are shown over it.",
+            "When you go elsewhere, playback goes on in the mini player at the bottom of the \
+             window; click its title to go back to the file. Settings → Preview → Keep \
+             playing while browsing turns that off.",
+            "Right-click pictures → Picture tools to rotate, flip, convert or resize them. \
+             Replaced originals go to the Recycle Bin, and Ctrl+Z brings them back.",
+        ])],
     },
     Topic {
         section: 1,

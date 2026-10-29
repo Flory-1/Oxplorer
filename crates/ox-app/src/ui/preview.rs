@@ -1,21 +1,31 @@
 //! Preview pane: shows the selected file (image, text/code) or a summary.
 
+mod animation;
+mod data;
+mod document;
 mod font;
 mod git_graph;
+mod hex;
 mod info;
 mod large;
 mod load;
+mod picture;
 mod player;
+mod table;
+mod tree;
 use font::*;
 use git_graph::*;
 use info::{checksums, info_grid};
 pub use info::{info_rows, other_attributes, type_facts};
 use load::*;
 use ox_core::i18n::t as tr;
+pub(crate) use picture::{is_picture, still};
 use player::*;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
+
+pub use document::place_documents;
 
 use crossbeam_channel::Receiver;
 use egui::{ColorImage, RichText, TextureHandle, TextureOptions, Ui};
@@ -34,6 +44,8 @@ const MAX_HIGHLIGHT_BYTES: usize = 64 * 1024;
 enum Content {
     Loading(Receiver<Loaded>),
     Image(TextureHandle, [u32; 2]),
+    /// An animated GIF/WebP.
+    Animation(animation::Animation),
     Page(TextureHandle, u32),
     Text {
         text: String,
@@ -63,6 +75,8 @@ enum Content {
         info: Vec<(&'static str, String)>,
         chars: Vec<char>,
     },
+    /// CSV, JSON/XML/YAML/TOML or SQLite: a table or tree (and the text).
+    Data(Box<data::Data>),
     Nothing,
     Error(String),
 }
@@ -82,6 +96,11 @@ pub enum PreviewTab {
     Player,
     /// The items of a folder or archive (Quick Look).
     Contents,
+    /// Shown by the file type's preview handler (Office documents, mails…).
+    Document,
+    Table,
+    Tree,
+    Hex,
 }
 
 impl PreviewTab {
@@ -98,6 +117,10 @@ impl PreviewTab {
             PreviewTab::Git => tr("🌿 Git"),
             PreviewTab::Player => tr("▶ Player"),
             PreviewTab::Contents => tr("📂 Contents"),
+            PreviewTab::Document => tr("📄 Document"),
+            PreviewTab::Table => tr("▦ Table"),
+            PreviewTab::Tree => tr("🗃 Tree"),
+            PreviewTab::Hex => tr("🔐 Hex"),
         }
     }
 }
@@ -107,6 +130,7 @@ impl Content {
         use PreviewTab::*;
         match self {
             Content::Image(..) => vec![Info, Image],
+            Content::Animation(..) => vec![Info, Image],
             Content::Page(..) => vec![Info, Page],
             Content::Text { markdown: true, .. } => vec![Info, Markdown, Text],
             Content::Text { .. } => vec![Info, Text],
@@ -117,6 +141,7 @@ impl Content {
             }
             Content::Media { cover: Some(_), .. } => vec![Info, Media],
             Content::Font { .. } => vec![Info, FontSample, Glyphs],
+            Content::Data(d) => d.tabs(),
             Content::Folder { git, items, .. } => {
                 let mut tabs = vec![Info];
                 tabs.extend((!items.is_empty()).then_some(Contents));
@@ -131,6 +156,7 @@ impl Content {
     fn facts(&self) -> Vec<(&'static str, String)> {
         match self {
             Content::Image(_, [w, h]) => vec![(tr("Dimensions"), format!("{w} × {h} px"))],
+            Content::Animation(a) => a.facts(),
             Content::Page(_, pages) => vec![(tr("Pages"), pages.to_string())],
             Content::Text {
                 numbers,
@@ -145,6 +171,7 @@ impl Content {
                 facts
             }
             Content::Media { info, .. } | Content::Font { info, .. } => info.clone(),
+            Content::Data(d) => d.facts(),
             Content::Folder {
                 folders,
                 files,
@@ -193,6 +220,9 @@ pub struct PreviewState {
     /// SHA-256 and MD5, once asked for.
     checksums: Option<Checksums>,
     play: PlayerState,
+    /// The Document tab's preview handler.
+    document: document::DocumentState,
+    hex: hex::HexView,
     /// Quick Look: opens on what the file shows rather than Info, with
     /// sharper pictures, pictures fitted, folder contents and autoplay.
     quick_look: bool,
@@ -255,6 +285,9 @@ impl PreviewState {
                         let tex = ctx.load_texture("preview", img, TextureOptions::LINEAR);
                         Content::Image(tex, size)
                     }
+                    Loaded::Animation(frames, size) => {
+                        Content::Animation(animation::Animation::new(ctx, frames, size))
+                    }
                     Loaded::Page(img, pages) => {
                         let tex = ctx.load_texture("preview", img, TextureOptions::LINEAR);
                         Content::Page(tex, pages)
@@ -294,6 +327,7 @@ impl PreviewState {
                         info,
                         chars,
                     },
+                    Loaded::Data(d) => data::content(*d),
                     Loaded::Nothing => Content::Nothing,
                     Loaded::Error(e) => Content::Error(e),
                 });
@@ -329,6 +363,7 @@ impl PreviewState {
         self.key = None;
         self.content = None;
         self.play.playback = None;
+        self.hex = Default::default();
     }
 
     /// Stop and close the player.
@@ -395,6 +430,8 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 .is_dir
                 .then(|| app.folder_sizes.get(&entry.path))
                 .flatten();
+            // The Player tab plays with the app's player (see `preview/player.rs`).
+            std::mem::swap(&mut app.preview.play, &mut app.player);
             tabbed(
                 ui,
                 &mut app.preview,
@@ -404,6 +441,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 &date_fmt,
                 &mut actions,
             );
+            std::mem::swap(&mut app.preview.play, &mut app.player);
         }
         [entry] => {
             app.preview.clear();
@@ -472,7 +510,9 @@ fn tabbed(
         ui.spinner();
         return;
     };
-    let tabs = content.tabs();
+    let mut tabs = content.tabs();
+    document::offer(&mut tabs, &mut state.document, content, e);
+    state.hex.offer(e, &mut tabs);
     // The tab picked last, if this file has it; otherwise Info (Quick
     // Look: what the file shows).
     let first = match state.quick_look {
@@ -494,6 +534,9 @@ fn tabbed(
     if large::show(ui, state.quick_look, tab, content) {
         return;
     }
+    if data::show(ui, &mut state.hex, tab, content, e, actions) {
+        return;
+    }
     // Quick Look: the video and its buttons fit without scrolling.
     let max_h = match state.quick_look {
         true => (ui.available_height() - 90.0).max(120.0),
@@ -506,6 +549,9 @@ fn tabbed(
     if let (PreviewTab::Git, Content::Folder { git: Some(git), .. }) = (tab, content) {
         git_graph(ui, git, date_fmt, actions);
         return;
+    }
+    if tab == PreviewTab::Document {
+        return document::show(ui, &mut state.document, e, actions);
     }
     egui::ScrollArea::vertical()
         .id_salt("preview_tab")
@@ -540,6 +586,7 @@ fn tabbed(
                     ));
                 }
                 info_grid(ui, e, state.details.as_ref(), facts, date_fmt);
+                picture::map_button(ui, state.details.as_ref());
                 if !e.is_dir && ox_core::archive::split_virtual(&e.path).is_none() {
                     ui.add_space(6.0);
                     checksums(ui, &mut state.checksums, e, actions);
@@ -613,6 +660,7 @@ fn body(ui: &mut Ui, content: &Content, e: &FileEntry) {
             let scale = (avail / size.x).min(1.5);
             ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(6.0));
         }
+        Content::Animation(a) => a.show(ui),
         Content::Text {
             text,
             numbers,
@@ -672,6 +720,7 @@ fn body(ui: &mut Ui, content: &Content, e: &FileEntry) {
             let scale = (avail / size.x).min(1.0);
             ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(6.0));
         }
+        Content::Data(d) => d.text.iter().for_each(|t| body(ui, t, e)),
         _ => {}
     }
 }

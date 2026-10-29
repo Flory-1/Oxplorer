@@ -370,11 +370,27 @@ impl Default for Sidebar {
 }
 
 /// The preview pane (shown or hidden with `Browsing::show_preview`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Preview {
     /// Show it as a separate window instead of a pane on the right.
     pub as_window: bool,
+    /// Selecting another item stops the player, instead of it playing on
+    /// in the mini player while you browse.
+    pub stop_player_on_select: bool,
+    /// Office documents, mails and other files Windows has a preview
+    /// handler for, shown by that handler (the Document tab).
+    pub documents: bool,
+}
+
+impl Default for Preview {
+    fn default() -> Self {
+        Self {
+            as_window: false,
+            stop_player_on_select: false,
+            documents: true,
+        }
+    }
 }
 
 /// Settings → Developer.

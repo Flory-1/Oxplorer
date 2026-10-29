@@ -12,7 +12,9 @@ mod home;
 pub(crate) mod link_dialog;
 mod links;
 mod menus;
+mod mini_player;
 pub(crate) mod palette;
+pub(crate) mod picture_tools;
 pub(crate) mod preview;
 pub(crate) mod quick_look;
 mod select_pattern;
@@ -57,6 +59,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             )
             .show(ui, |ui| status_bar(app, ui));
     }
+    mini_player::show(app, ui);
 
     if app.ui.show_transfers
         && (!app.engine.jobs().is_empty() || !app.engine.resumable().is_empty())
@@ -140,6 +143,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     palette::show(app, ui.ctx());
     toasts(app, ui.ctx());
     transfers::countdown(app, ui.ctx());
+    picture_tools::progress(app, ui.ctx());
     drag_preview(ui.ctx());
 }
 

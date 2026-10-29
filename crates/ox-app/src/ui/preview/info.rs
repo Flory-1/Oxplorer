@@ -124,8 +124,8 @@ pub fn type_facts(e: &FileEntry) -> Vec<(&'static str, String)> {
         return Vec::new();
     }
     if is_image(e) {
-        return image::image_dimensions(&e.path)
-            .map(|(w, h)| vec![(tr("Dimensions"), format!("{w} × {h} px"))])
+        return super::picture::dimensions(&e.path, &e.extension())
+            .map(|[w, h]| vec![(tr("Dimensions"), format!("{w} × {h} px"))])
             .unwrap_or_default();
     }
     let loaded = match e.kind() {

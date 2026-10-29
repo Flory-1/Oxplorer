@@ -1,6 +1,7 @@
 //! Thumbnails of pictures and videos for the grid view. They come from the
 //! Windows Shell (which also covers videos, PDFs and anything else with a
-//! thumbnail handler); elsewhere pictures are decoded with the `image` crate.
+//! thumbnail handler); elsewhere pictures are decoded like in the preview
+//! (SVG drawings and Windows' codecs' formats too when the Shell has none).
 //!
 //! A few background threads load them, newest request first, so the tiles
 //! on screen are served before ones that were scrolled past. They come in a
@@ -17,6 +18,8 @@ use std::time::SystemTime;
 use crossbeam_channel::{Receiver, Sender};
 use egui::{ColorImage, Context, TextureHandle, TextureOptions, Vec2};
 use ox_core::entry::{FileEntry, FileKind};
+
+use crate::ui::preview::is_picture;
 
 const WORKERS: usize = 2;
 /// Requests beyond this are dropped, oldest first (long scrolled past).
@@ -78,17 +81,10 @@ pub fn wanted(e: &FileEntry) -> bool {
         return false;
     }
     match e.kind() {
-        FileKind::Image => ox_core::shell::supported() || decodable(&e.extension()),
+        FileKind::Image => ox_core::shell::supported() || is_picture(&e.extension()),
         FileKind::Video | FileKind::Pdf => ox_core::shell::supported(),
         _ => false,
     }
-}
-
-fn decodable(ext: &str) -> bool {
-    matches!(
-        ext,
-        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "ico" | "tif" | "tiff"
-    )
 }
 
 impl Thumbnails {
@@ -250,20 +246,28 @@ fn load(path: &Path, size: u32, cache_only: bool) -> Option<ColorImage> {
         let size = [t.width as usize, t.height as usize];
         return Some(ColorImage::from_rgba_premultiplied(size, &t.rgba));
     }
-    if ox_core::shell::supported() || cache_only {
+    if cache_only {
         return None;
     }
     let ext = path
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
-    let small = std::fs::metadata(path).is_ok_and(|m| m.len() <= MAX_DECODE_BYTES);
-    if !decodable(&ext) || !small {
+    // The Shell has no thumbnails of drawings, nor of RAW files and the
+    // like without its thumbnail handler: decoded here.
+    if ox_core::shell::supported() && !ox_core::picture::own_decoder(&ext) {
         return None;
     }
-    let img = image::open(path).ok()?.thumbnail(size, size).to_rgba8();
-    let size = [img.width() as usize, img.height() as usize];
-    Some(ColorImage::from_rgba_unmultiplied(size, img.as_raw()))
+    // Windows' codecs scale while decoding: big RAW files are fine.
+    let small = std::fs::metadata(path).is_ok_and(|m| m.len() <= MAX_DECODE_BYTES)
+        || ox_core::picture::is_wic(&ext);
+    if !is_picture(&ext) || !small {
+        return None;
+    }
+    let source = ox_core::picture::Source::File(path);
+    crate::ui::preview::still(source, &ext, size)
+        .ok()
+        .map(|(img, _)| img)
 }
 
 /// Where a `size` image goes inside `area`: as large as fits, centred,

@@ -111,6 +111,8 @@ pub enum Action {
     Compare(super::CompareAction),
     /// Find duplicates / empty folders: delete the ticked items, show one.
     Cleanup(super::CleanupAction),
+    /// Picture tools: rotate, flip, convert and resize pictures.
+    Pictures(super::PictureAction),
     /// Turn the flat view (all files of the sub-folders in one list) on or off.
     ToggleFlatView,
     /// Go to the folder an item is in and select it there.
@@ -125,6 +127,8 @@ pub enum Action {
     View(super::ViewAction),
     /// The disk usage view: scan again, stop.
     DiskUsage(super::DiskUsageAction),
+    /// The built-in player: play, next, play all, playlists, ...
+    Player(super::PlayerAction),
 }
 
 pub enum TabAction {
