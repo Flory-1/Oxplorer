@@ -106,6 +106,7 @@ pub enum PreviewTab {
     FontSample,
     Glyphs,
     Git,
+    Player,
 }
 
 impl PreviewTab {
@@ -120,6 +121,7 @@ impl PreviewTab {
             PreviewTab::FontSample => tr("Aa Preview"),
             PreviewTab::Glyphs => tr("🔣 Glyphs"),
             PreviewTab::Git => tr("🌿 Git"),
+            PreviewTab::Player => tr("▶ Player"),
         }
     }
 }
@@ -132,6 +134,11 @@ impl Content {
             Content::Page(..) => vec![Info, Page],
             Content::Text { markdown: true, .. } => vec![Info, Markdown, Text],
             Content::Text { .. } => vec![Info, Text],
+            Content::Media { cover, .. } if ox_core::player::supported() => {
+                let mut tabs = vec![Info, Player];
+                tabs.extend(cover.as_ref().map(|_| Media));
+                tabs
+            }
             Content::Media { cover: Some(_), .. } => vec![Info, Media],
             Content::Font { .. } => vec![Info, FontSample, Glyphs],
             Content::Folder { git: Some(_), .. } => vec![Info, Git],
@@ -194,6 +201,28 @@ pub struct PreviewState {
     last_commit: Option<Commit>,
     /// SHA-256 and MD5, once asked for.
     checksums: Option<Checksums>,
+    play: PlayerState,
+}
+
+/// The Player tab.
+#[derive(Default)]
+struct PlayerState {
+    /// The audio or video file being played.
+    playback: Option<Playback>,
+    /// Start playing when the Player tab opens next (the Info tab's ▶ Play).
+    autoplay: bool,
+    /// Kept from file to file.
+    volume: Option<f32>,
+    looping: bool,
+}
+
+struct Playback {
+    path: PathBuf,
+    player: Result<ox_core::player::Player, String>,
+    /// The last video frame.
+    texture: Option<TextureHandle>,
+    /// Where the seek bar is being dragged to (seconds).
+    dragging: Option<f32>,
 }
 
 enum Checksums {
@@ -285,6 +314,13 @@ fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
     if matches!(entry.kind(), FileKind::Audio | FileKind::Video) {
         if let Some(media) = media_info(&entry.path, entry.kind() == FileKind::Video) {
             return media;
+        }
+        if ox_core::player::supported() {
+            // No details, but it can still be played.
+            return Loaded::Media {
+                info: Vec::new(),
+                cover: None,
+            };
         }
     }
     if entry.kind() == FileKind::Font {
@@ -583,6 +619,7 @@ impl PreviewState {
             self.content = Some(Content::Loading(rx));
             self.last_commit = None;
             self.checksums = None;
+            self.play.playback = None;
         }
         if let Some(Content::Loading(rx)) = &self.content {
             if let Ok((loaded, commit)) = rx.try_recv() {
@@ -661,6 +698,12 @@ impl PreviewState {
     fn clear(&mut self) {
         self.key = None;
         self.content = None;
+        self.play.playback = None;
+    }
+
+    /// Stop and close the player.
+    pub fn stop_playback(&mut self) {
+        self.play.playback = None;
     }
 }
 
@@ -809,14 +852,26 @@ fn tabbed(
                     checksums(ui, &mut state.checksums, e, actions);
                 }
                 ui.add_space(8.0);
+                let playable =
+                    matches!(content, Content::Media { .. }) && ox_core::player::supported();
                 let label = match content {
                     Content::Media { .. } => tr("▶ Play"),
                     Content::Folder { .. } => tr("📂 Open"),
                     _ => tr("📂 Open with default app"),
                 };
-                if ui.button(label).clicked() {
-                    actions.push(Action::Open(e.path.clone()));
-                }
+                ui.horizontal(|ui| {
+                    if ui.button(label).clicked() {
+                        if playable {
+                            state.wanted = Some(PreviewTab::Player);
+                            state.play.autoplay = true;
+                        } else {
+                            actions.push(Action::Open(e.path.clone()));
+                        }
+                    }
+                    if playable && ui.button(tr("📂 Open with default app")).clicked() {
+                        actions.push(Action::Open(e.path.clone()));
+                    }
+                });
                 if let Content::Error(err) = content {
                     ui.add_space(6.0);
                     ui.colored_label(egui::Color32::from_rgb(0xe5, 0x48, 0x4d), err);
@@ -826,6 +881,13 @@ fn tabbed(
                 if let Content::Font { family, .. } = content {
                     font_sample(ui, family, &mut state.sample);
                 }
+            }
+            PreviewTab::Player => {
+                let cover = match content {
+                    Content::Media { cover, .. } => cover.as_ref(),
+                    _ => None,
+                };
+                player_tab(ui, &mut state.play, e, cover);
             }
             PreviewTab::Markdown => {
                 if let Content::Text { text, .. } = content {
@@ -1413,5 +1475,190 @@ fn checksums(ui: &mut Ui, state: &mut Option<Checksums>, e: &FileEntry, actions:
                 );
             }
         }
+    }
+}
+
+/// "1:05" or "1:02:03".
+fn clock(secs: f32) -> String {
+    let s = secs.max(0.0) as u64;
+    let (h, m, s) = (s / 3600, s / 60 % 60, s % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
+    }
+}
+
+/// The built-in player: the video (or the cover of audio files), a seek
+/// bar and the buttons. The file is opened when the tab is shown.
+fn player_tab(ui: &mut Ui, state: &mut PlayerState, e: &FileEntry, cover: Option<&TextureHandle>) {
+    use ox_core::player::Player;
+    let volume = *state.volume.get_or_insert(0.8);
+    if state.playback.as_ref().is_none_or(|p| p.path != e.path) {
+        let ctx = ui.ctx().clone();
+        let player =
+            Player::open(&e.path, move || ctx.request_repaint()).map_err(|e| e.to_string());
+        if let Ok(p) = &player {
+            p.set_volume(volume as f64);
+            p.set_looping(state.looping);
+            if std::mem::take(&mut state.autoplay) {
+                p.play();
+            }
+        }
+        state.playback = Some(Playback {
+            path: e.path.clone(),
+            player,
+            texture: None,
+            dragging: None,
+        });
+    }
+    let pb = state.playback.as_mut().expect("opened above");
+    let player = match &mut pb.player {
+        Ok(p) => p,
+        Err(err) => {
+            ui.colored_label(egui::Color32::from_rgb(0xe5, 0x48, 0x4d), err.as_str());
+            return;
+        }
+    };
+    if let Some(frame) = player.frame() {
+        let size = [frame.size[0] as usize, frame.size[1] as usize];
+        let image = ColorImage::from_rgba_unmultiplied(size, &frame.rgba);
+        match &mut pb.texture {
+            Some(tex) if tex.size() == size => tex.set(image, TextureOptions::LINEAR),
+            _ => {
+                pb.texture = Some(ui.ctx().load_texture(
+                    "preview_video",
+                    image,
+                    TextureOptions::LINEAR,
+                ))
+            }
+        }
+    }
+    let st = player.status();
+    let width = ui.available_width();
+
+    // The picture.
+    if st.video {
+        match &pb.texture {
+            Some(tex) => {
+                let size = tex.size_vec2();
+                ui.add(egui::Image::new((tex.id(), size * (width / size.x))).corner_radius(6.0));
+            }
+            None => {
+                let (rect, _) = ui.allocate_exact_size(
+                    egui::vec2(width, width * 9.0 / 16.0),
+                    egui::Sense::hover(),
+                );
+                ui.painter().rect_filled(rect, 6.0, egui::Color32::BLACK);
+            }
+        }
+    } else if let Some(tex) = cover {
+        let size = tex.size_vec2();
+        let scale = (width / size.x).min(1.0);
+        ui.vertical_centered(|ui| {
+            ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(6.0));
+        });
+    } else {
+        ui.add_space(16.0);
+        ui.vertical_centered(|ui| {
+            ui.label(RichText::new("🎵").size(56.0).weak());
+        });
+        ui.add_space(16.0);
+    }
+    if let Some(err) = &st.error {
+        ui.add_space(4.0);
+        ui.colored_label(egui::Color32::from_rgb(0xe5, 0x48, 0x4d), err.as_str());
+    }
+    ui.add_space(6.0);
+
+    // Seek bar with the time on either side.
+    let total = st.duration.map_or(0.0, |d| d.as_secs_f32());
+    let mut pos = pb.dragging.unwrap_or(st.position.as_secs_f32()).min(total);
+    ui.horizontal(|ui| {
+        let time = |t: f32| RichText::new(clock(t)).monospace().size(11.0);
+        ui.label(time(pos));
+        let right = ui.fonts_mut(|f| {
+            f.layout_no_wrap(
+                clock(total),
+                egui::FontId::monospace(11.0),
+                egui::Color32::WHITE,
+            )
+            .size()
+            .x
+        });
+        ui.spacing_mut().slider_width = (ui.available_width() - right - 12.0).max(40.0);
+        let resp = ui.add_enabled(
+            total > 0.0,
+            egui::Slider::new(&mut pos, 0.0..=total.max(0.01)).show_value(false),
+        );
+        if resp.dragged() {
+            pb.dragging = Some(pos);
+        } else if resp.drag_stopped() || resp.changed() {
+            player.seek(Duration::from_secs_f32(pos));
+            pb.dragging = None;
+        }
+        ui.label(time(total));
+    });
+
+    // Buttons.
+    ui.horizontal(|ui| {
+        let big = |text: &str| {
+            egui::Button::new(RichText::new(text).size(16.0)).min_size(egui::vec2(34.0, 28.0))
+        };
+        if ui
+            .add(big("⏪"))
+            .on_hover_text(tr("Back 10 seconds"))
+            .clicked()
+        {
+            player.seek(st.position.saturating_sub(Duration::from_secs(10)));
+        }
+        let (icon, hint) = if st.playing {
+            ("⏸", tr("Pause"))
+        } else {
+            ("▶", tr("Play"))
+        };
+        if ui.add(big(icon)).on_hover_text(hint).clicked() {
+            if st.playing {
+                player.pause();
+            } else {
+                player.play();
+            }
+        }
+        if ui
+            .add(big("⏩"))
+            .on_hover_text(tr("Forward 10 seconds"))
+            .clicked()
+        {
+            let to = st.position + Duration::from_secs(10);
+            player.seek(st.duration.map_or(to, |d| to.min(d)));
+        }
+        if ui
+            .add(egui::Button::selectable(
+                state.looping,
+                RichText::new("🔁").size(15.0),
+            ))
+            .on_hover_text(tr("Repeat"))
+            .clicked()
+        {
+            state.looping = !state.looping;
+            player.set_looping(state.looping);
+        }
+        ui.add_space(6.0);
+        let mut v = volume;
+        let icon = if v <= 0.0 { "🔇" } else { "🔊" };
+        ui.label(RichText::new(icon).size(15.0));
+        ui.spacing_mut().slider_width = (ui.available_width() - 8.0).clamp(40.0, 110.0);
+        if ui
+            .add(egui::Slider::new(&mut v, 0.0..=1.0).show_value(false))
+            .on_hover_text(tr("Volume"))
+            .changed()
+        {
+            state.volume = Some(v);
+            player.set_volume(v as f64);
+        }
+    });
+    if st.playing {
+        // The time and seek bar move on.
+        ui.ctx().request_repaint_after(Duration::from_millis(250));
     }
 }

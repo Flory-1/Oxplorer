@@ -90,6 +90,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
 
     let preview_shown =
         app.settings.browsing.show_preview && app.tabs.active().location().shows_files();
+    if !preview_shown {
+        // Nothing plays where it can't be seen (or stopped).
+        app.preview.stop_playback();
+    }
     if preview_shown && !app.settings.preview.as_window {
         let salt = app.ui.preview_width.salt(ui, app.settings.preview.width);
         let resp = egui::Panel::right(("preview", salt))

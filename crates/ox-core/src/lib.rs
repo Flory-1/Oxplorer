@@ -21,6 +21,7 @@ pub mod network;
 pub mod pathfmt;
 pub mod pdf;
 pub mod places;
+pub mod player;
 pub mod recycle;
 pub mod rename;
 pub mod search;
