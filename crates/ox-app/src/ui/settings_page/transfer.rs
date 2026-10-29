@@ -117,6 +117,24 @@ pub(super) fn transfer(ui: &mut Ui, s: &mut Settings) {
     );
     toggle(
         ui,
+        &mut t.keep_folder_dates,
+        tr("Keep folder dates"),
+        tr("Copied folders get the dates of the originals, set once their contents are copied."),
+    );
+    toggle(
+        ui,
+        &mut t.keep_permissions,
+        tr("Keep permissions"),
+        tr("Copy who may open and change each file and folder (ACLs). The owner is kept where Windows allows it, auditing rules aren't copied."),
+    );
+    toggle(
+        ui,
+        &mut t.keep_streams,
+        tr("Keep alternate data streams"),
+        tr("Extra data some programs attach to files and folders (NTFS streams). Off: copies get only the contents, but the \"downloaded from the internet\" mark, which is also a stream, is always kept."),
+    );
+    toggle(
+        ui,
         &mut t.use_system_clipboard,
         tr("Share clipboard with Windows Explorer"),
         tr("Copy in Explorer, paste in Oxplorer (and the other way around)."),

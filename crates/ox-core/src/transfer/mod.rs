@@ -21,6 +21,7 @@
 mod copy;
 pub mod history;
 pub mod journal;
+mod metadata;
 mod plan;
 mod throttle;
 mod verify;
@@ -138,6 +139,13 @@ pub struct EngineConfig {
     pub speed_limit: u64,
     /// Folder for the journals that make jobs resumable; `None` = no journals.
     pub journal_dir: Option<PathBuf>,
+    /// Copy the permissions (DACL, and the owner where allowed) on Windows.
+    pub keep_permissions: bool,
+    /// Copy alternate data streams. When off, copies only keep the
+    /// "downloaded from the internet" mark (`Zone.Identifier`).
+    pub keep_streams: bool,
+    /// Give copied folders the dates of the originals.
+    pub keep_folder_dates: bool,
 }
 
 impl Default for EngineConfig {
@@ -152,6 +160,9 @@ impl Default for EngineConfig {
             verify: false,
             speed_limit: 0,
             journal_dir: None,
+            keep_permissions: false,
+            keep_streams: false,
+            keep_folder_dates: true,
         }
     }
 }
