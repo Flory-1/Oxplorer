@@ -3041,7 +3041,7 @@ dependencies = [
 
 [[package]]
 name = "ox-app"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "alacritty_terminal",
  "arboard",
@@ -3065,7 +3065,7 @@ dependencies = [
 
 [[package]]
 name = "ox-core"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "chrono",
  "clipboard-win",
