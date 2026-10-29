@@ -137,6 +137,8 @@ pub enum Action {
     Player(super::PlayerAction),
     /// Remote locations: connect, open, add/edit/remove places.
     Remote(super::RemoteAction),
+    /// Compare two text files (old, new) in a window.
+    CompareTextFiles(PathBuf, PathBuf),
 }
 
 pub enum TabAction {

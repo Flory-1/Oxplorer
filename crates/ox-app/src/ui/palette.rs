@@ -12,6 +12,7 @@ use crate::tabs::Location;
 
 mod cleanup;
 mod commands;
+mod compare_files;
 mod disk_usage;
 mod pictures;
 mod player;
@@ -563,6 +564,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
     commands::entries(app, &mut v);
     disk_usage::entries(app, &mut v);
     pictures::entries(app, &mut v);
+    compare_files::entries(app, &mut v);
     player::entries(app, &mut v);
 
     tabs::entries(app, &mut v);

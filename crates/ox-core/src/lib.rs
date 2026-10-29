@@ -59,6 +59,8 @@ pub mod shared;
 pub mod shell;
 pub mod sqlite_view;
 pub mod tags;
+pub mod temp_copy;
+pub mod textdiff;
 pub mod textinfo;
 pub mod themes;
 pub mod titlebar;

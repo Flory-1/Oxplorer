@@ -64,6 +64,24 @@ pub(super) fn diff_view(
         }
         Some(Ok(d)) => d.clone(),
     };
+    draw(ui, side_by_side, &diff, id, max_h, |ui| {
+        if pane.loading() {
+            ui.spinner();
+        }
+    });
+}
+
+/// `diff` drawn, at most `max_h` high; `toolbar` adds to the row above it
+/// (after the counts and the side-by-side switch). Also used for comparing
+/// two files (`ui::text_compare`).
+pub(crate) fn draw(
+    ui: &mut Ui,
+    side_by_side: &mut bool,
+    diff: &Diff,
+    id: &str,
+    max_h: f32,
+    toolbar: impl FnOnce(&mut Ui),
+) {
     if diff.too_large {
         ui.label(RichText::new(tr("This diff is too large to show.")).weak());
         return;
@@ -83,9 +101,7 @@ pub(super) fn diff_view(
                 .color(colors.removed_text),
         );
         ui.checkbox(side_by_side, tr("Side by side"));
-        if pane.loading() {
-            ui.spinner();
-        }
+        toolbar(ui);
     });
     for f in &diff.files {
         about(ui, f);
@@ -95,7 +111,7 @@ pub(super) fn diff_view(
         return;
     }
 
-    let rows = rows(&diff, *side_by_side);
+    let rows = rows(diff, *side_by_side);
     let partners: Vec<Vec<Vec<Option<usize>>>> = diff
         .files
         .iter()

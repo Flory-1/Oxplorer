@@ -203,7 +203,7 @@ pub(super) fn load(entry: FileEntry, show_hidden: bool, large: bool) -> Loaded {
             Err(e) => Loaded::Error(ox_core::trf!("Can't show this PDF: {e}", e = e)),
         };
     }
-    if let Some(data) = data::load(&entry) {
+    if let Some(data) = data::load(&entry, data::Place::File) {
         return data;
     }
     if is_text(&entry) || entry.size == 0 {
@@ -255,6 +255,9 @@ pub(super) fn load_from_archive(
             }
             Err(e) => Loaded::Error(e.to_string()),
         };
+    }
+    if let Some(data) = data::load(entry, data::Place::Archive(arc, inner)) {
+        return data;
     }
     match archive::read_entry(arc, inner, MAX_TEXT_BYTES as u64 + 1) {
         Ok(buf) => match text_from_bytes(buf) {

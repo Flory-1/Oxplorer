@@ -33,20 +33,30 @@ pub struct DbObject {
 /// A database file by its extension and first bytes.
 pub fn is_database(path: &Path) -> bool {
     use std::io::Read;
-    let ext = path
-        .extension()
-        .map(|e| e.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
-    if !matches!(
-        ext.as_str(),
-        "sqlite" | "sqlite3" | "db" | "db3" | "s3db" | "sl3"
-    ) {
+    if !has_database_extension(path) {
         return false;
     }
     let mut head = [0u8; 16];
     std::fs::File::open(path)
         .and_then(|mut f| f.read_exact(&mut head))
-        .is_ok_and(|()| &head == MAGIC)
+        .is_ok_and(|()| is_database_header(&head))
+}
+
+/// Whether `path` has the extension of an SQLite database.
+pub fn has_database_extension(path: &Path) -> bool {
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    matches!(
+        ext.as_str(),
+        "sqlite" | "sqlite3" | "db" | "db3" | "s3db" | "sl3"
+    )
+}
+
+/// Whether a file starting with `bytes` is an SQLite database.
+pub fn is_database_header(bytes: &[u8]) -> bool {
+    bytes.starts_with(MAGIC)
 }
 
 /// The `file:` URI that opens `path` read-only and immutable.

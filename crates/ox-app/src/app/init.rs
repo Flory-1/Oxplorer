@@ -102,6 +102,7 @@ impl OxApp {
             preview: Default::default(),
             player: PlayerSession::main(),
             quick_look: None,
+            text_compare: None,
             disk_usage: Default::default(),
             folder_sizes: {
                 let repaint = cc.egui_ctx.clone();

@@ -6,7 +6,7 @@ mod document;
 mod font;
 mod git_branches;
 mod git_changes;
-mod git_diff;
+pub(crate) mod git_diff;
 mod git_graph;
 mod git_panel;
 mod hex;

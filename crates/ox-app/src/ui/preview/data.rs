@@ -1,15 +1,27 @@
 //! Data files in the preview: CSV/TSV as a table, JSON/XML/YAML/TOML as a
 //! tree and SQLite databases table by table. The file's text stays in the
-//! Text tab.
+//! Text tab. Items inside archives are read into memory (as much as the
+//! views take); databases are copied to a temporary file while shown.
 
 use super::*;
 use ox_core::datatable::{self, CsvFormat, Table};
 use ox_core::datatree::{self, Format, ParseError, Tree};
 use ox_core::sqlite_view::{self, DbObject};
+use ox_core::temp_copy::TempCopy;
 use std::cell::RefCell;
 
 /// How many rows of a database table are shown.
 const DB_ROWS: usize = 1000;
+/// Largest database inside an archive that is copied out to be shown.
+const MAX_ARCHIVED_DB: u64 = 256 * 1024 * 1024;
+
+/// Where a data file's bytes are.
+#[derive(Clone, Copy)]
+pub(super) enum Place<'a> {
+    File,
+    /// Inside the archive `.0`, at `.1`.
+    Archive(&'a Path, &'a Path),
+}
 
 pub(super) struct Data {
     /// The file as text (a `Content::Text`), for the Text tab.
@@ -33,6 +45,9 @@ enum View {
     Db {
         path: PathBuf,
         objects: Result<Vec<DbObject>, String>,
+        /// The temporary copy at `path` of a database inside an archive
+        /// (deleted when the last user lets go of it).
+        copy: Option<Arc<TempCopy>>,
     },
 }
 
@@ -48,10 +63,15 @@ struct State {
 
 /// Loads `entry` if it is a data file (`None` otherwise, or if it is too
 /// large or not text after all: it is then previewed as usual).
-pub(super) fn load(entry: &FileEntry) -> Option<Loaded> {
+pub(super) fn load(entry: &FileEntry, place: Place) -> Option<Loaded> {
     let ext = entry.extension();
+    // The first `max` bytes, and one more if there are more.
+    let read_start = |max: u64| match place {
+        Place::File => read_start(&entry.path, max),
+        Place::Archive(arc, inner) => ox_core::archive::read_entry(arc, inner, max + 1).ok(),
+    };
     if matches!(ext.as_str(), "csv" | "tsv" | "tab") {
-        let bytes = read_start(&entry.path, datatable::MAX_CSV_BYTES)?;
+        let bytes = read_start(datatable::MAX_CSV_BYTES)?;
         let cut = bytes.len() as u64 > datatable::MAX_CSV_BYTES;
         let text =
             datatable::decode_csv(&bytes[..bytes.len().min(datatable::MAX_CSV_BYTES as usize)])?;
@@ -62,7 +82,7 @@ pub(super) fn load(entry: &FileEntry) -> Option<Loaded> {
         if entry.size > datatree::MAX_BYTES {
             return None;
         }
-        let bytes = read_start(&entry.path, datatree::MAX_BYTES)?;
+        let bytes = read_start(datatree::MAX_BYTES)?;
         let text = datatable::decode_csv(&bytes)?;
         let tree = datatree::parse(format, &text);
         // Files that are only sometimes XML (.config, .manifest, …) are
@@ -76,25 +96,56 @@ pub(super) fn load(entry: &FileEntry) -> Option<Loaded> {
         }
         return Some(loaded(bytes, View::Tree(Box::new(tree))));
     }
-    if sqlite_view::is_database(&entry.path) {
-        let objects = sqlite_view::objects(&entry.path);
-        let rows = match &objects {
-            Ok(list) => list
-                .first()
-                .map(|o| sqlite_view::rows(&entry.path, o, DB_ROWS)),
-            Err(_) => None,
-        };
-        let view = View::Db {
-            path: entry.path.clone(),
-            objects,
-        };
-        return Some(Loaded::Data(Box::new(LoadedData {
-            text: None,
-            view,
-            rows,
-        })));
+    match place {
+        Place::File if sqlite_view::is_database(&entry.path) => {
+            Some(database_view(entry.path.clone(), None))
+        }
+        Place::Archive(arc, inner) if sqlite_view::has_database_extension(&entry.path) => {
+            archived_database(entry, arc, inner)
+        }
+        _ => None,
     }
-    None
+}
+
+/// A database's tables and the rows of the first one.
+fn database_view(path: PathBuf, copy: Option<Arc<TempCopy>>) -> Loaded {
+    let objects = sqlite_view::objects(&path);
+    let rows = match &objects {
+        Ok(list) => list.first().map(|o| sqlite_view::rows(&path, o, DB_ROWS)),
+        Err(_) => None,
+    };
+    let view = View::Db {
+        path,
+        objects,
+        copy,
+    };
+    Loaded::Data(Box::new(LoadedData {
+        text: None,
+        view,
+        rows,
+    }))
+}
+
+/// A database inside an archive: copied to a temporary file (SQLite needs
+/// a path), opened read-only from there and deleted when no longer shown.
+fn archived_database(entry: &FileEntry, arc: &Path, inner: &Path) -> Option<Loaded> {
+    if entry.size > MAX_ARCHIVED_DB {
+        return Some(Loaded::Error(
+            tr("The database is too large to show from inside the archive.").into(),
+        ));
+    }
+    let bytes = ox_core::archive::read_entry(arc, inner, MAX_ARCHIVED_DB + 1).ok()?;
+    if !sqlite_view::is_database_header(&bytes) {
+        return None;
+    }
+    let name = entry.path.file_name()?.to_string_lossy();
+    match TempCopy::write(&bytes, &name) {
+        Ok(copy) => {
+            let copy = Arc::new(copy);
+            Some(database_view(copy.path().to_owned(), Some(copy)))
+        }
+        Err(e) => Some(Loaded::Error(e.to_string())),
+    }
 }
 
 /// The first `max` bytes of a file, and one more if there are more.
@@ -262,7 +313,11 @@ pub(super) fn show(
                         ui.label(error_text(err));
                     }
                 },
-                View::Db { path, objects } => database(ui, path, objects, state, actions),
+                View::Db {
+                    path,
+                    objects,
+                    copy,
+                } => database(ui, (path, copy), objects, state, actions),
             }
         }
         _ => return false,
@@ -278,7 +333,7 @@ fn tree_format(e: &FileEntry) -> Option<Format> {
 /// picked.
 fn database(
     ui: &mut Ui,
-    path: &Path,
+    (path, copy): (&Path, &Option<Arc<TempCopy>>),
     objects: &Result<Vec<DbObject>, String>,
     state: &mut State,
     actions: &mut Vec<Action>,
@@ -313,8 +368,11 @@ fn database(
         state.rows = None;
         let (tx, rx) = crossbeam_channel::bounded(1);
         let (path, object, repaint) = (path.to_owned(), list[picked].clone(), ui.ctx().clone());
+        // The copy stays until the rows are read.
+        let copy = copy.clone();
         std::thread::spawn(move || {
             let _ = tx.send(sqlite_view::rows(&path, &object, DB_ROWS));
+            drop(copy);
             repaint.request_repaint();
         });
         state.loading = Some(rx);
@@ -332,5 +390,36 @@ fn database(
         None => {
             ui.spinner();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+
+    #[test]
+    fn data_files_inside_archives_get_their_views() {
+        let dir = tempfile::tempdir().unwrap();
+        let csv = dir.path().join("people.csv");
+        let json = dir.path().join("config.json");
+        std::fs::write(&csv, "name,age\nAda,36\nAlan,41\n").unwrap();
+        std::fs::write(&json, r#"{"a": [1, 2], "b": {"c": true}}"#).unwrap();
+        let zip = dir.path().join("data.zip");
+        ox_core::archive::compress_zip(&[csv, json], &zip, &AtomicBool::new(false)).unwrap();
+        let items = ox_core::archive::list(&zip, Path::new("")).unwrap();
+        let data = |name: &str| {
+            let e = items.iter().find(|e| e.name == name).unwrap();
+            let (arc, inner) = ox_core::archive::split_virtual(&e.path).unwrap();
+            match load(e, Place::Archive(&arc, &inner)) {
+                Some(Loaded::Data(d)) => *d,
+                _ => panic!("no data view for {name}"),
+            }
+        };
+        let d = data("people.csv");
+        assert!(matches!(&d.view, View::Csv(t, _) if t.rows.len() == 2));
+        assert!(d.text.is_some(), "the Text tab too");
+        let d = data("config.json");
+        assert!(matches!(&d.view, View::Tree(t) if t.is_ok()));
     }
 }

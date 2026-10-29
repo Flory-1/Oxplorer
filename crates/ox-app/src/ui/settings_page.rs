@@ -533,6 +533,12 @@ fn preview(ui: &mut Ui, s: &mut Settings) {
             tr("Show Word, Excel, PowerPoint, Outlook and other files with the preview handlers Windows uses in Explorer (the Document tab)."),
         );
     }
+    toggle(
+        ui,
+        &mut p.reencode_rotated_jpegs,
+        tr("Re-encode JPEGs instead (for programs that ignore the orientation)"),
+        tr("Rotating and flipping a JPEG only changes its EXIF orientation: lossless, and every viewer that honours the tag shows it turned. On: the picture is turned and saved again at quality 95."),
+    );
 }
 
 /// Editors offered on the Developer page: name and command line.

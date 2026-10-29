@@ -164,8 +164,8 @@ pub(super) fn run(
 /// Do `task` to one picture.
 fn one(task: &Task, path: &Path, ctx: &Ctx) -> Result<Done, String> {
     match task {
-        Task::Transform(tf) => {
-            let bytes = transform(path, *tf)?;
+        Task::Transform(tf, jpeg) => {
+            let bytes = transform(path, *tf, *jpeg)?;
             replace(path, None, &bytes, ctx).map(Done::Replaced)
         }
         Task::Convert(c) => {
