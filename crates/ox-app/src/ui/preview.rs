@@ -1,11 +1,15 @@
 //! Preview pane: shows the selected file (image, text/code) or a summary.
 
+mod data;
 mod font;
 mod git_graph;
+mod hex;
 mod info;
 mod large;
 mod load;
 mod player;
+mod table;
+mod tree;
 use font::*;
 use git_graph::*;
 use info::{checksums, info_grid};
@@ -63,6 +67,8 @@ enum Content {
         info: Vec<(&'static str, String)>,
         chars: Vec<char>,
     },
+    /// CSV, JSON/XML/YAML/TOML or SQLite: a table or tree (and the text).
+    Data(Box<data::Data>),
     Nothing,
     Error(String),
 }
@@ -82,6 +88,9 @@ pub enum PreviewTab {
     Player,
     /// The items of a folder or archive (Quick Look).
     Contents,
+    Table,
+    Tree,
+    Hex,
 }
 
 impl PreviewTab {
@@ -98,6 +107,9 @@ impl PreviewTab {
             PreviewTab::Git => tr("🌿 Git"),
             PreviewTab::Player => tr("▶ Player"),
             PreviewTab::Contents => tr("📂 Contents"),
+            PreviewTab::Table => tr("▦ Table"),
+            PreviewTab::Tree => tr("🗃 Tree"),
+            PreviewTab::Hex => tr("🔐 Hex"),
         }
     }
 }
@@ -117,6 +129,7 @@ impl Content {
             }
             Content::Media { cover: Some(_), .. } => vec![Info, Media],
             Content::Font { .. } => vec![Info, FontSample, Glyphs],
+            Content::Data(d) => d.tabs(),
             Content::Folder { git, items, .. } => {
                 let mut tabs = vec![Info];
                 tabs.extend((!items.is_empty()).then_some(Contents));
@@ -145,6 +158,7 @@ impl Content {
                 facts
             }
             Content::Media { info, .. } | Content::Font { info, .. } => info.clone(),
+            Content::Data(d) => d.facts(),
             Content::Folder {
                 folders,
                 files,
@@ -193,6 +207,7 @@ pub struct PreviewState {
     /// SHA-256 and MD5, once asked for.
     checksums: Option<Checksums>,
     play: PlayerState,
+    hex: hex::HexView,
     /// Quick Look: opens on what the file shows rather than Info, with
     /// sharper pictures, pictures fitted, folder contents and autoplay.
     quick_look: bool,
@@ -294,6 +309,7 @@ impl PreviewState {
                         info,
                         chars,
                     },
+                    Loaded::Data(d) => data::content(*d),
                     Loaded::Nothing => Content::Nothing,
                     Loaded::Error(e) => Content::Error(e),
                 });
@@ -329,6 +345,7 @@ impl PreviewState {
         self.key = None;
         self.content = None;
         self.play.playback = None;
+        self.hex = Default::default();
     }
 
     /// Stop and close the player.
@@ -472,7 +489,8 @@ fn tabbed(
         ui.spinner();
         return;
     };
-    let tabs = content.tabs();
+    let mut tabs = content.tabs();
+    state.hex.offer(e, &mut tabs);
     // The tab picked last, if this file has it; otherwise Info (Quick
     // Look: what the file shows).
     let first = match state.quick_look {
@@ -492,6 +510,9 @@ fn tabbed(
 
     let content = state.content.as_ref().expect("checked above");
     if large::show(ui, state.quick_look, tab, content) {
+        return;
+    }
+    if data::show(ui, &mut state.hex, tab, content, e, actions) {
         return;
     }
     // Quick Look: the video and its buttons fit without scrolling.
@@ -672,6 +693,7 @@ fn body(ui: &mut Ui, content: &Content, e: &FileEntry) {
             let scale = (avail / size.x).min(1.0);
             ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(6.0));
         }
+        Content::Data(d) => d.text.iter().for_each(|t| body(ui, t, e)),
         _ => {}
     }
 }

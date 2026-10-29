@@ -105,6 +105,8 @@ fn count_in(n: u64, noun: &str, german: bool) -> String {
         "transfer" => ("Übertragung", "Übertragungen"),
         "tab" => ("Tab", "Tabs"),
         "failed file" => ("fehlgeschlagene Datei", "fehlgeschlagene Dateien"),
+        "row" => ("Zeile", "Zeilen"),
+        "byte" => ("Byte", "Bytes"),
         _ => return crate::format::count(n, noun),
     };
     format!("{n} {}", if n == 1 { one } else { many })
