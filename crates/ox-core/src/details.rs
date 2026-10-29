@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+#[cfg(windows)]
 use crate::i18n::t as tr;
 
 #[derive(Debug, Clone, Default)]
@@ -23,6 +24,8 @@ pub struct Details {
     pub opens_with: Option<String>,
     /// When a photo was taken.
     pub date_taken: Option<SystemTime>,
+    /// Where a photo was taken: latitude and longitude.
+    pub location: Option<(f64, f64)>,
     /// A program's version information and a photo's camera details.
     pub facts: Vec<(&'static str, String)>,
     /// OneDrive/Dropbox status and the provider's name.
@@ -61,20 +64,7 @@ pub fn read(path: &Path, is_dir: bool) -> Details {
     ) {
         d.facts.extend(version_info(path));
     }
-    if matches!(
-        ext.as_str(),
-        "jpg"
-            | "jpeg"
-            | "jfif"
-            | "tif"
-            | "tiff"
-            | "heic"
-            | "heif"
-            | "avif"
-            | "png"
-            | "webp"
-            | "dng"
-    ) {
+    if crate::exif_info::may_have_exif(&ext) {
         photo(path, &mut d);
     }
     d
@@ -323,85 +313,19 @@ fn version_info(_path: &Path) -> Vec<(&'static str, String)> {
 
 /// Camera, lens, exposure, date taken and location from a photo's EXIF data.
 fn photo(path: &Path, d: &mut Details) {
-    use exif::{In, Tag};
-    let Ok(file) = fs::File::open(path) else {
+    let Some(info) = crate::exif_info::read(path) else {
         return;
     };
-    let Ok(exif) = exif::Reader::new().read_from_container(&mut std::io::BufReader::new(file))
-    else {
-        return;
-    };
-    let text = |tag: Tag| {
-        exif.get_field(tag, In::PRIMARY)
-            .map(|f| f.display_value().with_unit(&exif).to_string())
-            .map(|s| s.trim_matches('"').trim().to_owned())
-            .filter(|s| !s.is_empty() && s != "unknown")
-    };
-    let make = text(Tag::Make).unwrap_or_default();
-    let model = text(Tag::Model).unwrap_or_default();
-    // Most cameras repeat the maker in the model ("Canon" "Canon EOS R6").
-    let camera = if model.to_lowercase().starts_with(&make.to_lowercase()) {
-        model
-    } else {
-        format!("{make} {model}").trim().to_owned()
-    };
-    if !camera.is_empty() {
-        d.facts.push((tr("Camera"), camera));
-    }
-    if let Some(lens) = text(Tag::LensModel) {
-        d.facts.push((tr("Lens"), lens));
-    }
-    let exposure: Vec<String> = [
-        text(Tag::ExposureTime),
-        text(Tag::FNumber),
-        text(Tag::PhotographicSensitivity).map(|iso| format!("ISO {iso}")),
-        text(Tag::FocalLength),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    if !exposure.is_empty() {
-        d.facts.push((tr("Exposure"), exposure.join(" · ")));
-    }
-    d.date_taken = exif
-        .get_field(Tag::DateTimeOriginal, In::PRIMARY)
-        .and_then(|f| match &f.value {
-            exif::Value::Ascii(v) => v.first().and_then(|b| exif::DateTime::from_ascii(b).ok()),
-            _ => None,
-        })
-        .and_then(|t| {
-            use chrono::TimeZone;
-            let date =
-                chrono::NaiveDate::from_ymd_opt(t.year.into(), t.month.into(), t.day.into())?;
-            let time = date.and_hms_opt(t.hour.into(), t.minute.into(), t.second.into())?;
-            // Cameras write the local time without a time zone.
-            chrono::Local
-                .from_local_datetime(&time)
-                .earliest()
-                .map(SystemTime::from)
-        });
-    let coordinate = |value: Tag, reference: Tag| {
-        let f = exif.get_field(value, In::PRIMARY)?;
-        let exif::Value::Rational(parts) = &f.value else {
-            return None;
-        };
-        let degrees = parts
-            .iter()
-            .zip([1.0, 60.0, 3600.0])
-            .map(|(r, div)| r.to_f64() / div)
-            .sum::<f64>();
-        Some(format!(
-            "{degrees:.5}° {}",
-            text(reference).unwrap_or_default()
-        ))
-    };
-    if let (Some(lat), Some(lon)) = (
-        coordinate(Tag::GPSLatitude, Tag::GPSLatitudeRef),
-        coordinate(Tag::GPSLongitude, Tag::GPSLongitudeRef),
-    ) {
-        d.facts
-            .push((tr("Location taken"), format!("{lat}, {lon}")));
-    }
+    d.facts.extend(info.facts());
+    d.date_taken = info.taken.and_then(|time| {
+        use chrono::TimeZone;
+        // Cameras write the local time without a time zone.
+        chrono::Local
+            .from_local_datetime(&time)
+            .earliest()
+            .map(SystemTime::from)
+    });
+    d.location = info.location;
 }
 
 #[cfg(test)]

@@ -26,6 +26,8 @@ sevenz-rust2 = { version = "0.24", default-features = false, features = ["bzip2"
 sha2 = "0.10"
 md-5 = "0.10"
 kamadak-exif = "0.6"
+# SVG drawings (texts in the system's fonts; no embedded JPEG/GIF/WebP).
+resvg = { version = "0.47", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
 
 [target.'cfg(windows)'.dependencies]
 clipboard-win = { version = "5", features = ["std"] }
@@ -44,6 +46,7 @@ windows = { version = "0.62", features = [
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
+    "Win32_Graphics_Imaging",
     "Win32_NetworkManagement_WNet",
     "Win32_Networking_WinHttp",
     "Win32_Storage_CloudFilters",

@@ -20,6 +20,8 @@ pub(super) const MAX_TEXT_LINES: usize = 3000;
 
 pub(super) enum Loaded {
     Image(ColorImage, [u32; 2]),
+    /// An animated GIF/WebP: its frames, how long each stays, and its size.
+    Animation(Vec<(ColorImage, Duration)>, [u32; 2]),
     /// First page of a PDF and the number of pages.
     Page(ColorImage, u32),
     Text {
@@ -68,10 +70,7 @@ pub(super) fn is_markdown(e: &FileEntry) -> bool {
 }
 
 pub(super) fn is_image(e: &FileEntry) -> bool {
-    matches!(
-        e.extension().as_str(),
-        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "ico" | "tif" | "tiff"
-    )
+    is_picture(&e.extension())
 }
 
 /// Code and config files get syntax highlighting (by extension).
@@ -158,10 +157,14 @@ pub(super) fn load(entry: FileEntry, show_hidden: bool, large: bool) -> Loaded {
         };
     }
     if is_image(&entry) {
-        if entry.size > MAX_IMAGE_BYTES {
+        if entry.size > MAX_IMAGE_BYTES && !ox_core::picture::is_wic(&entry.extension()) {
             return Loaded::Error(tr("The image is too large to preview.").into());
         }
-        return image_result(image::open(&entry.path), side);
+        return picture::load(
+            ox_core::picture::Source::File(&entry.path),
+            &entry.extension(),
+            side,
+        );
     }
     if matches!(entry.kind(), FileKind::Audio | FileKind::Video) {
         if let Some(media) = media_info(&entry.path, entry.kind() == FileKind::Video) {
@@ -208,26 +211,6 @@ pub(super) fn load(entry: FileEntry, show_hidden: bool, large: bool) -> Loaded {
     }
 }
 
-pub(super) fn image_result(img: image::ImageResult<image::DynamicImage>, side: u32) -> Loaded {
-    match img {
-        Ok(img) => {
-            let (w, h) = (img.width(), img.height());
-            let img = if w.max(h) > side {
-                img.thumbnail(side, side)
-            } else {
-                img
-            };
-            let rgba = img.to_rgba8();
-            let size = [rgba.width() as usize, rgba.height() as usize];
-            Loaded::Image(
-                ColorImage::from_rgba_unmultiplied(size, rgba.as_raw()),
-                [w, h],
-            )
-        }
-        Err(e) => Loaded::Error(ox_core::trf!("Can't read this image: {e}", e = e)),
-    }
-}
-
 /// Preview of an item inside an archive, read without extracting it.
 pub(super) fn load_from_archive(
     entry: &FileEntry,
@@ -259,7 +242,11 @@ pub(super) fn load_from_archive(
                 } else {
                     MAX_IMAGE_SIDE
                 };
-                image_result(image::load_from_memory(&bytes), side)
+                picture::load(
+                    ox_core::picture::Source::Bytes(&bytes),
+                    &entry.extension(),
+                    side,
+                )
             }
             Err(e) => Loaded::Error(e.to_string()),
         };
