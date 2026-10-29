@@ -9,6 +9,7 @@ mod keys;
 mod search;
 mod theme;
 mod transfer;
+mod views;
 
 use keys::shortcuts;
 use search::{index_section, search};
@@ -82,7 +83,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                             appearance(ui, app);
                             theme_editor(ui, app);
                         }
-                        Section::Browsing => browsing(ui, &mut app.settings),
+                        Section::Browsing => {
+                            browsing(ui, &mut app.settings);
+                            views::folder_views(ui, app);
+                        }
                         Section::Startup => {
                             startup(ui, &mut app.settings);
                             default_folder_handler(ui, app);

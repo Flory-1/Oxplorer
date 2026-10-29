@@ -83,6 +83,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("ui/settings_page/theme.rs"),
     app!("ui/settings_page/transfer.rs"),
     app!("ui/sessions.rs"),
+    app!("ui/settings_page/views.rs"),
     app!("ui/sidebar.rs"),
     app!("ui/transfers.rs"),
     app!("ui/transfers/ask.rs"),

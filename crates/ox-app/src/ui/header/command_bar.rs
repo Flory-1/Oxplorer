@@ -174,13 +174,14 @@ pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                     ui.menu_button(tr("Columns"), |ui| {
                         crate::ui::files::column_menu(
                             ui,
-                            &app.settings.browsing.columns,
+                            app.columns_of(app.tabs.active()),
                             crate::ui::files::column_context(app.tabs.active()),
                             in_bin,
                             &mut actions,
                         );
                     });
                 });
+                super::super::files::folder_view_menu(ui, app, &mut actions);
                 ui.separator();
                 let b = &mut app.settings.browsing;
                 let mut changed = ui

@@ -124,6 +124,8 @@ pub struct Browsing {
     pub open_archives: bool,
     /// Show the Git column and branch inside repositories.
     pub git_status: bool,
+    /// Each folder keeps the view it was last shown with (see `folder_views`).
+    pub remember_folder_views: bool,
     /// Columns of the details view.
     pub columns: crate::columns::ColumnLayout,
 }
@@ -147,6 +149,7 @@ impl Default for Browsing {
             folder_sizes: true,
             open_archives: true,
             git_status: true,
+            remember_folder_views: true,
             columns: Default::default(),
         }
     }

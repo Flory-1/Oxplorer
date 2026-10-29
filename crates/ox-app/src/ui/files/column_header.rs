@@ -49,6 +49,28 @@ pub(crate) fn column_menu(
     }
 }
 
+/// *Reset view of this folder* and *Use this view for all folders* (View menu).
+pub(crate) fn folder_view_menu(ui: &mut Ui, app: &OxApp, actions: &mut Vec<Action>) {
+    let folder = app.remembered_folder();
+    let own = folder.is_some_and(|f| app.folder_views.get(&f).is_some());
+    if ui
+        .add_enabled(own, egui::Button::new(tr("Reset view of this folder")))
+        .on_hover_text(tr("Show the folder with the default view again"))
+        .clicked()
+    {
+        actions.push(Action::View(ViewAction::ResetFolder));
+    }
+    if ui
+        .button(tr("Use this view for all folders"))
+        .on_hover_text(tr(
+            "Make this view mode, sort order and these columns the default for folders without a view of their own",
+        ))
+        .clicked()
+    {
+        actions.push(Action::View(ViewAction::MakeDefault));
+    }
+}
+
 /// Where a resize started: the column's width, Name's width and the pointer.
 #[derive(Clone, Copy)]
 struct Resize {
