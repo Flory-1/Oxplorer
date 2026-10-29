@@ -23,6 +23,7 @@ mod copy;
 pub mod history;
 pub mod journal;
 mod metadata;
+pub mod notice;
 mod plan;
 mod queue;
 mod remote;

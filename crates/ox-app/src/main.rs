@@ -29,8 +29,16 @@ fn main() -> eframe::Result {
             let _ = ox_core::default_app::set_enabled(false);
             return Ok(());
         }
+        // The uninstaller: forget the registration for notifications.
+        Some("--unregister-notifications") => {
+            ox_core::toast::unregister();
+            return Ok(());
+        }
         _ => {}
     }
+    // Toasts and the taskbar know Oxplorer by this ID (the Start-menu
+    // shortcut carries it too).
+    ox_core::toast::set_app_id();
     // `oxplorer C:\some\folder` opens that folder in a new tab.
     // Opened as the default folder handler, `"C:\"` arrives as `C:"`.
     let launch = ox_core::instance::parse(std::env::args().skip(1));

@@ -105,6 +105,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("ui/preview/git_diff.rs"),
     app!("ui/preview/git_graph.rs"),
     app!("ui/preview/git_panel.rs"),
+    app!("ui/preview/git_stashes.rs"),
     app!("ui/preview/hex.rs"),
     app!("ui/preview/info.rs"),
     app!("ui/preview/animation.rs"),
@@ -148,6 +149,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     core!("folder_views.rs"),
     core!("git/cmd.rs"),
     core!("git/ops.rs"),
+    core!("git/stash.rs"),
     core!("fsops.rs"),
     core!("links.rs"),
     core!("grouping.rs"),
@@ -172,6 +174,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     core!("transfer/remote.rs"),
     core!("undo.rs"),
     core!("transfer/when_done.rs"),
+    core!("transfer/notice.rs"),
     core!("transfer/journal.rs"),
     core!("transfer/metadata.rs"),
 ];

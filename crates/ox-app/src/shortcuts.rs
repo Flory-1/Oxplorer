@@ -1,5 +1,10 @@
 //! Keyboard shortcuts: the commands that have one, their default keys, and
 //! the user's own keys from the settings (`[shortcuts]` in settings.toml).
+//!
+//! Custom commands (Settings → Custom commands) can have a shortcut too.
+//! It is stored with the command (`shortcut` in its `[[commands]]` entry),
+//! which keeps it when the command is renamed or moved; the [`Keymap`]
+//! holds both kinds, so a clash between any two is found the same way.
 
 use std::collections::BTreeMap;
 use std::sync::RwLock;
@@ -50,6 +55,14 @@ pub enum Command {
     PlayerPlayPause,
     PlayerNext,
     PlayerPrevious,
+}
+
+/// What a shortcut runs: a built-in command or a custom command (by its
+/// place in the list of custom commands).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Binding {
+    Builtin(Command),
+    Custom(usize),
 }
 
 pub struct CommandInfo {
@@ -249,6 +262,15 @@ pub fn parse(text: &str) -> Option<KeyboardShortcut> {
     Some(KeyboardShortcut::new(mods, key?))
 }
 
+/// A custom command's shortcut as stored ("" or keys that don't parse:
+/// none).
+pub fn parse_custom(text: &str) -> Option<KeyboardShortcut> {
+    match text.trim() {
+        "" => None,
+        s => parse(s),
+    }
+}
+
 /// Ctrl, Shift, Alt and the Windows key on their own are not shortcuts.
 pub fn is_modifier(key: Key) -> bool {
     matches!(
@@ -262,6 +284,34 @@ pub fn is_modifier(key: Key) -> bool {
             | Key::SuperLeft
             | Key::SuperRight
     )
+}
+
+/// While a new shortcut is recorded: the keys pressed this frame, if any
+/// (`Some(None)`: Esc, recording is cancelled).
+pub fn recorded(input: &InputState) -> Option<Option<KeyboardShortcut>> {
+    let (key, m) = input.events.iter().find_map(|e| match e {
+        egui::Event::Key {
+            key,
+            pressed: true,
+            modifiers,
+            ..
+        } if !is_modifier(*key) => Some((*key, *modifiers)),
+        _ => None,
+    })?;
+    if key == Key::Escape && m.is_none() {
+        return Some(None);
+    }
+    let mut mods = Modifiers::NONE;
+    if m.ctrl || m.command {
+        mods |= Modifiers::COMMAND;
+    }
+    if m.alt {
+        mods |= Modifiers::ALT;
+    }
+    if m.shift {
+        mods |= Modifiers::SHIFT;
+    }
+    Some(Some(KeyboardShortcut::new(mods, key)))
 }
 
 /// The form stored in settings.toml ("Ctrl+Shift+P").
@@ -321,10 +371,13 @@ pub fn display(sc: &KeyboardShortcut) -> String {
     s
 }
 
-/// Shortcuts in effect: the defaults with the user's changes applied.
+/// Shortcuts in effect: the defaults with the user's changes applied, and
+/// the custom commands' ones.
 #[derive(Debug, Clone, Default)]
 pub struct Keymap {
     keys: Vec<(Command, Vec<KeyboardShortcut>)>,
+    /// The custom commands' shortcuts, by their place in the list.
+    custom: Vec<Option<KeyboardShortcut>>,
 }
 
 impl Keymap {
@@ -340,7 +393,53 @@ impl Keymap {
                 (c.cmd, keys)
             })
             .collect();
-        Self { keys }
+        Self {
+            keys,
+            custom: Vec::new(),
+        }
+    }
+
+    /// With the shortcuts of the custom commands, in their order (as
+    /// stored: "" for none).
+    pub fn with_custom<'a>(mut self, keys: impl IntoIterator<Item = &'a str>) -> Self {
+        self.custom = keys.into_iter().map(parse_custom).collect();
+        self
+    }
+
+    /// The keymap of `settings`: `[shortcuts]` and the custom commands.
+    pub fn from_settings(settings: &ox_core::Settings) -> Self {
+        let custom = settings.commands.0.iter().map(|c| c.shortcut.as_str());
+        Self::new(&settings.shortcuts).with_custom(custom)
+    }
+
+    /// The shortcut of custom command `i`.
+    pub fn custom_key(&self, i: usize) -> Option<KeyboardShortcut> {
+        self.custom.get(i).copied().flatten()
+    }
+
+    /// Every shortcut with what it runs, built-in commands first.
+    fn all(&self) -> impl Iterator<Item = (Binding, &KeyboardShortcut)> {
+        let builtin = self
+            .keys
+            .iter()
+            .flat_map(|(c, keys)| keys.iter().map(move |k| (Binding::Builtin(*c), k)));
+        let custom = self
+            .custom
+            .iter()
+            .enumerate()
+            .filter_map(|(i, k)| Some((Binding::Custom(i), k.as_ref()?)));
+        builtin.chain(custom)
+    }
+
+    /// The custom commands a key runs: those whose shortcut no built-in
+    /// command has (built-in ones go first; the settings warn about it).
+    pub fn custom_keys(&self) -> Vec<(usize, KeyboardShortcut)> {
+        self.custom
+            .iter()
+            .enumerate()
+            .filter_map(|(i, k)| Some((i, (*k)?)))
+            .filter(|(_, k)| !self.keys.iter().any(|(_, keys)| keys.contains(k)))
+            .collect()
     }
 
     pub fn keys(&self, cmd: Command) -> &[KeyboardShortcut] {
@@ -382,12 +481,12 @@ impl Keymap {
         out
     }
 
-    /// Another command that uses `key` too.
-    pub fn conflict(&self, cmd: Command, key: &KeyboardShortcut) -> Option<Command> {
-        self.keys
-            .iter()
-            .find(|(c, keys)| *c != cmd && keys.contains(key))
-            .map(|(c, _)| *c)
+    /// Another command, built-in or custom, that uses `key` too (built-in
+    /// ones first, as they win).
+    pub fn conflict(&self, of: Binding, key: &KeyboardShortcut) -> Option<Binding> {
+        self.all()
+            .find(|(b, k)| *b != of && *k == key)
+            .map(|(b, _)| b)
     }
 }
 
@@ -445,7 +544,75 @@ mod tests {
         assert!(k.keys(Command::Rename).is_empty());
         assert_eq!(k.label(Command::Up), "Alt+Up");
         let copy = parse("Ctrl+C").unwrap();
-        assert_eq!(k.conflict(Command::Refresh, &copy), Some(Command::Copy));
-        assert_eq!(k.conflict(Command::Copy, &copy), None);
+        use Binding::Builtin;
+        assert_eq!(
+            k.conflict(Builtin(Command::Refresh), &copy),
+            Some(Builtin(Command::Copy))
+        );
+        assert_eq!(k.conflict(Builtin(Command::Copy), &copy), None);
+    }
+
+    #[test]
+    fn custom_commands_clash_like_built_in_ones() {
+        use Binding::{Builtin, Custom};
+        let mut o = BTreeMap::new();
+        o.insert("refresh".to_owned(), "Ctrl+Alt+H".to_owned());
+        // Custom commands: one on a built-in's keys, two on the same keys,
+        // one without and one with keys that don't parse.
+        let k = Keymap::new(&o).with_custom(["Ctrl+Alt+H", "F9", " F9 ", "", "Ctrl+Nope"]);
+        let h = parse("Ctrl+Alt+H").unwrap();
+        let f9 = parse("F9").unwrap();
+        assert_eq!(k.custom_key(0), Some(h));
+        assert_eq!(k.custom_key(2), Some(f9));
+        assert_eq!(
+            (k.custom_key(3), k.custom_key(4), k.custom_key(9)),
+            (None, None, None)
+        );
+        // Custom and built-in, both ways.
+        assert_eq!(k.conflict(Custom(0), &h), Some(Builtin(Command::Refresh)));
+        assert_eq!(k.conflict(Builtin(Command::Refresh), &h), Some(Custom(0)));
+        // Two custom ones.
+        assert_eq!(k.conflict(Custom(1), &f9), Some(Custom(2)));
+        assert_eq!(k.conflict(Custom(2), &f9), Some(Custom(1)));
+        // Built-in against built-in still works, and nothing clashes with
+        // itself alone.
+        let ctrl_c = parse("Ctrl+C").unwrap();
+        assert_eq!(k.conflict(Custom(3), &ctrl_c), Some(Builtin(Command::Copy)));
+        assert_eq!(k.conflict(Builtin(Command::Copy), &ctrl_c), None);
+        // Keys a built-in command has don't run the custom one.
+        let runs: Vec<usize> = k.custom_keys().into_iter().map(|(i, _)| i).collect();
+        assert_eq!(runs, [1, 2]);
+    }
+
+    #[test]
+    fn old_settings_keep_their_custom_shortcuts() {
+        // A settings.toml from before custom commands were on the
+        // Shortcuts page: the shortcut is still read from the command.
+        let s: ox_core::Settings = toml::from_str(
+            r#"
+            [shortcuts]
+            copy = "Ctrl+Alt+C"
+
+            [[commands]]
+            name = "Hash"
+            command = "certutil -hashfile {path}"
+            shortcut = "Ctrl+Alt+H"
+
+            [[commands]]
+            name = "Old copy"
+            command = "x"
+            shortcut = "Ctrl+Alt+C"
+            "#,
+        )
+        .unwrap();
+        let k = Keymap::from_settings(&s);
+        assert_eq!(k.custom_key(0), parse("Ctrl+Alt+H"));
+        assert_eq!(k.label(Command::Copy), "Ctrl+Alt+C");
+        let c = parse("Ctrl+Alt+C").unwrap();
+        assert_eq!(
+            k.conflict(Binding::Custom(1), &c),
+            Some(Binding::Builtin(Command::Copy))
+        );
+        assert_eq!(k.custom_keys(), vec![(0, parse("Ctrl+Alt+H").unwrap())]);
     }
 }

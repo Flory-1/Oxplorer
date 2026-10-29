@@ -62,6 +62,7 @@ pub mod tags;
 pub mod textinfo;
 pub mod themes;
 pub mod titlebar;
+pub mod toast;
 pub mod transfer;
 pub mod undo;
 pub mod update;

@@ -93,10 +93,29 @@ fn branch_label(head: &Head) -> String {
 /// What is running, or what the last command printed (errors in red).
 fn status_line(ui: &mut Ui, panel: &mut GitPanel) {
     if let Some(what) = panel.busy() {
+        let live = panel.live();
+        let mut cancel = false;
         ui.horizontal(|ui| {
             ui.spinner();
             ui.label(what);
+            if let Some(live) = &live {
+                let button = ui
+                    .add_enabled(!live.cancelling, egui::Button::new(tr("Cancel")).small())
+                    .on_hover_text(tr("Stop git (what it already did stays done)."));
+                cancel = button.clicked();
+            }
         });
+        // Fetch, pull and push: git's latest progress line, with a bar
+        // when it says how far it is.
+        if let Some(p) = live.and_then(|l| l.progress) {
+            if let Some(f) = p.fraction {
+                ui.add(egui::ProgressBar::new(f).desired_height(6.0));
+            }
+            ui.add(egui::Label::new(RichText::new(&p.line).monospace().small().weak()).truncate());
+        }
+        if cancel {
+            panel.cancel();
+        }
         return;
     }
     let Some(outcome) = &panel.outcome else {

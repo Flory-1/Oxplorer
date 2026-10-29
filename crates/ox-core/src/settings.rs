@@ -202,6 +202,8 @@ pub struct Transfer {
     pub ask_on_error: bool,
     /// What happens when the last transfer is done.
     pub when_done: crate::transfer::when_done::WhenDone,
+    /// A Windows notification when transfers are done while Oxplorer is in the background.
+    pub notify_done: bool,
     /// Copy permissions (ACLs) along with the files.
     pub keep_permissions: bool,
     /// Copy alternate data streams (the internet mark is always kept).
@@ -227,6 +229,7 @@ impl Default for Transfer {
             drag_moves_on_same_drive: true,
             ask_on_error: true,
             when_done: Default::default(),
+            notify_done: true,
             keep_permissions: cfg.keep_permissions,
             keep_streams: cfg.keep_streams,
             keep_folder_dates: cfg.keep_folder_dates,
