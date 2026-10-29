@@ -17,6 +17,7 @@ Prefer the `rust-check` agent: it runs these and returns only the failures.
 - Icons are symbols in strings, drawn by `assets/icons.ttf`; a new symbol must be added to `tools/icon-font/build_icon_font.py` (checked by `icon_check.rs`).
 - Keep core logic in `ox-core` (testable); `ox-app` only draws and wires things up.
 - Note user-visible changes in `CHANGELOG.md`.
+- **After every commit, push and open a PR** (`gh pr create`); commit on a branch, never on `main`. If the branch already has a PR, the push updates it.
 
 ## Saving tokens
 - Never read `target/`, `Cargo.lock`, or `i18n_de.rs` in full; grep them.
