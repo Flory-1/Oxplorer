@@ -272,6 +272,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         if ui.button(tr("🖳 Open in Terminal")).clicked() {
             actions.push(Action::OpenTerminal(dir.to_path_buf()));
         }
+        super::wsl::terminal_button(ui, dir, actions);
         super::cleanup::menu(ui, dir, actions);
         disk_usage_button(ui, dir, actions);
     }
@@ -339,6 +340,9 @@ fn dev_menu(ui: &mut Ui, paths: &[PathBuf], actions: &mut Vec<Action>) {
     ui.menu_button(tr("🔗 Copy path as"), |ui| {
         for fmt in PathFormat::ALL {
             if fmt == PathFormat::GitRelative && repo.is_none() {
+                continue;
+            }
+            if fmt == PathFormat::Linux && !paths.iter().all(|p| ox_core::wsl::is_wsl_path(p)) {
                 continue;
             }
             if ui.button(fmt.label()).clicked() {
@@ -452,6 +456,7 @@ pub fn background_menu(
     if ui.button(tr("🖳 Open in Terminal")).clicked() {
         actions.push(Action::OpenTerminal(folder.to_path_buf()));
     }
+    super::wsl::terminal_button(ui, folder, actions);
     disk_usage_button(ui, folder, actions);
     if ui.button(tr("🖥 Open in Windows Explorer")).clicked() {
         actions.push(Action::Reveal(folder.to_path_buf()));
@@ -534,6 +539,7 @@ pub fn folder_link_menu(ui: &mut Ui, path: &Path, pinned: bool, actions: &mut Ve
     if ui.button(tr("🖳 Open in Terminal")).clicked() {
         actions.push(Action::OpenTerminal(path.to_path_buf()));
     }
+    super::wsl::terminal_button(ui, path, actions);
     disk_usage_button(ui, path, actions);
     if ui.button(tr("🔗 Copy path")).clicked() {
         actions.push(Action::CopyPathText(vec![path.to_path_buf()]));

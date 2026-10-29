@@ -900,6 +900,7 @@ mod search_history;
 mod search_tags;
 mod tabs;
 mod views;
+mod wsl;
 mod zoom_select;
 
 /// Every entry: [`TABLE`] and the tables of the submodules (split for the
@@ -927,4 +928,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(preview_docs::TABLE)
         .chain(data_view::TABLE)
         .chain(help_preview::TABLE)
+        .chain(wsl::TABLE)
 }

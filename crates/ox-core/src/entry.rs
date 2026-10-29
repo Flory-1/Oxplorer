@@ -46,7 +46,7 @@ impl FileEntry {
             (meta.is_dir(), if meta.is_dir() { 0 } else { meta.len() })
         };
         let name = display_name(&path);
-        let hidden = is_hidden(&name, meta);
+        let hidden = is_hidden(&name, meta) || crate::wsl::dotfile_hidden(&path, &name);
         let cloud = cloud_status(meta);
         Self {
             path,
@@ -178,11 +178,13 @@ impl FileKind {
     }
 }
 
-/// Final path component, or the full path for roots like `C:\`.
+/// Final path component, or the full path for roots like `C:\` (for a WSL
+/// distribution's root: its name).
 pub fn display_name(path: &Path) -> String {
     match path.file_name() {
         Some(n) => n.to_string_lossy().into_owned(),
-        None => path.to_string_lossy().into_owned(),
+        None => crate::wsl::root_name(path)
+            .map_or_else(|| path.to_string_lossy().into_owned(), str::to_owned),
     }
 }
 

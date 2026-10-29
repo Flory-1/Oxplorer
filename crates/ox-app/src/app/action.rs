@@ -71,6 +71,8 @@ pub enum Action {
     /// Copy the checked out branch of the repository a path is in.
     CopyGitBranch(PathBuf),
     OpenTerminal(PathBuf),
+    /// A shell of the WSL distribution the folder is in, in that folder.
+    OpenWslTerminal(PathBuf),
     Reveal(PathBuf),
     Properties(Vec<PathBuf>),
     /// Cloud files: *Always keep on this device*, *Free up space*, or neither.
