@@ -131,6 +131,22 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         &shortcuts::label(Command::Search),
         Box::new(|app: &mut OxApp| app.ui.focus_search = true),
     );
+    if let Some(e) = app.undo.history.peek(false) {
+        cmd(
+            "↺",
+            &ox_core::trf!("Undo {what}", what = e.describe()),
+            &shortcuts::label(Command::Undo),
+            Box::new(|app: &mut OxApp| app.undo_redo(false)),
+        );
+    }
+    if let Some(e) = app.undo.history.peek(true) {
+        cmd(
+            "↻",
+            &ox_core::trf!("Redo {what}", what = e.describe()),
+            &shortcuts::label(Command::Redo),
+            Box::new(|app: &mut OxApp| app.undo_redo(true)),
+        );
+    }
 
     if let Some(f) = folder.clone() {
         let (f1, f2, f3, f4, f5) = (f.clone(), f.clone(), f.clone(), f.clone(), f.clone());

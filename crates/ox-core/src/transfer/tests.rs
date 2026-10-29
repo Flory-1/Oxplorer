@@ -420,3 +420,101 @@ fn explicit_worker_count_is_used() {
     assert_eq!(wait_finished(&job), JobState::Completed);
     assert_eq!(job.workers.load(Ordering::Relaxed), 3);
 }
+
+fn sorted(mut v: Vec<(PathBuf, PathBuf)>) -> Vec<(PathBuf, PathBuf)> {
+    v.sort();
+    v
+}
+
+#[test]
+fn records_what_was_created() {
+    let tmp = tempfile::tempdir().unwrap();
+    tree(tmp.path());
+    let dest = tmp.path().join("dest");
+    fs::create_dir(&dest).unwrap();
+    let src = tmp.path().join("src");
+    let job = engine().submit(req(
+        TransferKind::Copy,
+        vec![src.clone()],
+        &dest,
+        ConflictPolicy::Ask,
+    ));
+    assert_eq!(wait(&job), JobState::Completed);
+    assert_eq!(job.created(), vec![(src.clone(), dest.join("src"))]);
+
+    // Copying again into the same folder merges: only the new file is listed.
+    fs::write(src.join("new.txt"), "n").unwrap();
+    let job = engine().submit(req(
+        TransferKind::Copy,
+        vec![src.clone()],
+        &dest,
+        ConflictPolicy::Skip,
+    ));
+    assert_eq!(wait(&job), JobState::Completed);
+    assert_eq!(
+        job.created(),
+        vec![(src.join("new.txt"), dest.join("src/new.txt"))]
+    );
+}
+
+#[test]
+fn records_renamed_copies_but_not_skipped_or_replaced_ones() {
+    for (policy, expect) in [
+        (ConflictPolicy::KeepBoth, Some("same (2).txt")),
+        (ConflictPolicy::Skip, None),
+        (ConflictPolicy::Overwrite, None),
+    ] {
+        let (_tmp, a, b) = conflict_setup();
+        let job = engine().submit(req(
+            TransferKind::Copy,
+            vec![a.join("same.txt"), a.join("other.txt")],
+            &b,
+            policy,
+        ));
+        assert_eq!(wait(&job), JobState::Completed);
+        let mut want = vec![(a.join("other.txt"), b.join("other.txt"))];
+        if let Some(name) = expect {
+            want.push((a.join("same.txt"), b.join(name)));
+        }
+        assert_eq!(sorted(job.created()), sorted(want), "{policy:?}");
+    }
+}
+
+#[test]
+fn records_moves_including_replaced_files() {
+    let (_tmp, a, b) = conflict_setup();
+    let job = engine().submit(req(
+        TransferKind::Move,
+        vec![a.join("same.txt"), a.join("other.txt")],
+        &b,
+        ConflictPolicy::Overwrite,
+    ));
+    assert_eq!(wait(&job), JobState::Completed);
+    assert_eq!(
+        sorted(job.created()),
+        sorted(vec![
+            (a.join("same.txt"), b.join("same.txt")),
+            (a.join("other.txt"), b.join("other.txt")),
+        ])
+    );
+}
+
+#[test]
+fn folder_pairs_move_whole_folders_to_an_exact_target() {
+    let tmp = tempfile::tempdir().unwrap();
+    tree(tmp.path());
+    let target = tmp.path().join("elsewhere/renamed");
+    let mut r = req(
+        TransferKind::Move,
+        Vec::new(),
+        tmp.path(),
+        ConflictPolicy::Ask,
+    );
+    r.pairs = vec![(tmp.path().join("src"), target.clone())];
+    let job = engine().submit(r);
+    assert_eq!(wait(&job), JobState::Completed);
+    assert!(job.errors().is_empty(), "{:?}", job.errors());
+    assert!(target.join("sub/b.bin").exists());
+    assert!(!tmp.path().join("src").exists());
+    assert_eq!(job.created(), vec![(tmp.path().join("src"), target)]);
+}
