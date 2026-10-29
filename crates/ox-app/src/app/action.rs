@@ -111,6 +111,8 @@ pub enum Action {
     Compare(super::CompareAction),
     /// Find duplicates / empty folders: delete the ticked items, show one.
     Cleanup(super::CleanupAction),
+    /// Picture tools: rotate, flip, convert and resize pictures.
+    Pictures(super::PictureAction),
     /// Turn the flat view (all files of the sub-folders in one list) on or off.
     ToggleFlatView,
     /// Go to the folder an item is in and select it there.

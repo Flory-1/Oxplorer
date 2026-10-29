@@ -499,6 +499,7 @@ impl OxApp {
             Action::Tab(t) => self.process_tab(t),
             Action::Compare(a) => self.process_compare(a),
             Action::Cleanup(a) => self.process_cleanup(a),
+            Action::Pictures(a) => self.process_pictures(a),
             Action::ToggleFlatView => self.toggle_flat_view(),
             Action::ShowInFolder(path) => self.show_in_folder(path),
             Action::DiskUsage(a) => self.disk_usage_action(a),

@@ -14,6 +14,7 @@ mod input;
 mod instances;
 mod library;
 mod links;
+mod picture_tools;
 mod poll;
 mod process;
 mod properties;
@@ -30,6 +31,7 @@ pub use cleanup::{CleanupAction, CleanupView, ConfirmCleanup};
 pub use compare::{CompareAction, CompareState};
 pub use disk_usage::{DiskUsageAction, DiskUsageScans};
 pub use instances::Start;
+pub use picture_tools::{doing as doing_pictures, PictureAction, PictureTools};
 pub use properties::Properties;
 pub use search_history::{HistoryAction, RecentSearches};
 pub use select::SelectAction;
@@ -103,6 +105,8 @@ pub enum Dialog {
         select: bool,
         focus: bool,
     },
+    /// Convert or resize pictures.
+    Pictures(Box<crate::ui::picture_tools::PictureDialog>),
 }
 
 /// A file operation running on a helper thread (label, result, folder to refresh).
@@ -243,6 +247,8 @@ pub struct OxApp {
     gallery_walks: Vec<(TabId, Arc<AtomicBool>)>,
     /// Find duplicates / empty folders: the pages' scans and ticks.
     pub cleanups: cleanup::Cleanups,
+    /// Picture tools: the running job (rotate, convert, …).
+    pub pictures: PictureTools,
 }
 
 /// What background work started by an action reports back.
@@ -394,6 +400,7 @@ impl OxApp {
             libraries_at: None,
             gallery_walks: Vec::new(),
             cleanups: Default::default(),
+            pictures: Default::default(),
         }
     }
 
@@ -471,6 +478,7 @@ impl OxApp {
         self.poll_watcher();
         self.poll_jobs();
         self.poll_undo();
+        self.poll_pictures();
         self.poll_transfer_watch(ctx);
         self.poll_background();
         self.poll_notices();

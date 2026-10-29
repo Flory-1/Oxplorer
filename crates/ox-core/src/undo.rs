@@ -1,5 +1,6 @@
 //! Undo and redo for file operations: renames, moves, copies, new folders,
-//! files and links, and deletes to the Recycle Bin.
+//! files and links, deletes to the Recycle Bin, and files replaced by new
+//! versions (rotated pictures, …).
 //!
 //! Each operation is recorded as an [`Op`] that describes what was done.
 //! [`reverse`] first checks that the files are still as the operation left
@@ -33,6 +34,10 @@ pub enum Kind {
     NewFile,
     NewLink,
     Delete,
+    Rotate,
+    Flip,
+    Convert,
+    Resize,
 }
 
 impl Kind {
@@ -45,6 +50,10 @@ impl Kind {
             Self::NewFile => "New file",
             Self::NewLink => "New link",
             Self::Delete => "Move to Recycle Bin",
+            Self::Rotate => "Rotate pictures",
+            Self::Flip => "Flip pictures",
+            Self::Convert => "Convert pictures",
+            Self::Resize => "Resize pictures",
         })
     }
 }
@@ -126,6 +135,33 @@ pub enum Op {
     Linked(Vec<Link>),
     /// Links that were removed. Undone by making them again.
     Unlinked(Vec<Link>),
+    /// Files that took the place of others (a rotated picture, a converted
+    /// one replacing its original); the originals went to the Recycle Bin
+    /// at or after `since`. Undone by putting the originals back and the new
+    /// files in the Recycle Bin, as long as they haven't changed.
+    Replaced { items: Vec<Replacement>, since: i64 },
+    /// Originals that were put back; the files that had replaced them went
+    /// to the Recycle Bin (named `aside`) at or after `since`. Undone by
+    /// swapping them again.
+    Unreplaced { items: Vec<Restored>, since: i64 },
+}
+
+/// A file at `new` that took the place of the file at `original` (often the
+/// same path).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Replacement {
+    pub original: PathBuf,
+    pub new: Placed,
+}
+
+/// An original put back at `original`. The file that had replaced it was at
+/// `new` and went to the Recycle Bin as `aside` (renamed when it had the
+/// original's name, so the original could come back).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Restored {
+    pub original: PathBuf,
+    pub new: PathBuf,
+    pub aside: PathBuf,
 }
 
 /// A symbolic link, junction or hard link at `path` to `target`.
@@ -149,6 +185,8 @@ impl Op {
             Self::Linked(links) | Self::Unlinked(links) => {
                 links.iter().map(|l| l.path.as_path()).collect()
             }
+            Self::Replaced { items, .. } => items.iter().map(|r| r.new.path.as_path()).collect(),
+            Self::Unreplaced { items, .. } => items.iter().map(|r| r.original.as_path()).collect(),
         }
     }
 
@@ -288,6 +326,28 @@ fn taken(path: &Path) -> String {
     )
 }
 
+/// Fails if `item` is gone or has changed since it was put there.
+fn unchanged(item: &Placed) -> Result<(), String> {
+    match stamp(&item.path) {
+        Ok(s) if s == item.stamp => Ok(()),
+        Ok(_) => Err(crate::trf!(
+            "\"{name}\" has changed since then.",
+            name = display_name(&item.path)
+        )),
+        Err(_) => Err(missing(&item.path)),
+    }
+}
+
+/// `photo (edited).jpg` next to `photo.jpg` (or `photo (edited) (2).jpg`, …).
+fn edited_name(path: &Path) -> PathBuf {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let (stem, ext) = fsops::split_name(&name);
+    fsops::unique_path(
+        path.parent().unwrap_or(Path::new("")),
+        &format!("{stem} (edited){ext}"),
+    )
+}
+
 fn is_dir(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|m| m.is_dir())
 }
@@ -353,16 +413,7 @@ pub fn reverse(op: &Op, bin: &dyn Bin) -> Result<Outcome, String> {
         }
         Op::Placed(items) => {
             for item in items {
-                match stamp(&item.path) {
-                    Ok(s) if s == item.stamp => {}
-                    Ok(_) => {
-                        return Err(crate::trf!(
-                            "\"{name}\" has changed since then.",
-                            name = display_name(&item.path)
-                        ))
-                    }
-                    Err(_) => return Err(missing(&item.path)),
-                }
+                unchanged(item)?;
             }
             let paths: Vec<PathBuf> = items.iter().map(|i| i.path.clone()).collect();
             let since = now();
@@ -431,7 +482,96 @@ pub fn reverse(op: &Op, bin: &dyn Bin) -> Result<Outcome, String> {
             }
             Ok(Outcome::Done(Op::Linked(items.clone())))
         }
+        Op::Replaced { items, since } => unreplace(items, *since, bin),
+        Op::Unreplaced { items, since } => replace_again(items, *since, bin),
     }
+}
+
+/// Undo [`Op::Replaced`]: the new files step aside (when they have the
+/// original's name), the originals come back from the Recycle Bin and the
+/// new files go there.
+fn unreplace(items: &[Replacement], since: i64, bin: &dyn Bin) -> Result<Outcome, String> {
+    for r in items {
+        unchanged(&r.new)?;
+        if !same_path(&r.original, &r.new.path) && fsops::exists(&r.original) {
+            return Err(taken(&r.original));
+        }
+    }
+    let step_back = |moved: &[Restored]| {
+        for m in moved.iter().rev().filter(|m| m.aside != m.new) {
+            let _ = fs::rename(&m.aside, &m.new);
+        }
+    };
+    let mut moved = Vec::new();
+    for r in items {
+        let aside = if same_path(&r.original, &r.new.path) {
+            edited_name(&r.new.path)
+        } else {
+            r.new.path.clone()
+        };
+        if aside != r.new.path {
+            if let Err(e) = fs::rename(&r.new.path, &aside) {
+                step_back(&moved);
+                return Err(e.to_string());
+            }
+        }
+        moved.push(Restored {
+            original: r.original.clone(),
+            new: r.new.path.clone(),
+            aside,
+        });
+    }
+    let originals: Vec<PathBuf> = items.iter().map(|r| r.original.clone()).collect();
+    if let Err(e) = bin.restore(&originals, since) {
+        step_back(&moved);
+        return Err(e);
+    }
+    let asides: Vec<PathBuf> = moved.iter().map(|m| m.aside.clone()).collect();
+    let since = now();
+    bin.delete(&asides)?;
+    Ok(Outcome::Done(Op::Unreplaced {
+        items: moved,
+        since,
+    }))
+}
+
+/// Redo [`Op::Replaced`] (undo [`Op::Unreplaced`]): the originals go to the
+/// Recycle Bin again and the new files come back to where they were.
+fn replace_again(items: &[Restored], since: i64, bin: &dyn Bin) -> Result<Outcome, String> {
+    for r in items {
+        if !fsops::exists(&r.original) {
+            return Err(missing(&r.original));
+        }
+        if !same_path(&r.original, &r.new) && fsops::exists(&r.new) {
+            return Err(taken(&r.new));
+        }
+        if fsops::exists(&r.aside) {
+            return Err(taken(&r.aside));
+        }
+    }
+    let originals: Vec<PathBuf> = items.iter().map(|r| r.original.clone()).collect();
+    let deleted = now();
+    bin.delete(&originals)?;
+    let asides: Vec<PathBuf> = items.iter().map(|r| r.aside.clone()).collect();
+    if let Err(e) = bin.restore(&asides, since) {
+        let _ = bin.restore(&originals, deleted);
+        return Err(e);
+    }
+    let mut back = Vec::new();
+    for r in items {
+        if r.aside != r.new {
+            fs::rename(&r.aside, &r.new).map_err(|e| e.to_string())?;
+        }
+        let new = Placed::now(r.new.clone()).map_err(|_| missing(&r.new))?;
+        back.push(Replacement {
+            original: r.original.clone(),
+            new,
+        });
+    }
+    Ok(Outcome::Done(Op::Replaced {
+        items: back,
+        since: deleted,
+    }))
 }
 
 fn swap(pairs: &[(PathBuf, PathBuf)]) -> Vec<(PathBuf, PathBuf)> {
