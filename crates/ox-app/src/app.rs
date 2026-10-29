@@ -301,6 +301,7 @@ impl OxApp {
         let ctx = cc.egui_ctx.clone();
         // Images in the Markdown preview (local files).
         egui_extras::install_image_loaders(&ctx);
+        install_icon_font(&ctx);
         let settings = Settings::load();
         // Before anything is named (e.g. the default favorites on first start).
         ox_core::i18n::set_language(settings.appearance.language);
@@ -2104,6 +2105,24 @@ impl OxApp {
         self.release_pointer = true;
         ctx.request_repaint();
     }
+}
+
+/// The icons in labels and menus ("📂 Open") are drawn by Lucide: a font
+/// made from it (see `tools/icon-font`) comes right after the text font, so
+/// it answers for those symbols before the emoji fonts do.
+fn install_icon_font(ctx: &Context) {
+    use egui::{FontData, FontDefinitions, FontFamily};
+    const NAME: &str = "oxplorer-icons";
+    let mut fonts = FontDefinitions::default();
+    fonts.font_data.insert(
+        NAME.to_owned(),
+        std::sync::Arc::new(FontData::from_static(include_bytes!("../assets/icons.ttf"))),
+    );
+    for family in [FontFamily::Proportional, FontFamily::Monospace] {
+        let list = fonts.families.entry(family).or_default();
+        list.insert(list.len().min(1), NAME.to_owned());
+    }
+    ctx.set_fonts(fonts);
 }
 
 impl eframe::App for OxApp {

@@ -120,7 +120,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         act(move || Action::Tab(TabAction::Duplicate(tab_id))),
     );
     cmd(
-        "🗂",
+        "🔖",
         tr("Add tab to new group"),
         "",
         act(move || Action::Tab(TabAction::NewGroup(tab_id))),
@@ -168,7 +168,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             act(move || Action::OpenTerminal(f4)),
         );
         cmd(
-            "🗔",
+            "🖥",
             tr("Open in Windows Explorer"),
             "",
             act(move || Action::Reveal(f5)),
@@ -253,7 +253,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         );
         let zip = selection.clone();
         cmd(
-            "🗜",
+            "📦",
             tr("Compress selection to ZIP"),
             "",
             act(move || Action::Compress(zip)),
@@ -403,7 +403,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         Box::new(|a: &mut OxApp| a.ui.show_transfers = true),
     );
     cmd(
-        "🧹",
+        "🗑",
         tr("Clear finished transfers"),
         "",
         Box::new(|a: &mut OxApp| a.engine.clear_finished()),

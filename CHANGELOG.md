@@ -5,6 +5,15 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+### Changed
+- **New icons**: the icons in menus, buttons, tabs, the sidebar and Settings are now
+  [Lucide](https://lucide.dev)'s line icons, the same on every computer, instead of Windows'
+  colourful emoji. Other emoji (e.g. in file names) are shown in black and white.
+
+### Fixed
+- Icons Windows' emoji font doesn't have, like the sort arrow next to a column name and the
+  favourite star in the toolbar, showed an empty box.
+
 ## [1.0.1] - 2026-10-29
 
 ### Added

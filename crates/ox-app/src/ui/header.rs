@@ -497,7 +497,7 @@ fn tab_widget(
             actions.push(Action::Tab(TabAction::Duplicate(id)));
         }
         ui.separator();
-        if ui.button(tr("🗂 Add tab to new group")).clicked() {
+        if ui.button(tr("🔖 Add tab to new group")).clicked() {
             actions.push(Action::Tab(TabAction::NewGroup(id)));
         }
         let others: Vec<&TabGroup> = app
@@ -507,7 +507,7 @@ fn tab_widget(
             .filter(|g| Some(g.id) != tab.group)
             .collect();
         if !others.is_empty() {
-            ui.menu_button(tr("🗂 Add tab to group"), |ui| {
+            ui.menu_button(tr("🔖 Add tab to group"), |ui| {
                 for g in others {
                     let name = if g.name.is_empty() {
                         ox_core::trf!(
