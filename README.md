@@ -145,11 +145,13 @@ Help page, messages and key names (*Strg+C*, *Entf*), and numbers use a decimal 
 
 **Settings page**
 - Appearance: language, system/light/dark mode, a **colour theme** for each mode (Dark, Light, Nord, Dracula,
-  Solarized Light, High contrast or your own), accent colour, UI scale, compact rows,
+  Solarized Light, High contrast or your own), accent colour, compact rows,
   thumbnails, window backdrop.
   Change any theme's colours; **export** a theme as a small `.toml` file to share it, and
   right-click a theme file → *Use as theme* to install one.
-- Browsing, startup, sidebar, copy engine and search options, plus a list of keyboard shortcuts
+- Browsing, startup, sidebar (incl. its width), preview pane (as a pane or its own window, and its
+  width), copy engine and search options, plus a list of keyboard shortcuts
+- The window opens where you left it, with the same size (and maximized if it was)
 - Saved as TOML in `%APPDATA%\Oxplorer\`
 
 | Home / Quick access | Grid view with thumbnails (light) |

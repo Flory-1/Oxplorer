@@ -188,6 +188,8 @@ pub struct UiState {
     pub focus_search: bool,
     pub show_transfers: bool,
     pub settings_section: usize,
+    pub sidebar_width: crate::ui::PanelWidth,
+    pub preview_width: crate::ui::PanelWidth,
     /// Whether folders open in Oxplorer (read from the registry when needed).
     pub default_folder_handler: Option<bool>,
     pub palette: Option<crate::ui::palette::PaletteState>,
@@ -259,6 +261,8 @@ pub struct OxApp {
     /// The index was (re)built at least once this session.
     index_started: bool,
     index_next: Option<Instant>,
+    /// Rebuild the index now ("Rebuild now", or its settings changed).
+    index_force: bool,
     /// Index-related settings the current index was built with.
     index_settings: Option<(Vec<PathBuf>, Vec<String>)>,
 }
@@ -316,6 +320,8 @@ impl OxApp {
                 focus_search: false,
                 show_transfers: true,
                 settings_section: 0,
+                sidebar_width: Default::default(),
+                preview_width: Default::default(),
                 default_folder_handler: None,
                 palette: None,
                 recording: None,
@@ -361,6 +367,7 @@ impl OxApp {
             sizes_applied: 0,
             index_started: false,
             index_next: None,
+            index_force: false,
             index_settings: None,
         }
     }
@@ -1452,7 +1459,7 @@ impl OxApp {
                 }
             }
             Action::RebuildIndex => {
-                self.index_started = false;
+                self.index_force = true;
             }
             Action::SelectAll => self.tabs.active_mut().view.select_all(),
             Action::ForgetRecent(p) => {
@@ -1631,23 +1638,38 @@ impl OxApp {
         let wanted = (s.index_roots.clone(), s.index_exclude.clone());
         if self.index_settings.as_ref() != Some(&wanted) {
             if self.index_settings.is_some() {
-                self.index_started = false; // settings changed: rebuild
+                self.index_force = true; // settings changed: rebuild
             }
             self.index_settings = Some(wanted);
         }
         if self.index.state() == IndexState::Loading || self.index.is_building() {
             return;
         }
-        let due = !self.index_started || self.index_next.is_some_and(|t| Instant::now() >= t);
-        if due {
-            let drives: Vec<PathBuf> = self.drives.iter().map(|d| d.mount.clone()).collect();
-            self.index
-                .rebuild(self.settings.search.index_config(&drives));
+        let drives: Vec<PathBuf> = self.drives.iter().map(|d| d.mount.clone()).collect();
+        let config = self.settings.search.index_config(&drives);
+        let minutes = self.settings.search.index_refresh_minutes;
+        let interval = Duration::from_secs(u64::from(minutes) * 60);
+        if std::mem::take(&mut self.index_force) {
             self.index_started = true;
-            let minutes = self.settings.search.index_refresh_minutes;
-            self.index_next = (minutes > 0)
-                .then(|| Instant::now() + Duration::from_secs(u64::from(minutes) * 60));
+        } else if !self.index_started {
+            self.index_started = true;
+            // A saved index of the same folders that isn't due yet is used as
+            // is; the refresh waits until it is. ("Only at start" = 0 always
+            // refreshes at start.)
+            let age = self
+                .index
+                .index()
+                .filter(|idx| idx.roots() == config.roots.as_slice())
+                .and_then(|idx| idx.built_at().elapsed().ok());
+            if let Some(age) = age.filter(|age| minutes > 0 && *age < interval) {
+                self.index_next = Some(Instant::now() + (interval - age));
+                return;
+            }
+        } else if !self.index_next.is_some_and(|t| Instant::now() >= t) {
+            return;
         }
+        self.index.rebuild(config);
+        self.index_next = (minutes > 0).then(|| Instant::now() + interval);
     }
 
     /// Is a ready-to-use index available for instant search?
@@ -1863,6 +1885,12 @@ impl OxApp {
 }
 
 impl eframe::App for OxApp {
+    /// eframe only keeps the window's geometry; everything else lives in
+    /// Oxplorer's own settings and session files.
+    fn persist_egui_memory(&self) -> bool {
+        false
+    }
+
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         if std::mem::take(&mut self.release_pointer) {
             let pos = ctx.input(|i| i.pointer.latest_pos()).unwrap_or_default();
