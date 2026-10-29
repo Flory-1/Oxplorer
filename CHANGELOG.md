@@ -6,6 +6,14 @@ The release workflow publishes the section of the tagged version as the release 
 ## [Unreleased]
 
 ### Added
+- **Live index updates**: the search index follows new, deleted, renamed and changed files as
+  they happen (within about 2 seconds) instead of waiting for the next refresh. Settings →
+  Search → *Live updates*; removable and network drives aren't watched, so USB sticks can still
+  be ejected.
+- **Faster index on NTFS drives**: run as administrator, Oxplorer reads whole NTFS drives
+  straight from the master file table, much faster than walking every folder, and follows
+  changes through the NTFS change journal. Without admin rights it walks the folders and watches
+  them as before.
 - **Disk usage**: right-click a folder or drive (also the drive cards on Home, or the command
   palette) → *Disk usage* shows what takes up the space as a treemap, with the largest items
   next to it. Click a folder to zoom in, Back or Up to zoom out; sizes fill in while it scans,

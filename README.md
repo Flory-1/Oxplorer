@@ -116,7 +116,9 @@ the background, so large files never block the window.
 
 - Typing in the search box **filters the current folder** instantly
 - A **file-name index** of your drives finds files anywhere as you type: 280,000 files are
-  searched in milliseconds. The index is kept between runs and refreshed in the background.
+  searched in milliseconds. The index is kept between runs and follows file changes as they
+  happen. Run as administrator, NTFS drives are read straight from the master file table and
+  followed through the change journal.
 - **Enter** searches all sub-folders: from the index when it covers the folder, otherwise with
   a multi-threaded walker
 - **Filter chips** for kind, date, size and tags, and **saved searches** in the sidebar

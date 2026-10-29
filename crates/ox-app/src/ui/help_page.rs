@@ -482,11 +482,18 @@ const TOPICS: &[Topic] = &[
     Topic {
         section: 4,
         title: "Searching my whole drive is slow",
-        blocks: &[Text(
-            "Turn on the search index in Settings → Search and pick the drives to index. The \
-             first build takes a while; after that searches are instant and the index is \
-             refreshed in the background. Searches with content: always read the files.",
-        )],
+        blocks: &[
+            Text(
+                "Turn on the search index in Settings → Search and pick the drives to index. \
+                 The first build takes a while; after that searches are instant and the index \
+                 is refreshed in the background. Searches with content: always read the files.",
+            ),
+            Text(
+                "With Live updates on, new, renamed and deleted files show up in the index \
+                 within seconds. Run Oxplorer as administrator once to build the index of NTFS \
+                 drives from their master file table, which is much faster.",
+            ),
+        ],
     },
     Topic {
         section: 4,
