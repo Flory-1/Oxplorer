@@ -470,6 +470,7 @@ impl OxApp {
                 self.index_force = true;
             }
             Action::SelectAll => self.tabs.active_mut().view.select_all(),
+            Action::Select(a) => self.process_select(a),
             Action::ForgetRecent(p) => {
                 self.quick.forget(&p);
                 self.save_quick();

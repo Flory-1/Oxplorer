@@ -357,6 +357,14 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
                     }
                 });
             }
+            Dialog::SelectPattern {
+                text,
+                select,
+                focus,
+            } => {
+                let view = &app.tabs.active().view;
+                keep = super::select_pattern::show(ui, text, select, focus, view, &mut actions);
+            }
         }
     });
     if modal.should_close() {

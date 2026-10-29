@@ -407,7 +407,7 @@ fn contains_ascii_ci(hay: &str, needle: &str) -> bool {
 }
 
 /// Iterative `*`/`?` matcher with backtracking (linear in practice).
-fn wildcard(pattern: &[char], name: &[char]) -> bool {
+pub(crate) fn wildcard(pattern: &[char], name: &[char]) -> bool {
     let (mut p, mut n) = (0, 0);
     let (mut star, mut mark) = (None, 0);
     while n < name.len() {

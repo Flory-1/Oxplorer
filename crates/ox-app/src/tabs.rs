@@ -20,6 +20,7 @@ mod flat;
 mod groups;
 mod location;
 mod pinned;
+mod select;
 mod session;
 #[cfg(test)]
 mod tests;

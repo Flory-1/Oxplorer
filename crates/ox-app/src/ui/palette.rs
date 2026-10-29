@@ -254,6 +254,32 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             &shortcuts::label(Command::SelectAll),
             act(|| Action::SelectAll),
         );
+        use crate::app::SelectAction as S;
+        for (label, command, action) in [
+            (
+                tr("Select by pattern…"),
+                Command::SelectPattern,
+                S::PatternDialog(true),
+            ),
+            (
+                tr("Deselect by pattern…"),
+                Command::DeselectPattern,
+                S::PatternDialog(false),
+            ),
+            (tr("Invert selection"), Command::InvertSelection, S::Invert),
+            (
+                tr("Select all of the same type"),
+                Command::SelectSameType,
+                S::SameType,
+            ),
+        ] {
+            cmd(
+                "☑",
+                label,
+                &shortcuts::label(command),
+                act(move || Action::Select(action)),
+            );
+        }
     }
     if !selection.is_empty() && !tab.location().is_bin() && !tab.location().is_read_only() {
         let (s1, s2, s3) = (selection.clone(), selection.clone(), selection.clone());

@@ -13,6 +13,7 @@ mod links;
 mod poll;
 mod process;
 mod properties;
+mod select;
 mod sessions;
 mod transfer_watch;
 mod undo;
@@ -21,6 +22,7 @@ pub use action::{Action, TabAction};
 pub use compare::{CompareAction, CompareState};
 pub use instances::Start;
 pub use properties::Properties;
+pub use select::SelectAction;
 pub use sessions::{SavedSessions, SessionAction};
 pub use transfer_watch::TransferWatch;
 
@@ -82,6 +84,12 @@ pub enum Dialog {
     SessionName {
         old: Option<String>,
         text: String,
+        focus: bool,
+    },
+    /// Select (`select`) or deselect the items matching typed patterns.
+    SelectPattern {
+        text: String,
+        select: bool,
         focus: bool,
     },
 }

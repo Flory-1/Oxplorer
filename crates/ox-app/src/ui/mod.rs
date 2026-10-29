@@ -11,6 +11,7 @@ mod links;
 mod menus;
 pub(crate) mod palette;
 pub(crate) mod preview;
+mod select_pattern;
 mod sessions;
 mod settings_page;
 mod sidebar;

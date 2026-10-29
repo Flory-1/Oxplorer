@@ -33,6 +33,7 @@ pub mod power;
 pub mod recycle;
 pub mod rename;
 pub mod search;
+pub mod select;
 pub mod sessions;
 pub mod settings;
 pub mod shared;
