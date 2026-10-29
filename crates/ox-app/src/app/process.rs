@@ -26,7 +26,7 @@ impl OxApp {
             }
             Action::Back => self.tabs.active_mut().back(),
             Action::Forward => self.tabs.active_mut().forward(),
-            Action::Up => self.tabs.active_mut().up(),
+            Action::Up => self.cleanup_aware_up(),
             Action::Refresh => {
                 if let Some(folder) = self.current_folder() {
                     self.folder_sizes.invalidate_tree(&folder);
@@ -491,6 +491,7 @@ impl OxApp {
             }
             Action::Tab(t) => self.process_tab(t),
             Action::Compare(a) => self.process_compare(a),
+            Action::Cleanup(a) => self.process_cleanup(a),
             Action::ToggleFlatView => self.toggle_flat_view(),
             Action::ShowInFolder(path) => self.show_in_folder(path),
             Action::NewLink(dir, kind) => self.new_link_dialog(dir, kind),

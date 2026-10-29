@@ -1,5 +1,6 @@
 //! All drawing code. Each submodule draws one area of the window.
 
+mod cleanup;
 pub mod cloud;
 mod compare;
 mod dialogs;
@@ -247,6 +248,7 @@ fn content(app: &mut OxApp, ui: &mut Ui) {
         Location::Home => home::show(app, ui),
         Location::Settings => settings_page::show(app, ui),
         Location::Help => help_page::show(app, ui),
+        Location::Cleanup { .. } => cleanup::show(app, ui),
         Location::Folder(_)
         | Location::Search { .. }
         | Location::RecycleBin

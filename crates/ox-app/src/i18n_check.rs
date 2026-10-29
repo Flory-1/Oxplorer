@@ -22,6 +22,7 @@ macro_rules! core {
 pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("app.rs"),
     app!("app/action.rs"),
+    app!("app/cleanup.rs"),
     app!("app/cloud.rs"),
     app!("app/compare.rs"),
     app!("app/flat.rs"),
@@ -48,6 +49,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("tabs/location.rs"),
     app!("tabs/session.rs"),
     app!("thumbs.rs"),
+    app!("ui/cleanup.rs"),
     app!("ui/cloud.rs"),
     app!("ui/compare.rs"),
     app!("ui/dialogs.rs"),
@@ -75,6 +77,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("ui/select_pattern.rs"),
     app!("ui/mod.rs"),
     app!("ui/palette.rs"),
+    app!("ui/palette/cleanup.rs"),
     app!("ui/palette/tabs.rs"),
     app!("ui/palette/views.rs"),
     app!("ui/preview.rs"),

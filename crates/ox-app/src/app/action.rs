@@ -109,6 +109,8 @@ pub enum Action {
     MoveToBin(Vec<PathBuf>),
     /// Compare folders (the split view's panes).
     Compare(super::CompareAction),
+    /// Find duplicates / empty folders: delete the ticked items, show one.
+    Cleanup(super::CleanupAction),
     /// Turn the flat view (all files of the sub-folders in one list) on or off.
     ToggleFlatView,
     /// Go to the folder an item is in and select it there.

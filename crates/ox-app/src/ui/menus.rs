@@ -270,6 +270,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         if ui.button(tr("🖳 Open in Terminal")).clicked() {
             actions.push(Action::OpenTerminal(dir.to_path_buf()));
         }
+        super::cleanup::menu(ui, dir, actions);
     }
     if ui
         .add(
@@ -450,6 +451,7 @@ pub fn background_menu(
     if ui.button(tr("🖥 Open in Windows Explorer")).clicked() {
         actions.push(Action::Reveal(folder.to_path_buf()));
     }
+    super::cleanup::menu(ui, folder, actions);
     if dev {
         ui.separator();
         dev_menu(ui, &[folder.to_path_buf()], actions);
