@@ -136,9 +136,9 @@ mod imp {
         GetClientRect, GetWindowRect, IsZoomed, SetWindowPos, ShowWindow, HTCAPTION, HTCLIENT,
         HTMAXBUTTON, HTTOP, HTTOPLEFT, HTTOPRIGHT, NCCALCSIZE_PARAMS, SM_CXPADDEDBORDER,
         SM_CYFRAME, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
-        SWP_NOZORDER, SW_MAXIMIZE, SW_RESTORE, WM_MOUSEMOVE, WM_NCCALCSIZE, WM_NCHITTEST,
-        WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE,
-        WM_NCRBUTTONDOWN, WM_NCRBUTTONUP,
+        SWP_NOZORDER, SW_MAXIMIZE, SW_RESTORE, WM_MOUSEMOVE, WM_NCACTIVATE, WM_NCCALCSIZE,
+        WM_NCHITTEST, WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE,
+        WM_NCMOUSEMOVE, WM_NCRBUTTONDOWN, WM_NCRBUTTONUP,
     };
 
     const SUBCLASS_ID: usize = 0x6f78_7469; // "oxti"
@@ -287,6 +287,11 @@ mod imp {
                     params.rgrc[0].top = top + hidden;
                     LRESULT(0)
                 }
+                // On focus changes Windows repaints its own (now hidden) title
+                // bar over the strip until the app's next frame covers it: a
+                // flash. -1 keeps the change (and the frame's colour) but
+                // skips that repaint; the app still hears about the focus.
+                WM_NCACTIVATE => DefSubclassProc(hwnd, msg, wparam, LPARAM(-1)),
                 WM_NCHITTEST => {
                     // The side and bottom edges stay Windows' own.
                     let result = DefSubclassProc(hwnd, msg, wparam, lparam);

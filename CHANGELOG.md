@@ -5,6 +5,27 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+### Added
+- **Properties dialog of its own** instead of Windows': type, the program that opens it, size
+  and size on disk, place, dates (also last opened and, for photos, taken), Read-only and Hidden
+  to change, a program's version, a photo's camera details, and the Git state and last commit.
+- **More on the Info tab**: the same details as in Properties, and the item's Git state, so an
+  item that was never committed says *Untracked* instead of showing no commit.
+
+### Changed
+- The sidebar and the preview pane have **fixed widths** that line up with the toolbar: the
+  sidebar ends under the separator after the edit buttons, the preview starts between the
+  address bar and the search box. The width settings are gone.
+- The preview pane **only opens when something is selected**, and always opens on Info.
+- Settings, Help and the Recycle Bin **open only once**: opening one again switches to its tab.
+
+### Fixed
+- The window could flash when switching back to it from another window.
+- The status bar jumped in height between Settings and folders.
+- The close button on tabs wasn't centred.
+- The last commit was sometimes missing on the Info tab (after slow previews, and for file names
+  like `[id].tsx`).
+
 ## [1.0.2] - 2026-10-29
 
 ### Changed

@@ -1,5 +1,8 @@
 //! Header bar: tab strip with tab groups, navigation/address/search row and command bar.
 
+mod caption;
+use caption::caption_buttons;
+pub use caption::caption_buttons_id;
 use ox_core::i18n::t as tr;
 use std::path::{Path, PathBuf};
 
@@ -122,142 +125,6 @@ fn tab_strip(app: &mut OxApp, ui: &mut Ui) {
     }
     app.ui.title_hits = hits;
     app.actions.extend(actions);
-}
-
-pub fn caption_buttons_id() -> egui::Id {
-    egui::Id::unique("caption_buttons")
-}
-
-/// Minimize, maximize/restore and close at the top right, drawn like
-/// Windows 11's. Returns the rectangles of minimize and close (clicked here)
-/// and of maximize (Windows handles that one, for its snap layouts).
-fn caption_buttons(
-    ctx: &egui::Context,
-    height: f32,
-    actions: &mut Vec<Action>,
-) -> ([Rect; 2], Rect) {
-    use egui::ViewportCommand;
-    let screen = ctx.content_rect();
-    let size = vec2(CAPTION_W, height - screen.top());
-    let origin = egui::pos2(screen.right() - 3.0 * CAPTION_W, screen.top());
-    let (maximized, focused) = ctx.input(|i| {
-        (
-            i.viewport().maximized.unwrap_or(false),
-            i.viewport().focused.unwrap_or(true),
-        )
-    });
-    let native_max = ox_core::titlebar::max_button();
-    let mut rects = [Rect::NOTHING; 3];
-    egui::Area::new(caption_buttons_id())
-        .fixed_pos(origin)
-        .order(egui::Order::Foreground)
-        .show(ctx, |ui| {
-            let dark = ui.visuals().dark_mode;
-            let text = ui.visuals().strong_text_color();
-            let glyph_color = if focused {
-                text
-            } else {
-                text.gamma_multiply(0.45)
-            };
-            let ppp = ui.pixels_per_point();
-            for (i, glyph) in [Glyph::Minimize, Glyph::Maximize(maximized), Glyph::Close]
-                .into_iter()
-                .enumerate()
-            {
-                let rect = Rect::from_min_size(origin + vec2(i as f32 * CAPTION_W, 0.0), size);
-                rects[i] = rect;
-                let resp = ui.interact(rect, egui::Id::unique(("caption", i)), Sense::click());
-                // Windows tells the window about the mouse on the maximize
-                // button (it shows the snap layouts), not egui.
-                let (hovered, pressed) = if i == 1 && native_max != Default::default() {
-                    (native_max.hovered, native_max.pressed)
-                } else {
-                    (resp.hovered(), resp.is_pointer_button_down_on())
-                };
-                let close = glyph == Glyph::Close;
-                let fill = match (close, hovered, pressed) {
-                    (_, false, _) => Color32::TRANSPARENT,
-                    (true, true, false) => Color32::from_rgb(0xc4, 0x2b, 0x1c),
-                    (true, true, true) => Color32::from_rgb(0xc8, 0x40, 0x31),
-                    (false, true, pressed) => {
-                        let a = if pressed { 0x0c } else { 0x16 };
-                        if dark {
-                            Color32::from_white_alpha(a)
-                        } else {
-                            Color32::from_black_alpha(a)
-                        }
-                    }
-                };
-                ui.painter().rect_filled(rect, 0.0, fill);
-                let color = if close && hovered {
-                    Color32::WHITE
-                } else {
-                    glyph_color
-                };
-                paint_glyph(ui.painter(), rect.center(), glyph, color, ppp);
-                let tip = match glyph {
-                    Glyph::Minimize => tr("Minimize"),
-                    Glyph::Maximize(true) => tr("Restore"),
-                    Glyph::Maximize(false) => tr("Maximize"),
-                    Glyph::Close => tr("Close"),
-                };
-                if resp.on_hover_text(tip).clicked() {
-                    let cmd = match glyph {
-                        Glyph::Minimize => ViewportCommand::Minimized(true),
-                        Glyph::Maximize(m) => ViewportCommand::Maximized(!m),
-                        Glyph::Close => ViewportCommand::Close,
-                    };
-                    ctx.send_viewport_cmd(cmd);
-                }
-            }
-        });
-    let _ = actions;
-    ([rects[0], rects[2]], rects[1])
-}
-
-#[derive(Clone, Copy, PartialEq)]
-enum Glyph {
-    Minimize,
-    /// Whether the window is maximized (then it shows "restore").
-    Maximize(bool),
-    Close,
-}
-
-/// The caption button symbols, 10 points wide with 1 pixel lines, on pixel
-/// centres so they stay sharp.
-fn paint_glyph(
-    painter: &egui::Painter,
-    center: egui::Pos2,
-    glyph: Glyph,
-    color: Color32,
-    ppp: f32,
-) {
-    use egui::emath::GuiRounding;
-    let stroke = Stroke::new(1.0 / ppp, color);
-    let half = 5.0;
-    let p = |x: f32, y: f32| egui::pos2(center.x + x, center.y + y).round_to_pixel_center(ppp);
-    match glyph {
-        Glyph::Minimize => {
-            painter.line_segment([p(-half, 0.0), p(half, 0.0)], stroke);
-        }
-        Glyph::Maximize(false) => {
-            let r = Rect::from_min_max(p(-half, -half), p(half, half));
-            painter.rect_stroke(r, 1.0, stroke, egui::StrokeKind::Middle);
-        }
-        Glyph::Maximize(true) => {
-            // Two windows: the front one lower left, the back one peeking out.
-            let front = Rect::from_min_max(p(-half, -half + 2.0), p(half - 2.0, half));
-            painter.rect_stroke(front, 1.0, stroke, egui::StrokeKind::Middle);
-            painter.line_segment([p(-half + 2.0, -half), p(half, -half)], stroke);
-            painter.line_segment([p(half, -half), p(half, half - 2.0)], stroke);
-        }
-        Glyph::Close => {
-            let stroke = Stroke::new(1.1, color);
-            let c = |x: f32, y: f32| egui::pos2(center.x + x, center.y + y);
-            painter.line_segment([c(-half, -half), c(half, half)], stroke);
-            painter.line_segment([c(-half, half), c(half, -half)], stroke);
-        }
-    }
 }
 
 fn group_chip(ui: &mut Ui, g: &TabGroup, all: &[TabGroup], actions: &mut Vec<Action>) -> Rect {
@@ -508,9 +375,11 @@ fn tab_widget(
                 visuals.widgets.hovered.bg_fill,
             );
         }
-        ui.painter().text(
+        // Centred by its visible pixels: the icon font's line metrics would
+        // put it off centre.
+        crate::icons::paint_glyph_centered(
+            ui.painter(),
             close_rect.center(),
-            Align2::CENTER_CENTER,
             "✖",
             FontId::proportional(11.0),
             text_color,
@@ -631,8 +500,12 @@ fn nav_row(app: &mut OxApp, ui: &mut Ui) {
 
         let search_w = 260.0_f32.min(ui.available_width() * 0.35);
         let addr_w = ui.available_width() - search_w - 8.0;
-        ui.allocate_ui(vec2(addr_w, 30.0), |ui| address_bar(app, ui, &mut actions));
-        search_box(app, ui, search_w, &mut actions);
+        let address = ui
+            .allocate_ui(vec2(addr_w, 30.0), |ui| address_bar(app, ui, &mut actions))
+            .inner;
+        let search = search_box(app, ui, search_w, &mut actions);
+        // The preview pane's edge goes in the middle of the gap between them.
+        app.ui.preview_edge = Some((address.right() + search.left()) / 2.0);
     });
     app.actions.extend(actions);
 }
@@ -650,11 +523,12 @@ fn field_frame(ui: &Ui, focused: bool, accent: Color32) -> egui::Frame {
         .inner_margin(egui::Margin::symmetric(6, 2))
 }
 
-fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) {
+/// Returns the field's rectangle.
+fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) -> Rect {
     let accent = crate::theme::accent(&app.settings);
     let location = app.tabs.active().location().clone();
     let width = ui.available_width();
-    field_frame(ui, app.ui.address_editing, accent).show(ui, |ui| {
+    let field = field_frame(ui, app.ui.address_editing, accent).show(ui, |ui| {
         ui.set_width(width - 14.0);
         ui.set_height(24.0);
         if app.ui.address_editing {
@@ -757,6 +631,7 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) {
             }
         });
     });
+    field.response.rect
 }
 
 /// `%USERPROFILE%\Desktop` → `C:\Users\me\Desktop`, and `~` → home on all platforms.
@@ -926,7 +801,8 @@ fn subfolders(p: &Path) -> Vec<PathBuf> {
     dirs
 }
 
-fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action>) {
+/// Returns the field's rectangle.
+fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action>) -> Rect {
     let accent = crate::theme::accent(&app.settings);
     let folders_first = app.settings.browsing.folders_first;
     let case = app.settings.search.case_sensitive;
@@ -951,7 +827,7 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
     let id = ui.make_persistent_id("search_box");
     let focused = ui.memory(|m| m.has_focus(id));
     ui.allocate_ui(vec2(width, 30.0), |ui| {
-        field_frame(ui, focused, accent).show(ui, |ui| {
+        let field = field_frame(ui, focused, accent).show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.label(RichText::new("🔍").weak());
                 let edit = egui::TextEdit::singleline(&mut tab.filter)
@@ -985,7 +861,9 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
                 ));
             });
         });
-    });
+        field.response.rect
+    })
+    .inner
 }
 
 // ---- command bar -------------------------------------------------------------------
@@ -1004,6 +882,8 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
     let pinned = folder.as_deref().is_some_and(|f| app.quick.is_favorite(f));
     let in_bin = tab.location().is_bin();
     let bin_empty = tab.view.entries.is_empty();
+    // Where the separator after the edit buttons is: the sidebar's edge.
+    let mut sidebar_edge = None;
 
     ui.horizontal(|ui| {
         let btn = |ui: &mut Ui, enabled: bool, text: &str, tip: &str| {
@@ -1024,6 +904,20 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
         });
         ui.separator();
         if in_bin {
+            // Wider buttons here, so lay out the edit buttons unseen to keep
+            // the sidebar where it is in folders.
+            let mut ghost = ui.new_child(
+                egui::UiBuilder::new()
+                    .id_salt("edit_buttons_ghost")
+                    .max_rect(ui.available_rect_before_wrap())
+                    .layout(Layout::left_to_right(Align::Center))
+                    .invisible()
+                    .disabled(),
+            );
+            for icon in ["✂", "📋", "📥", "✏", "🗑"] {
+                ghost.add(egui::Button::new(RichText::new(icon).size(13.5)).frame(false));
+            }
+            sidebar_edge = Some(ghost.separator().rect.center().x);
             if btn(
                 ui,
                 has_sel,
@@ -1089,7 +983,10 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 actions.push(Action::Delete(selection.clone(), false));
             }
         }
-        ui.separator();
+        let separator = ui.separator();
+        if !in_bin {
+            sidebar_edge = Some(separator.rect.center().x);
+        }
 
         ui.add_enabled_ui(shows_files, |ui| {
             ui.menu_button(RichText::new(tr("⇅ Sort")).size(13.5), |ui| {
@@ -1239,6 +1136,7 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
             }
         });
     });
+    app.ui.sidebar_edge = sidebar_edge;
     app.actions.extend(actions);
 }
 

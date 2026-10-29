@@ -1,5 +1,8 @@
 //! Preview pane: shows the selected file (image, text/code) or a summary.
 
+mod info;
+use info::{checksums, info_grid};
+pub use info::{info_rows, other_attributes, type_facts};
 use ox_core::i18n::t as tr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -8,6 +11,7 @@ use std::time::{Duration, Instant, SystemTime};
 use crossbeam_channel::Receiver;
 use egui::{ColorImage, RichText, TextureHandle, TextureOptions, Ui};
 use egui_extras::syntax_highlighting::{highlight, CodeTheme};
+use ox_core::details::Details;
 use ox_core::dirsize::DirSize;
 use ox_core::entry::{FileEntry, FileKind};
 use ox_core::format;
@@ -61,7 +65,7 @@ enum Loaded {
 }
 
 enum Content {
-    Loading(Receiver<(Loaded, Option<Commit>)>),
+    Loading(Receiver<Loaded>),
     Image(TextureHandle, [u32; 2]),
     Page(TextureHandle, u32),
     Text {
@@ -197,8 +201,12 @@ pub struct PreviewState {
     font_seq: u64,
     /// Layout cache of the Markdown view.
     markdown: egui_commonmark::CommonMarkCache,
-    /// The last commit that changed the item, in Git repositories.
+    /// The last commit that changed the item (in Git repositories) and the
+    /// item's details. Looked up on their own, so a slow preview doesn't
+    /// hold them back.
     last_commit: Option<Commit>,
+    details: Option<Details>,
+    extra_rx: Option<Receiver<(Option<Commit>, Details)>>,
     /// SHA-256 and MD5, once asked for.
     checksums: Option<Checksums>,
     play: PlayerState,
@@ -609,21 +617,36 @@ impl PreviewState {
         if self.key.as_ref() != Some(&key) {
             self.key = Some(key);
             let (tx, rx) = crossbeam_channel::bounded(1);
-            let entry = entry.clone();
-            let repaint = ctx.clone();
+            let (extra_tx, extra_rx) = crossbeam_channel::bounded(1);
+            let (e, repaint) = (entry.clone(), ctx.clone());
             std::thread::spawn(move || {
-                let loaded = load(entry.clone(), show_hidden);
-                let _ = tx.send((loaded, last_commit(&entry)));
+                let details = if ox_core::archive::split_virtual(&e.path).is_some() {
+                    Details::default()
+                } else {
+                    ox_core::details::read(&e.path, e.is_dir)
+                };
+                let _ = extra_tx.send((last_commit(&e), details));
+                repaint.request_repaint();
+            });
+            let (entry, repaint) = (entry.clone(), ctx.clone());
+            std::thread::spawn(move || {
+                let _ = tx.send(load(entry, show_hidden));
                 repaint.request_repaint();
             });
             self.content = Some(Content::Loading(rx));
             self.last_commit = None;
+            self.details = None;
+            self.extra_rx = Some(extra_rx);
             self.checksums = None;
             self.play.playback = None;
         }
+        if let Some((commit, details)) = self.extra_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            self.last_commit = commit;
+            self.details = Some(details);
+            self.extra_rx = None;
+        }
         if let Some(Content::Loading(rx)) = &self.content {
-            if let Ok((loaded, commit)) = rx.try_recv() {
-                self.last_commit = commit;
+            if let Ok(loaded) = rx.try_recv() {
                 self.content = Some(match loaded {
                     Loaded::Image(img, size) => {
                         let tex = ctx.load_texture("preview", img, TextureOptions::LINEAR);
@@ -705,6 +728,11 @@ impl PreviewState {
     pub fn stop_playback(&mut self) {
         self.play.playback = None;
     }
+
+    /// Start on the Info tab next time.
+    pub fn reset_tab(&mut self) {
+        self.wanted = None;
+    }
 }
 
 pub fn show(app: &mut OxApp, ui: &mut Ui) {
@@ -717,6 +745,16 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         .cloned()
         .collect();
     let in_bin = app.tabs.active().location().is_bin();
+    // In a Git repository: the item's state there.
+    let git_state = app.tabs.active().view.git.as_ref().and_then(|git| {
+        let [e] = selected.as_slice() else {
+            return None;
+        };
+        e.path.starts_with(&git.root).then(|| {
+            git.state(&e.path)
+                .map_or(tr("Unchanged"), |s| tr(s.label()))
+        })
+    });
     let date_fmt = app.settings.browsing.date_format.clone();
     let mut actions = Vec::new();
 
@@ -738,13 +776,21 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 .is_dir
                 .then(|| app.folder_sizes.get(&entry.path))
                 .flatten();
-            tabbed(ui, &mut app.preview, entry, total, &date_fmt, &mut actions);
+            tabbed(
+                ui,
+                &mut app.preview,
+                entry,
+                total,
+                git_state,
+                &date_fmt,
+                &mut actions,
+            );
         }
         [entry] => {
             app.preview.clear();
             header(ui, entry);
             ui.separator();
-            info_grid(ui, entry, Vec::new(), &date_fmt);
+            info_grid(ui, entry, None, Vec::new(), &date_fmt);
         }
         many => {
             app.preview.clear();
@@ -780,6 +826,7 @@ fn tabbed(
     state: &mut PreviewState,
     e: &FileEntry,
     total: Option<DirSize>,
+    git_state: Option<&'static str>,
     date_fmt: &str,
     actions: &mut Vec<Action>,
 ) {
@@ -793,11 +840,11 @@ fn tabbed(
         return;
     };
     let tabs = content.tabs();
-    // The tab picked last, if this file has it; otherwise its main view.
+    // The tab picked last, if this file has it; otherwise Info.
     let tab = state
         .wanted
         .filter(|t| tabs.contains(t))
-        .unwrap_or_else(|| tabs.get(1).copied().unwrap_or(PreviewTab::Info));
+        .unwrap_or(PreviewTab::Info);
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
         for t in &tabs {
@@ -834,6 +881,9 @@ fn tabbed(
                         ),
                     ));
                 }
+                if let Some(s) = git_state {
+                    facts.push((tr("Git"), s.to_owned()));
+                }
                 if let Some(c) = &state.last_commit {
                     facts.push((
                         tr("Last commit"),
@@ -846,7 +896,7 @@ fn tabbed(
                         ),
                     ));
                 }
-                info_grid(ui, e, facts, date_fmt);
+                info_grid(ui, e, state.details.as_ref(), facts, date_fmt);
                 if !e.is_dir && ox_core::archive::split_virtual(&e.path).is_none() {
                     ui.add_space(6.0);
                     checksums(ui, &mut state.checksums, e, actions);
@@ -896,69 +946,6 @@ fn tabbed(
             }
             _ => body(ui, content, e),
         });
-}
-
-/// Name, size, place, dates and attributes, then the type's own details.
-fn info_grid(ui: &mut Ui, e: &FileEntry, facts: Vec<(&'static str, String)>, date_fmt: &str) {
-    let mut rows: Vec<(&str, String)> = Vec::new();
-    rows.push((tr("Name"), e.name.clone()));
-    rows.push((tr("Type"), e.type_label()));
-    if !e.is_dir {
-        rows.push((
-            tr("Size"),
-            ox_core::trf!(
-                "{v1} ({v2} bytes)",
-                v1 = format::size(e.size),
-                v2 = group_digits(e.size)
-            ),
-        ));
-    }
-    if let Some(parent) = e.path.parent() {
-        rows.push((tr("Location"), parent.display().to_string()));
-    }
-    if let Some(t) = e.modified {
-        rows.push((tr("Modified"), format::time(t, date_fmt)));
-    }
-    if let Some(t) = e.created {
-        rows.push((tr("Created"), format::time(t, date_fmt)));
-    }
-    let mut attrs = Vec::new();
-    if e.hidden {
-        attrs.push(tr("hidden"));
-    }
-    if e.readonly {
-        attrs.push(tr("read-only"));
-    }
-    if e.is_symlink {
-        attrs.push(tr("link"));
-    }
-    if !attrs.is_empty() {
-        rows.push((tr("Attributes"), attrs.join(", ")));
-    }
-    rows.extend(facts);
-    egui::Grid::new("preview_info")
-        .num_columns(2)
-        .spacing(egui::vec2(12.0, 4.0))
-        .show(ui, |ui| {
-            for (name, value) in rows {
-                ui.label(RichText::new(name).weak());
-                ui.add(egui::Label::new(value).wrap());
-                ui.end_row();
-            }
-        });
-}
-
-/// 1234567 → "1,234,567".
-fn group_digits(n: u64) -> String {
-    let digits = n.to_string();
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
 }
 
 const SAMPLE: &str = "The quick brown fox jumps over the lazy dog";
@@ -1427,59 +1414,6 @@ fn ref_style(r: &GitRef) -> (String, egui::Color32) {
 fn commit_time(c: &Commit, date_fmt: &str) -> String {
     let t = SystemTime::UNIX_EPOCH + Duration::from_secs(c.time.max(0) as u64);
     format::time(t, date_fmt)
-}
-
-/// SHA-256 and MD5 of the file, computed when asked for (big files take a
-/// while), with buttons to copy them.
-fn checksums(ui: &mut Ui, state: &mut Option<Checksums>, e: &FileEntry, actions: &mut Vec<Action>) {
-    if let Some(Checksums::Running(rx)) = state {
-        if let Ok(result) = rx.try_recv() {
-            *state = Some(Checksums::Done(result));
-        }
-    }
-    match state {
-        None => {
-            if ui
-                .button(tr("🔐 Compute checksums"))
-                .on_hover_text(tr("SHA-256 and MD5 of the file"))
-                .clicked()
-            {
-                let (tx, rx) = crossbeam_channel::bounded(1);
-                let path = e.path.clone();
-                let ctx = ui.ctx().clone();
-                std::thread::spawn(move || {
-                    let result = ox_core::textinfo::checksums(&path).map_err(|e| e.to_string());
-                    let _ = tx.send(result);
-                    ctx.request_repaint();
-                });
-                *state = Some(Checksums::Running(rx));
-            }
-        }
-        Some(Checksums::Running(_)) => {
-            ui.horizontal(|ui| {
-                ui.spinner();
-                ui.label(RichText::new(tr("Computing checksums…")).weak());
-            });
-        }
-        Some(Checksums::Done(Err(err))) => {
-            ui.colored_label(egui::Color32::from_rgb(0xe5, 0x48, 0x4d), err.as_str());
-        }
-        Some(Checksums::Done(Ok((sha, md5)))) => {
-            for (name, value) in [("SHA-256", sha), ("MD5", md5)] {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(name).weak());
-                    if ui.small_button("📋").on_hover_text(tr("Copy")).clicked() {
-                        ui.ctx().copy_text(value.clone());
-                        actions.push(Action::Toast(ox_core::trf!("Copied {what}", what = name)));
-                    }
-                });
-                ui.add(
-                    egui::Label::new(RichText::new(value.as_str()).monospace().size(10.5))
-                        .wrap_mode(egui::TextWrapMode::Wrap),
-                );
-            }
-        }
-    }
 }
 
 /// "1:05" or "1:02:03".

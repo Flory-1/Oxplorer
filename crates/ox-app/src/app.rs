@@ -4,6 +4,9 @@
 //! [`Action`]s which are processed at the end of each frame. This keeps the
 //! borrow checker happy and makes every user command go through one place.
 
+mod properties;
+pub use properties::Properties;
+
 use ox_core::i18n::t as tr;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -16,7 +19,7 @@ use egui::{Context, Key, Modifiers};
 use ox_core::archive;
 use ox_core::clipboard::{ClipMode, FileClipboard};
 use ox_core::dirsize::FolderSizes;
-use ox_core::entry::{self, FileEntry};
+use ox_core::entry;
 use ox_core::index::{IndexService, IndexState};
 use ox_core::places::{self, Drive, QuickAccess};
 use ox_core::recycle::{self, TrashItem};
@@ -93,6 +96,8 @@ pub enum Action {
     OpenTerminal(PathBuf),
     Reveal(PathBuf),
     Properties(Vec<PathBuf>),
+    /// Make items read-only or not, hidden or not (`None` leaves it).
+    SetAttributes(Vec<PathBuf>, Option<bool>, Option<bool>),
     Search(Option<PathBuf>, String),
     /// Search while typing: updates the current search tab instead of adding history.
     SearchLive(Option<PathBuf>, String),
@@ -163,21 +168,12 @@ pub enum Dialog {
         paths: Vec<PathBuf>,
         permanent: bool,
     },
-    Properties(Properties),
+    Properties(Box<Properties>),
     RenameGroup {
         id: GroupId,
         text: String,
         focus: bool,
     },
-}
-
-pub struct Properties {
-    pub paths: Vec<PathBuf>,
-    pub entries: Vec<FileEntry>,
-    /// (bytes, files, folders), computed in the background.
-    pub totals: Option<(u64, u64, u64)>,
-    pub rx: Option<Receiver<(u64, u64, u64)>>,
-    pub cancel: Arc<AtomicBool>,
 }
 
 /// A file operation running on a helper thread (label, result, folder to refresh).
@@ -203,8 +199,11 @@ pub struct UiState {
     pub focus_search: bool,
     pub show_transfers: bool,
     pub settings_section: usize,
-    pub sidebar_width: crate::ui::PanelWidth,
-    pub preview_width: crate::ui::PanelWidth,
+    /// Where the sidebar's and the preview pane's edges go (x in points),
+    /// measured in the header this frame: under the command bar's separator
+    /// after the edit buttons, and in the gap before the search box.
+    pub sidebar_edge: Option<f32>,
+    pub preview_edge: Option<f32>,
     /// Whether folders open in Oxplorer (read from the registry when needed).
     pub default_folder_handler: Option<bool>,
     pub palette: Option<crate::ui::palette::PaletteState>,
@@ -355,8 +354,8 @@ impl OxApp {
                 focus_search: false,
                 show_transfers: true,
                 settings_section: 0,
-                sidebar_width: Default::default(),
-                preview_width: Default::default(),
+                sidebar_edge: None,
+                preview_edge: None,
                 default_folder_handler: None,
                 palette: None,
                 recording: None,
@@ -1181,16 +1180,10 @@ impl OxApp {
         let system_clip = self.settings.transfer.use_system_clipboard;
         match action {
             Action::Navigate(loc) => self.navigate(loc),
-            Action::OpenInNewTab(page @ (Location::Settings | Location::Help), _) => {
-                // Reuse an open Settings/Help tab; never put it into a tab group.
-                match self.tabs.tabs.iter().find(|t| *t.location() == page) {
-                    Some(t) => {
-                        let id = t.id;
-                        self.tabs.activate(id);
-                    }
-                    None => {
-                        self.tabs.open(page, None, true, &self.settings);
-                    }
+            Action::OpenInNewTab(page, activate) if page.is_page() => {
+                // Reuse its open tab; never put it into a tab group.
+                if !self.activate_page(&page) {
+                    self.tabs.open(page, None, activate, &self.settings);
                 }
             }
             Action::OpenInNewTab(loc, activate) => {
@@ -1579,11 +1572,10 @@ impl OxApp {
                     ));
                 }
             }
-            Action::Properties(paths) => match paths.as_slice() {
-                // The native dialog shows everything Explorer shows (security, versions, …).
-                [one] if ox_core::shell::supported() => self.icons.shell.properties(one.clone()),
-                _ => self.open_properties(paths),
-            },
+            Action::Properties(paths) => self.open_properties(paths),
+            Action::SetAttributes(paths, readonly, hidden) => {
+                self.set_attributes(&paths, readonly, hidden)
+            }
             Action::ShellMenu(paths) => self.icons.shell.context_menu(paths),
             Action::OpenWith(path) => self.icons.shell.open_with(path),
             Action::Search(root, query) => {
@@ -1740,12 +1732,26 @@ impl OxApp {
         }
     }
 
+    /// Switch to the tab showing `page` (Settings, Help, Recycle Bin), if
+    /// one does.
+    fn activate_page(&mut self, page: &Location) -> bool {
+        let tab = self.tabs.tabs.iter().find(|t| t.location() == page);
+        let Some(id) = tab.map(|t| t.id) else {
+            return false;
+        };
+        self.tabs.activate(id);
+        true
+    }
+
     /// Go to `loc` in the active tab. Home is the Home tab; what is opened
     /// from the Home tab opens in a new tab, so it stays Home.
     pub fn navigate(&mut self, loc: Location) {
         self.ui.address_editing = false;
         if loc == Location::Home {
             self.tabs.activate(self.tabs.home());
+            return;
+        }
+        if loc.is_page() && self.activate_page(&loc) {
             return;
         }
         if let Location::Folder(p) = &loc {
@@ -1944,41 +1950,6 @@ impl OxApp {
         self.mark_changed(Some(dir));
         self.tabs.active_mut().view.select_after_load = Some(created.clone());
         self.process(Action::Rename(created));
-    }
-
-    fn open_properties(&mut self, paths: Vec<PathBuf>) {
-        let entries: Vec<FileEntry> = paths
-            .iter()
-            .filter_map(|p| FileEntry::from_path(p).ok())
-            .collect();
-        let cancel = Arc::new(AtomicBool::new(false));
-        let (tx, rx) = crossbeam_channel::bounded(1);
-        let worker_paths = paths.clone();
-        let worker_cancel = cancel.clone();
-        let ctx = self.ctx.clone();
-        std::thread::spawn(move || {
-            let mut totals = (0, 0, 0);
-            for p in &worker_paths {
-                if p.is_dir() {
-                    let (b, f, d) = fsops::folder_size(p, &worker_cancel);
-                    totals.0 += b;
-                    totals.1 += f;
-                    totals.2 += d + 1;
-                } else if let Ok(m) = std::fs::metadata(p) {
-                    totals.0 += m.len();
-                    totals.1 += 1;
-                }
-            }
-            let _ = tx.send(totals);
-            ctx.request_repaint();
-        });
-        self.dialog = Some(Dialog::Properties(Properties {
-            paths,
-            entries,
-            totals: None,
-            rx: Some(rx),
-            cancel,
-        }));
     }
 
     pub fn save_quick(&mut self) {

@@ -55,24 +55,21 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             .show(ui, |ui| transfers::show(app, ui));
     }
 
+    // The side panels have fixed widths that line up with the header. egui
+    // draws a panel's edge line half a point inside the panel.
+    let area = ui.available_rect_before_wrap();
     if app.settings.sidebar.visible {
-        let salt = app.ui.sidebar_width.salt(ui, app.settings.sidebar.width);
-        let resp = egui::Panel::left(("sidebar", salt))
-            .resizable(true)
-            .default_size(app.settings.sidebar.width)
-            .size_range(SIDEBAR_WIDTH)
+        let width = app
+            .ui
+            .sidebar_edge
+            .map_or(SIDEBAR_WIDTH, |x| x + 0.5 - area.left());
+        egui::Panel::left("sidebar")
+            .resizable(false)
+            .exact_size(width)
             .frame(
                 egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(6, 8)),
             )
             .show(ui, |ui| sidebar::show(app, ui));
-        if let Some(w) =
-            app.ui
-                .sidebar_width
-                .dragged(ui, &resp.response, app.settings.sidebar.width)
-        {
-            app.settings.sidebar.width = w;
-            app.push(Action::SettingsChanged);
-        }
     }
 
     if app.ui.show_terminal {
@@ -90,26 +87,26 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
 
     let preview_shown =
         app.settings.browsing.show_preview && app.tabs.active().location().shows_files();
-    if !preview_shown {
+    let as_window = app.settings.preview.as_window;
+    // The pane only opens for a selection (the window stays open).
+    let pane_shown =
+        preview_shown && !as_window && !app.tabs.active().view.selected_entries().is_empty();
+    if !pane_shown && !(preview_shown && as_window) {
         // Nothing plays where it can't be seen (or stopped).
         app.preview.stop_playback();
+        // It opens on the Info tab again.
+        app.preview.reset_tab();
     }
-    if preview_shown && !app.settings.preview.as_window {
-        let salt = app.ui.preview_width.salt(ui, app.settings.preview.width);
-        let resp = egui::Panel::right(("preview", salt))
-            .resizable(true)
-            .default_size(app.settings.preview.width)
-            .size_range(PREVIEW_WIDTH)
+    if pane_shown {
+        let width = app
+            .ui
+            .preview_edge
+            .map_or(PREVIEW_WIDTH, |x| area.right() - x + 0.5);
+        egui::Panel::right("preview")
+            .resizable(false)
+            .exact_size(width)
             .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::same(10)))
             .show(ui, |ui| preview::show(app, ui));
-        if let Some(w) =
-            app.ui
-                .preview_width
-                .dragged(ui, &resp.response, app.settings.preview.width)
-        {
-            app.settings.preview.width = w;
-            app.push(Action::SettingsChanged);
-        }
     }
 
     let central = egui::Frame::central_panel(ui.style())
@@ -221,9 +218,9 @@ fn close_button(ui: &mut Ui) -> Response {
         ui.painter()
             .rect_filled(rect, 4.0, ui.visuals().widgets.hovered.bg_fill);
     }
-    ui.painter().text(
+    crate::icons::paint_glyph_centered(
+        ui.painter(),
         rect.center(),
-        Align2::CENTER_CENTER,
         "✖",
         FontId::proportional(11.0),
         ui.visuals().text_color(),
@@ -338,6 +335,9 @@ fn pane_bar(app: &OxApp, ui: &mut Ui, id: TabId, focused: bool) {
 
 fn status_bar(app: &mut OxApp, ui: &mut Ui) {
     ui.horizontal(|ui| {
+        // As high with nothing in it (Settings) as with text, so it doesn't jump.
+        let text = ui.text_style_height(&egui::TextStyle::Body);
+        ui.set_min_height(text.max(ui.spacing().interact_size.y));
         let tab = app.tabs.active();
         if tab.location().shows_files() {
             let total = tab.view.visible.len();
@@ -430,63 +430,16 @@ fn toasts(app: &OxApp, ctx: &egui::Context) {
         });
 }
 
-/// Allowed widths of the sidebar and the preview pane (in points).
-pub const SIDEBAR_WIDTH: std::ops::RangeInclusive<f32> = 160.0..=520.0;
-pub const PREVIEW_WIDTH: std::ops::RangeInclusive<f32> = 200.0..=900.0;
-
-/// Keeps a resizable side panel and its width setting in sync: dragging the
-/// panel's edge changes the setting, and changing the setting (Settings page)
-/// resizes the panel.
-#[derive(Default)]
-pub struct PanelWidth {
-    /// The setting as last seen here.
-    seen: Option<f32>,
-    /// Part of the panel's id. egui remembers a panel's width by id, so a
-    /// new id makes it start over at the configured width.
-    generation: u32,
-}
-
-impl PanelWidth {
-    /// The id salt for this frame's panel; `width` is the setting.
-    pub fn salt(&mut self, ui: &Ui, width: f32) -> u32 {
-        match self.seen {
-            None => self.seen = Some(width),
-            // Changed elsewhere (Settings page): resize the panel, but only
-            // once the mouse is done. The slider sits in the area the panel
-            // resizes, so resizing while it is pressed (or on the frame it is
-            // released) would move it under the pointer and change the value.
-            Some(seen) if seen != width => {
-                let busy = ui.input(|i| i.pointer.any_down() || i.pointer.any_released());
-                if busy {
-                    ui.ctx().request_repaint(); // try again next frame
-                } else {
-                    self.generation += 1;
-                    self.seen = Some(width);
-                }
-            }
-            Some(_) => {}
-        }
-        self.generation
-    }
-
-    /// The panel's new width once the user has finished dragging its edge.
-    pub fn dragged(&mut self, ui: &Ui, panel: &Response, width: f32) -> Option<f32> {
-        let actual = panel.rect.width().round();
-        let released = !ui.input(|i| i.pointer.any_down());
-        if released && (actual - width).abs() >= 1.0 {
-            self.seen = Some(actual);
-            Some(actual)
-        } else {
-            None
-        }
-    }
-}
+/// Widths of the sidebar and the preview pane until the header has been
+/// measured (in points).
+const SIDEBAR_WIDTH: f32 = 180.0;
+const PREVIEW_WIDTH: f32 = 280.0;
 
 /// The preview as a separate window (Settings → Preview pane → Open as a window).
 fn preview_window(app: &mut OxApp, ctx: &egui::Context) {
     let mut open = true;
     let screen = ctx.content_rect();
-    let width = app.settings.preview.width;
+    let width = 320.0;
     egui::Window::new(tr("Preview"))
         .id(Id::unique("preview_window"))
         .open(&mut open)
