@@ -1101,7 +1101,11 @@ fn body(ui: &mut Ui, content: &Content, e: &FileEntry) {
                             } else {
                                 CodeTheme::light(SIZE)
                             };
-                            let job = highlight(ui.ctx(), ui.style(), &theme, text, &e.extension());
+                            // The highlighter takes the font from the style, not the
+                            // theme: give it the line numbers' size so rows line up.
+                            let mut style = (**ui.style()).clone();
+                            style.override_font_id = Some(egui::FontId::monospace(SIZE));
+                            let job = highlight(ui.ctx(), &style, &theme, text, &e.extension());
                             egui::Label::new(job)
                         } else {
                             egui::Label::new(RichText::new(text.as_str()).monospace().size(SIZE))

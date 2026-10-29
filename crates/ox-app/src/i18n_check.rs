@@ -38,9 +38,12 @@ const SOURCES: &[(&str, &str)] = &[
     core!("default_app.rs"),
     core!("entry.rs"),
     core!("fsops.rs"),
+    core!("pathfmt.rs"),
     core!("places.rs"),
+    core!("player.rs"),
     core!("rename.rs"),
     core!("tags.rs"),
+    core!("textinfo.rs"),
     core!("transfer/mod.rs"),
     core!("transfer/plan.rs"),
 ];
@@ -192,6 +195,8 @@ fn texts_translated_where_they_are_shown_have_german_too() {
     texts.extend(crate::tabs::GROUP_COLORS.map(|(name, _)| name));
     texts.extend(ConflictPolicy::ALL.map(ConflictPolicy::label));
     texts.extend([TransferKind::Copy.verb(), TransferKind::Move.verb()]);
+    let new_items = ox_core::settings::NewItems::default();
+    texts.extend(new_items.0.iter().map(|i| i.label.as_str()));
     for text in texts {
         assert!(
             ox_core::i18n::german(text).is_some(),

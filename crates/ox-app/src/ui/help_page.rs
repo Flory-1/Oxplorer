@@ -131,11 +131,17 @@ const TOPICS: &[Topic] = &[
                  the selected item; the other tabs show its content.",
             ),
             List(&[
-                "Images, text and code (with syntax highlighting), the first page of PDFs.",
-                "Songs and videos: tags, length and cover art.",
+                "Images, text and code (with syntax highlighting), the first page of PDFs. \
+                 Markdown files are shown formatted in the Markdown tab.",
+                "Songs and videos play in the Player tab: seek, 10 seconds back and forward, \
+                 repeat and volume. The Info tab shows their tags and length.",
                 "Fonts: a sample at several sizes, and every character in the Glyphs tab \
                  (click one to copy it).",
-                "Folders and archives: what's inside and how big it is.",
+                "Folders and archives: what's inside and how big it is. Folders in a Git \
+                 repository have a Git tab with the history of all branches as a graph \
+                 (click a commit to copy its hash).",
+                "Text files: encoding, line endings and indentation in the Info tab. Compute \
+                 checksums gives the SHA-256 and MD5 of any file.",
             ]),
         ],
     },
@@ -204,6 +210,21 @@ const TOPICS: &[Topic] = &[
              background; … means a size is still being calculated.",
             "Inside a Git repository a Git column shows what changed: M modified, A added, \
              D deleted, R renamed, ? untracked, I ignored. The status bar shows the branch.",
+        ])],
+    },
+    Topic {
+        section: 1,
+        title: "For developers",
+        blocks: &[List(&[
+            "Open in editor (Ctrl+Shift+E or right-click) opens files and folders in VS Code \
+             or the editor you choose in Settings → Developer.",
+            "Copy path as: with forward slashes, in quotes, relative to the Git repository, \
+             as a file:// URL or just the name.",
+            "In Git repositories, right-click → Git opens the file or folder on GitHub or \
+             GitLab, or copies the branch name. The Info tab shows the last commit that \
+             changed the selected item.",
+            "➕ New can create your own file types with a name and content to start with, \
+             such as a Python script (Settings → New menu).",
         ])],
     },
     Topic {

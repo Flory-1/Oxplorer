@@ -33,7 +33,9 @@ What's new: [CHANGELOG.md](CHANGELOG.md). What's next: [ROADMAP.md](ROADMAP.md).
 - Back/forward/up (mouse side buttons work too) and a breadcrumb address bar.
   Click a `›` to jump into a sub-folder. Click the empty part of the bar to type
   a path; `%USERPROFILE%` and `~` are expanded.
-- New folder or file, rename (F2), delete to the Recycle Bin, permanent delete (Shift+Del), properties with folder size
+- New folder or file, rename (F2), delete to the Recycle Bin, permanent delete (Shift+Del), properties with folder size.
+  Add your own file types to ➕ New (e.g. *Python script*, *Markdown document*) with a file name
+  and content to start with (Settings → New menu).
 - The view refreshes by itself when files change on disk
 - Open in Terminal, Show in Windows Explorer, Copy path
 - **Recycle Bin view**: browse deleted items with their original location, restore them,
@@ -112,6 +114,12 @@ What's new: [CHANGELOG.md](CHANGELOG.md). What's next: [ROADMAP.md](ROADMAP.md).
   page of PDFs (on Windows), cover art, and for fonts a sample at several sizes and a **Glyphs**
   grid of every character (click one to copy it). Loads in the background, so large files never
   block the window.
+  - **Player**: audio and video play right in the preview (on Windows, with Windows' own media
+    engine, so every format Windows plays works): seek bar, 10 s back/forward, repeat, volume.
+  - **Markdown**: `.md` files formatted, with tables, task lists, highlighted code blocks and
+    the pictures next to them.
+  - **Git**: for folders in a repository, the history of all branches as a commit graph with
+    branches, tags, authors and dates. Click a commit to copy its hash.
 - **Bulk rename** (F2 with several items selected): build names from a pattern
   (`{name}`, `{ext}`, `{n:3}`, `{date}`, `{parent}`), find & replace with text or regex,
   change case, and see every new name before anything changes. Name clashes are
@@ -135,6 +143,16 @@ What's new: [CHANGELOG.md](CHANGELOG.md). What's next: [ROADMAP.md](ROADMAP.md).
   dots and show up under *Tags* in the sidebar. Rename a tag (e.g. Red → Urgent) from its
   right-click menu. Tags follow items you rename or move in Oxplorer.
 
+**For developers**
+- **Open in editor** (Ctrl+Shift+E, right-click, command palette): VS Code by default, or any
+  editor command in Settings → Developer (presets for Cursor, Zed, Sublime Text, Notepad++ …)
+- **Copy path as**: with forward slashes, in quotes, relative to the Git repository, as a
+  `file://` URL, or just the name
+- **Git** in the right-click menu: open the file or folder on GitHub, GitLab or Bitbucket,
+  copy the branch name. The Info tab shows the last commit that changed the selected item.
+- Text files show their **encoding**, **line endings** (CRLF/LF) and **indentation** (tabs,
+  2 or 4 spaces); **checksums** (SHA-256, MD5) of any file on request
+
 **Help page** (F1 or *Help* at the bottom of the sidebar): getting started, every feature,
 the search syntax, your current keyboard shortcuts and common questions, with a filter to
 find a topic.
@@ -150,7 +168,8 @@ Help page, messages and key names (*Strg+C*, *Entf*), and numbers use a decimal 
   Change any theme's colours; **export** a theme as a small `.toml` file to share it, and
   right-click a theme file → *Use as theme* to install one.
 - Browsing, startup, sidebar (incl. its width), preview pane (as a pane or its own window, and its
-  width), copy engine and search options, plus a list of keyboard shortcuts
+  width), the New menu's own entries, developer options (editor), copy engine and search
+  options, plus a list of keyboard shortcuts
 - The window opens where you left it, with the same size (and maximized if it was)
 - Saved as TOML in `%APPDATA%\Oxplorer\`
 
@@ -161,6 +180,8 @@ Help page, messages and key names (*Strg+C*, *Entf*), and numbers use a decimal 
 | ![Search](docs/screenshots/search-dark.png) | ![Preview](docs/screenshots/preview-dark.png) |
 | **Git status, colour tags and folder sizes** | **Split view** |
 | ![Git, tags and folder sizes](docs/screenshots/tags-sizes-dark.png) | ![Split view](docs/screenshots/split-dark.png) |
+| **Git graph in the preview** | **Markdown preview (light)** |
+| ![Git graph](docs/screenshots/git-graph-dark.png) | ![Markdown preview](docs/screenshots/markdown-light.png) |
 | **Font preview with the Glyphs grid** | **Nord theme and code preview** |
 | ![Font glyphs](docs/screenshots/fonts-dark.png) | ![Nord theme](docs/screenshots/theme-nord.png) |
 | **Recycle Bin** | **Settings (light)** |
@@ -292,6 +313,7 @@ Menus, tooltips and the command palette always show the keys in use.
 | Alt+P | Preview pane |
 | Ctrl+\\ / F6 | Split view / switch pane |
 | Ctrl+` | Terminal panel |
+| Ctrl+Shift+E | Open in editor |
 
 ## Roadmap
 
