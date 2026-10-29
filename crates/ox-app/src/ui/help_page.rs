@@ -210,9 +210,9 @@ const TOPICS: &[Topic] = &[
         section: 1,
         title: "Terminal panel",
         blocks: &[Text(
-            "Ctrl+` opens a terminal under the file view, starting in the current folder. \
-             \"cd here\" moves it to the folder you are looking at. Choose the shell and \
-             whether it follows your folder in Settings → Browsing. Ctrl+Shift+V pastes.",
+            "Ctrl+` opens a terminal under the file view, in the folder you are looking at; \
+             opening it again later takes it to the current folder too. Choose the shell and \
+             whether it follows every folder you open in Settings → Browsing. Ctrl+Shift+V pastes.",
         )],
     },
     Topic {

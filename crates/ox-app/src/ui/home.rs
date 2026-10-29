@@ -50,8 +50,14 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
                 for d in app.drives().to_vec() {
-                    let sub = ox_core::trf!("{v1} free of {v2}", v1 = format::size(d.available), v2 = format::size(d.total));
-                    let resp = card(ui, Icon::Drive, &d.title(), &sub, Some(d.used_fraction()), accent);
+                    // Network drives: no space shown (an offline server can take long to answer).
+                    let resp = match &d.remote {
+                        Some(remote) => card(ui, Icon::Server, &d.title(), remote, None, accent),
+                        None => {
+                            let sub = ox_core::trf!("{v1} free of {v2}", v1 = format::size(d.available), v2 = format::size(d.total));
+                            card(ui, Icon::Drive, &d.title(), &sub, Some(d.used_fraction()), accent)
+                        }
+                    };
                     super::open_link(&mut actions, &resp, &d.mount);
                     super::drop_target(&mut actions, &resp, &d.mount);
                     let pinned = app.quick.is_favorite(&d.mount);

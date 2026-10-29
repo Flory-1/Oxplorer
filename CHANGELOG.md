@@ -17,9 +17,18 @@ The release workflow publishes the section of the tagged version as the release 
 - The search index is no longer rebuilt at every start: a saved index that is younger than
   *Refresh every* is used as is, and the refresh waits until it is due.
   (*Only at start* still rebuilds at every start.)
+- Network servers and mapped network drives showed an empty box instead of an icon on Windows
+  (its emoji font has no 🖧); they now have their own drawn server icon. Network drives on the
+  Home page show their share instead of "0 B free of 0 B".
+- The terminal opens in the current folder also when it is shown again later, not only when
+  it starts.
+
+### Changed
+- The terminal panel's close button has no background any more.
 
 ### Removed
 - The *UI scale* setting.
+- The terminal's *cd here* button (the terminal goes to the current folder when it opens).
 
 ## [1.0.0] - 2026-10-28
 

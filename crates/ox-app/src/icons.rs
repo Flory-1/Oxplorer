@@ -222,6 +222,40 @@ pub fn paint_drive(p: &Painter, rect: Rect, accent: Color32) {
     );
 }
 
+/// A network server: two stacked units with a status light each. Drawn
+/// rather than taken from a font: Windows' emoji font has no 🖧.
+pub fn paint_server(p: &Painter, rect: Rect, accent: Color32) {
+    let s = rect.width();
+    let unit = s * 0.36;
+    let gap = s * 0.08;
+    let top = rect.center().y - unit - gap / 2.0;
+    for i in 0..2 {
+        let y = top + i as f32 * (unit + gap);
+        let body = Rect::from_min_size(pos2(rect.left(), y), vec2(s, unit));
+        p.rect_filled(
+            body,
+            CornerRadius::same((s * 0.1) as u8),
+            Color32::from_rgb(0x6c, 0x75, 0x83),
+        );
+        // Two vent lines and the light.
+        for k in 0..2 {
+            let x = body.left() + s * (0.16 + 0.13 * k as f32);
+            p.line_segment(
+                [
+                    pos2(x, body.top() + unit * 0.3),
+                    pos2(x, body.bottom() - unit * 0.3),
+                ],
+                Stroke::new((s / 14.0).max(1.0), Color32::from_rgb(0x4a, 0x52, 0x5e)),
+            );
+        }
+        p.circle_filled(
+            pos2(body.right() - s * 0.17, body.center().y),
+            s * 0.07,
+            accent,
+        );
+    }
+}
+
 /// Square rect of `size` centred vertically at the left of `x`.
 pub fn icon_rect(x: f32, center_y: f32, size: f32) -> Rect {
     Rect::from_min_size(pos2(x, center_y - size / 2.0), vec2(size, size))
@@ -233,6 +267,8 @@ pub enum Icon<'a> {
     Glyph(&'a str),
     Folder,
     Drive,
+    /// A network server (or mapped network drive).
+    Server,
     File(FileKind),
     /// A filled circle, e.g. a colour tag.
     Dot(Color32),
@@ -251,6 +287,7 @@ pub fn paint_icon(p: &Painter, rect: Rect, icon: Icon<'_>, text_color: Color32, 
         }
         Icon::Folder => paint_folder(p, rect, false),
         Icon::Drive => paint_drive(p, rect, accent),
+        Icon::Server => paint_server(p, rect, accent),
         Icon::File(kind) => paint_file(p, rect, kind_color(kind), None, false),
         Icon::Dot(color) => {
             p.circle_filled(rect.center(), rect.height() * 0.3, color);

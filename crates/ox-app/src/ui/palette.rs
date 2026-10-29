@@ -266,13 +266,13 @@ fn entries(app: &OxApp) -> Vec<Entry> {
 
     if ox_core::shell::supported() {
         cmd(
-            "🖧",
+            "🌐",
             tr("Map network drive…"),
             "",
             act(|| Action::NetworkDriveDialog(true)),
         );
         cmd(
-            "🖧",
+            "🌐",
             tr("Disconnect network drive…"),
             "",
             act(|| Action::NetworkDriveDialog(false)),

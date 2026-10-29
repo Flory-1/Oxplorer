@@ -71,7 +71,6 @@ pub enum Action {
     ToggleTerminal,
     RestartTerminal,
     /// Type `cd <folder>` into the terminal.
-    TerminalCd(PathBuf),
     /// Items were renamed or moved (old path, new path): tags go along.
     PathsMoved(Vec<(PathBuf, PathBuf)>),
     /// Give a tag colour a custom name (empty = default).
@@ -1368,17 +1367,15 @@ impl OxApp {
             Action::ToggleTerminal => {
                 self.ui.show_terminal = !self.ui.show_terminal;
                 self.ui.terminal_focused = false;
-                if self.ui.show_terminal && self.terminal.is_none() {
-                    self.start_terminal();
+                if self.ui.show_terminal {
+                    if self.terminal.is_none() {
+                        self.start_terminal(); // starts in the current folder
+                    } else {
+                        self.terminal_to_current_folder();
+                    }
                 }
             }
             Action::RestartTerminal => self.start_terminal(),
-            Action::TerminalCd(dir) => {
-                if let Some(t) = &self.terminal {
-                    t.cd(&dir);
-                    self.terminal_dir = Some(dir);
-                }
-            }
             Action::PathsMoved(pairs) => {
                 if !self.tags.is_empty() {
                     for (from, to) in &pairs {
@@ -1695,9 +1692,13 @@ impl OxApp {
 
     /// With "follow the current folder" on, `cd` the terminal along.
     fn follow_folder_in_terminal(&mut self) {
-        if !self.settings.terminal.follow_folder || !self.ui.show_terminal {
-            return;
+        if self.settings.terminal.follow_folder && self.ui.show_terminal {
+            self.terminal_to_current_folder();
         }
+    }
+
+    /// `cd` the running terminal to the folder on screen (if it isn't there).
+    fn terminal_to_current_folder(&mut self) {
         let Some(folder) = self.current_folder() else {
             return;
         };

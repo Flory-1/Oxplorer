@@ -127,8 +127,8 @@ What's new: [CHANGELOG.md](CHANGELOG.md). What's next: [ROADMAP.md](ROADMAP.md).
   Folders show the most important change inside them, and the status bar shows the branch
   (`Git: main ↑2 · 3 changes`). Needs Git installed.
 - **Terminal panel** (Ctrl+`): a real terminal under the file view running PowerShell (or any
-  shell you set), with colours, scrollback and full-screen programs. *cd here* sends it to the
-  current folder, or let it follow the folder automatically (Settings → Browsing).
+  shell you set), with colours, scrollback and full-screen programs. It opens in the current
+  folder (also when shown again later), or let it follow every folder you open (Settings → Browsing).
 - **Folder sizes** in the Size column, calculated in the background and cached. Sort by
   size to find what fills your disk.
 - **Colour tags**: right-click → Tags to mark files and folders. Tagged items get coloured

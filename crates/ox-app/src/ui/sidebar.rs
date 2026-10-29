@@ -133,9 +133,14 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 section(ui, tr("This PC"));
                 for drive in app.drives().to_vec() {
                     let selected = current.folder() == Some(drive.mount.as_path());
+                    let icon = if drive.remote.is_some() {
+                        Icon::Server
+                    } else {
+                        Icon::Drive
+                    };
                     let resp = item(
                         ui,
-                        Icon::Drive,
+                        icon,
                         &drive.title(),
                         (drive.total > 0).then(|| drive.used_fraction()),
                         selected,
@@ -175,7 +180,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 for server in servers {
                     let selected = current.folder() == Some(server.as_path());
                     let name = ox_core::network::server_name(&server).unwrap_or_default();
-                    let resp = item(ui, Icon::Glyph("🖧"), name, None, selected, accent)
+                    let resp = item(ui, Icon::Server, name, None, selected, accent)
                         .on_hover_text(server.display().to_string());
                     super::open_link(&mut actions, &resp, &server);
                     let pinned = app.quick.is_favorite(&server);
@@ -334,10 +339,10 @@ fn network_drive_menu(ui: &mut Ui, actions: &mut Vec<Action>) {
         return;
     }
     ui.separator();
-    if ui.button(tr("🖧 Map network drive…")).clicked() {
+    if ui.button(tr("🌐 Map network drive…")).clicked() {
         actions.push(Action::NetworkDriveDialog(true));
     }
-    if ui.button(tr("🖧 Disconnect network drive…")).clicked() {
+    if ui.button(tr("🌐 Disconnect network drive…")).clicked() {
         actions.push(Action::NetworkDriveDialog(false));
     }
 }
