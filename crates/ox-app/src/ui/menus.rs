@@ -1,6 +1,7 @@
 //! Context menus: items, backgrounds, folder links, tags and the New submenu.
 
 use super::*;
+use crate::app::SelectAction;
 
 /// Context information for the item context menu.
 pub struct MenuTarget<'a> {
@@ -406,6 +407,7 @@ pub fn background_menu(
     {
         actions.push(Action::SelectAll);
     }
+    select_menu(ui, actions);
     ui.separator();
     if pinned {
         if ui.button(tr("☆ Unpin from Favorites")).clicked() {
@@ -431,6 +433,41 @@ pub fn background_menu(
 }
 
 /// Context menu for a folder link (sidebar, home page cards).
+/// Select by pattern, invert, same type: a submenu next to Select all.
+pub fn select_menu(ui: &mut Ui, actions: &mut Vec<Action>) {
+    ui.menu_button(tr("☑ Select"), |ui| {
+        for (label, cmd, action) in [
+            (
+                tr("Select by pattern…"),
+                Command::SelectPattern,
+                SelectAction::PatternDialog(true),
+            ),
+            (
+                tr("Deselect by pattern…"),
+                Command::DeselectPattern,
+                SelectAction::PatternDialog(false),
+            ),
+            (
+                tr("Invert selection"),
+                Command::InvertSelection,
+                SelectAction::Invert,
+            ),
+            (
+                tr("Select all of the same type"),
+                Command::SelectSameType,
+                SelectAction::SameType,
+            ),
+        ] {
+            if ui
+                .add(egui::Button::new(label).shortcut_text(shortcuts::label(cmd)))
+                .clicked()
+            {
+                actions.push(Action::Select(action));
+            }
+        }
+    });
+}
+
 pub fn folder_link_menu(ui: &mut Ui, path: &Path, pinned: bool, actions: &mut Vec<Action>) {
     if ui.button(tr("📂 Open")).clicked() {
         actions.push(Action::Navigate(Location::Folder(path.to_path_buf())));

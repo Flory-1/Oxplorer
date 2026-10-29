@@ -10,12 +10,14 @@ mod input;
 mod poll;
 mod process;
 mod properties;
+mod select;
 mod transfer_watch;
 mod undo;
 mod window;
 pub use action::{Action, TabAction};
 pub use compare::{CompareAction, CompareState};
 pub use properties::Properties;
+pub use select::SelectAction;
 pub use transfer_watch::TransferWatch;
 
 use ox_core::i18n::t as tr;
@@ -69,6 +71,12 @@ pub enum Dialog {
     RenameGroup {
         id: GroupId,
         text: String,
+        focus: bool,
+    },
+    /// Select (`select`) or deselect the items matching typed patterns.
+    SelectPattern {
+        text: String,
+        select: bool,
         focus: bool,
     },
 }

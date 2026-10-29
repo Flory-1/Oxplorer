@@ -62,7 +62,11 @@ impl OxApp {
 
         // Which commands make sense here; only their keys are taken.
         let available = |c: C| match c {
-            C::SelectAll => shows_files,
+            C::SelectAll
+            | C::SelectPattern
+            | C::DeselectPattern
+            | C::InvertSelection
+            | C::SelectSameType => shows_files,
             // The Recycle Bin purges on Delete; archives are read-only.
             C::Delete | C::DeletePermanently => shows_files && has_sel && !read_only,
             C::Copy | C::CopyPath => shows_files && has_sel && !in_bin,
@@ -116,6 +120,12 @@ impl OxApp {
                 C::Settings => actions.push(Action::OpenInNewTab(Location::Settings, true)),
                 C::Help => actions.push(Action::OpenInNewTab(Location::Help, true)),
                 C::SelectAll => actions.push(Action::SelectAll),
+                C::SelectPattern => actions.push(Action::Select(SelectAction::PatternDialog(true))),
+                C::DeselectPattern => {
+                    actions.push(Action::Select(SelectAction::PatternDialog(false)));
+                }
+                C::InvertSelection => actions.push(Action::Select(SelectAction::Invert)),
+                C::SelectSameType => actions.push(Action::Select(SelectAction::SameType)),
                 C::Copy => actions.push(Action::CopyItems(selection.clone())),
                 C::Cut => actions.push(Action::CutItems(selection.clone())),
                 C::CopyPath => actions.push(Action::CopyPathText(selection.clone())),

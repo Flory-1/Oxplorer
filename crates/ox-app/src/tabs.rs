@@ -18,6 +18,7 @@ pub type GroupId = u64;
 
 mod groups;
 mod location;
+mod select;
 mod session;
 #[cfg(test)]
 mod tests;

@@ -82,6 +82,8 @@ pub enum Action {
     RemoveSavedSearch(usize),
     RebuildIndex,
     SelectAll,
+    /// Select by pattern, invert, same type.
+    Select(super::SelectAction),
     ForgetRecent(PathBuf),
     ClearRecent,
     SettingsChanged,
