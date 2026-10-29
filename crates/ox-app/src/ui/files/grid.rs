@@ -9,8 +9,11 @@ pub(super) fn grid(
     cx: &Ctx<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let width = ui.available_width();
     let gap = 6.0;
+    if !view.groups.is_empty() {
+        return super::grouped::grid(ui, view, tab_id, cx, actions, TILE, gap);
+    }
+    let width = ui.available_width();
     let cols = (((width - 12.0) / (TILE.x + gap)).floor() as usize).max(1);
     ui.data_mut(|d| d.insert_temp(Id::unique(("grid_columns", tab_id)), cols));
     let n = view.visible.len();
@@ -61,7 +64,7 @@ pub(super) fn grid(
     );
 }
 
-fn paint_tile(
+pub(super) fn paint_tile(
     ui: &Ui,
     rect: Rect,
     e: &FileEntry,

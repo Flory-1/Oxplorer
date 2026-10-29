@@ -1,5 +1,5 @@
 //! The view each folder was last shown with (view mode, sort order,
-//! columns), so that e.g. *Downloads* opens sorted by date and *Pictures*
+//! columns, grouping), so that e.g. *Downloads* opens sorted by date and *Pictures*
 //! as a grid. Stored in `folder_views.toml` in the config directory; only
 //! the most recently used folders are kept.
 
@@ -12,6 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::columns::ColumnLayout;
 use crate::entry::{SortKey, SortOrder};
+use crate::grouping::GroupBy;
 use crate::settings::{load_toml, save_toml, Browsing, ViewMode};
 
 /// Folders remembered at most; the least recently used are forgotten.
@@ -27,6 +28,7 @@ pub struct SavedView {
     pub order: SortOrder,
     /// The folder's own columns; `None` = the default columns.
     pub columns: Option<ColumnLayout>,
+    pub group: GroupBy,
 }
 
 impl Default for SavedView {
@@ -43,6 +45,7 @@ impl SavedView {
             sort: b.default_sort,
             order: b.default_order,
             columns: None,
+            group: b.default_group,
         }
     }
 }
@@ -260,6 +263,7 @@ mod tests {
             sort: SortKey::Modified,
             order: SortOrder::Descending,
             columns: Some(columns),
+            group: GroupBy::Modified,
             ..grid()
         };
         v.set(Path::new("/a"), view.clone(), &defaults);

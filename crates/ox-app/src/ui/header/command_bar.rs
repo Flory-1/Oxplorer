@@ -138,6 +138,11 @@ pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                     app.settings.browsing.folders_first = ff;
                     actions.push(Action::SettingsChanged);
                 }
+                ui.separator();
+                let group = app.tabs.active().group_by;
+                ui.menu_button(tr("Group by"), |ui| {
+                    crate::ui::files::group_by_menu(ui, group, &mut actions);
+                });
                 if new_key != key || new_order != order {
                     let folders_first = app.settings.browsing.folders_first;
                     let case = app.settings.search.case_sensitive;

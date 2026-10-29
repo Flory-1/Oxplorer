@@ -103,6 +103,8 @@ pub struct Browsing {
     pub default_view: ViewMode,
     pub default_sort: SortKey,
     pub default_order: SortOrder,
+    /// How folders without a view of their own group their items.
+    pub default_group: crate::grouping::GroupBy,
     /// Open items with a single click instead of a double click.
     pub single_click_open: bool,
     pub confirm_delete: bool,
@@ -136,6 +138,7 @@ impl Default for Browsing {
             default_view: ViewMode::Details,
             default_sort: SortKey::Name,
             default_order: SortOrder::Ascending,
+            default_group: Default::default(),
             single_click_open: false,
             confirm_delete: true,
             delete_to_trash: true,
