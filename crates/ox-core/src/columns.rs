@@ -15,6 +15,8 @@ use crate::entry::SortKey;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ColumnId {
     Name,
+    /// OneDrive / Dropbox state (in cloud folders only).
+    Status,
     /// Where a search result or a deleted item is (search and Recycle Bin only).
     Folder,
     /// Git state (inside repositories only).
@@ -65,8 +67,9 @@ const fn col(key: &'static str, label: &'static str, width: f32, shown: bool) ->
 
 impl ColumnId {
     /// Every column, in the default order.
-    pub const ALL: [ColumnId; 13] = [
+    pub const ALL: [ColumnId; 14] = [
         Self::Name,
+        Self::Status,
         Self::Folder,
         Self::Git,
         Self::Modified,
@@ -89,6 +92,7 @@ impl ColumnId {
         let read = |c: ColumnInfo| ColumnInfo { props: true, ..c };
         match self {
             Self::Name => sorted(col("Name", "Name", 0.0, true), SortKey::Name),
+            Self::Status => sorted(col("Status", "Status", 60.0, true), SortKey::Status),
             Self::Folder => col("Folder", "Folder", 260.0, true),
             Self::Git => col("Git", "Git", 44.0, true),
             Self::Modified => sorted(
@@ -132,6 +136,7 @@ impl ColumnId {
         match self {
             Self::Folder => cx.folder,
             Self::Git => cx.git,
+            Self::Status => cx.cloud,
             _ => true,
         }
     }
@@ -159,6 +164,8 @@ pub struct ColumnContext {
     pub folder: bool,
     /// Inside a Git repository: the Git column applies.
     pub git: bool,
+    /// Items with a cloud state (OneDrive, Dropbox, …): the Status column applies.
+    pub cloud: bool,
 }
 
 /// A width the user gave a column.
@@ -308,8 +315,9 @@ impl ColumnLayout {
     /// left out (the extra ones first, then Type, Folder and the date);
     /// Git and Size always stay.
     pub fn fit(&self, cx: ColumnContext, width: f32) -> Vec<(ColumnId, f32)> {
-        const LEAVE_OUT: [ColumnId; 10] = [
+        const LEAVE_OUT: [ColumnId; 11] = [
             ColumnId::Attributes,
+            ColumnId::Status,
             ColumnId::Version,
             ColumnId::Authors,
             ColumnId::DateTaken,
@@ -368,6 +376,7 @@ mod tests {
     const EVERYWHERE: ColumnContext = ColumnContext {
         folder: true,
         git: true,
+        cloud: true,
     };
 
     fn ids(cols: &[(ColumnId, f32)]) -> Vec<ColumnId> {
@@ -388,7 +397,10 @@ mod tests {
     fn defaults_are_the_classic_columns() {
         let l = ColumnLayout::default();
         use ColumnId::*;
-        assert_eq!(l.shown, vec![Name, Folder, Git, Modified, Type, Size]);
+        assert_eq!(
+            l.shown,
+            vec![Name, Status, Folder, Git, Modified, Type, Size]
+        );
         let here = ColumnContext::default();
         assert_eq!(
             l.visible(here).collect::<Vec<_>>(),
@@ -404,7 +416,7 @@ mod tests {
         l.toggle(Created);
         assert_eq!(
             l.shown,
-            vec![Name, Folder, Git, Modified, Created, Type, Size]
+            vec![Name, Status, Folder, Git, Modified, Created, Type, Size]
         );
         l.toggle(Attributes);
         assert_eq!(*l.shown.last().unwrap(), Attributes);
@@ -425,7 +437,10 @@ mod tests {
         l.move_before(Size, None);
         assert_eq!(*l.shown.last().unwrap(), Size);
         l.move_before(Type, Some(Modified));
-        assert_eq!(l.shown, vec![Name, Folder, Git, Type, Modified, Size]);
+        assert_eq!(
+            l.shown,
+            vec![Name, Status, Folder, Git, Type, Modified, Size]
+        );
         l.move_before(Name, None);
         assert_eq!(l.shown[0], Name);
         // Hidden columns aren't moved in.
@@ -467,9 +482,9 @@ mod tests {
 
     #[test]
     fn settings_files_with_unknown_columns_still_load() {
-        let text = "shown = [\"Size\", \"Name\", \"Status\", \"Size\"]\n\
+        let text = "shown = [\"Size\", \"Name\", \"Rating\", \"Size\"]\n\
                     [[widths]]\nid = \"Size\"\nwidth = 3000.0\n\
-                    [[widths]]\nid = \"Status\"\nwidth = 80.0\n";
+                    [[widths]]\nid = \"Rating\"\nwidth = 80.0\n";
         let mut l: ColumnLayout = toml::from_str(text).unwrap();
         l.normalize();
         assert_eq!(l.shown, vec![ColumnId::Name, ColumnId::Size]);

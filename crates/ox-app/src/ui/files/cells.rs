@@ -11,6 +11,8 @@ pub(super) enum Cell {
     Text(String),
     /// A short coloured marker, e.g. the Git state letter.
     Symbol(&'static str, Color32),
+    /// The cloud state, drawn as its badge (see `ui::cloud`).
+    Cloud(Option<ox_core::cloud::CloudStatus>),
     Empty,
 }
 
@@ -40,6 +42,7 @@ pub(super) fn cell(
     match id {
         // Drawn by the row itself (icon, name, tags).
         ColumnId::Name => Cell::Empty,
+        ColumnId::Status => Cell::Cloud(e.cloud),
         ColumnId::Folder => text(folder(e, cx)),
         ColumnId::Git => git(e, cx, v),
         ColumnId::Modified => date(e.modified),

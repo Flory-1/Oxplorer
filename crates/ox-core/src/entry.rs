@@ -233,6 +233,9 @@ pub enum SortKey {
     Type,
     Size,
     Created,
+    /// OneDrive / Dropbox state. Not in the menus: the Status column's
+    /// header sorts by it.
+    Status,
 }
 
 impl SortKey {
@@ -253,6 +256,7 @@ impl SortKey {
             Self::Created => "Date created",
             Self::Type => "Type",
             Self::Size => "Size",
+            Self::Status => "Status",
         }
     }
 }
@@ -297,6 +301,9 @@ pub fn sort_entries(
                 .cmp(&b.type_label())
                 .then_with(|| natural_cmp(&a.name, &b.name)),
             SortKey::Size => a.size.cmp(&b.size),
+            SortKey::Status => crate::cloud::sort_rank(a.cloud)
+                .cmp(&crate::cloud::sort_rank(b.cloud))
+                .then_with(|| natural_cmp(&a.name, &b.name)),
         };
         let ord = ord.then_with(|| natural_cmp(&a.name, &b.name));
         match order {

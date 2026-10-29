@@ -17,6 +17,7 @@ pub(crate) fn column_context(tab: &Tab) -> ColumnContext {
             || loc.is_collection()
             || tab.is_flat(),
         git: tab.view.git.is_some(),
+        cloud: tab.view.entries.iter().any(|e| e.cloud.is_some()),
     }
 }
 

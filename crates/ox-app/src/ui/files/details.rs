@@ -167,6 +167,11 @@ fn paint_row(
                     fade(color),
                 );
             }
+            Cell::Cloud(status) => {
+                let cell =
+                    Rect::from_min_max(egui::pos2(x, rect.top()), egui::pos2(x + w, rect.bottom()));
+                crate::ui::cloud::status_cell(ui, cell, status, resp);
+            }
             Cell::Empty => {}
         }
         x += w;
