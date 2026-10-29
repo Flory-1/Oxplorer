@@ -904,6 +904,7 @@ mod search_history;
 mod search_tags;
 mod tabs;
 mod views;
+mod views_more;
 mod wsl;
 mod zoom_select;
 
@@ -937,4 +938,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(git_ops::TABLE)
         .chain(remote::TABLE)
         .chain(help_tools::TABLE)
+        .chain(views_more::TABLE)
 }

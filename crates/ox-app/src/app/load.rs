@@ -20,6 +20,13 @@ impl OxApp {
             .index_enabled
             .then(|| self.index.index())
             .flatten();
+        // A search from a library walks all its folders.
+        let library_roots = match self.tabs.active().location() {
+            Location::Search { root: Some(r), .. } if self.tabs.active().stale => {
+                self.library_roots(r)
+            }
+            _ => None,
+        };
         let tab = self.tabs.active_mut();
         if !tab.stale {
             return;
@@ -49,6 +56,10 @@ impl OxApp {
                 // Answer from the index when it covers the place we search in
                 // (it only knows file system names, not what's in archives).
                 let handle = match index {
+                    _ if library_roots.is_some() => {
+                        let roots = library_roots.unwrap_or_default();
+                        search::start(roots, q, search_opts, repaint)
+                    }
                     Some(idx)
                         if !q.in_archives() && root.as_deref().is_none_or(|r| idx.covers(r)) =>
                     {

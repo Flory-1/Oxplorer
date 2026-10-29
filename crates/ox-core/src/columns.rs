@@ -108,11 +108,24 @@ impl ColumnId {
                 align_right: true,
                 ..sorted(col("Size", "Size", 90.0, true), SortKey::Size)
             },
-            Self::Dimensions => read(col("Dimensions", "Dimensions", 110.0, false)),
-            Self::Length => read(col("Length", "Length", 80.0, false)),
-            Self::DateTaken => read(col("DateTaken", "Date taken", 140.0, false)),
-            Self::Authors => read(col("Authors", "Authors", 150.0, false)),
-            Self::Version => read(col("Version", "File version", 120.0, false)),
+            // Sorted once their values are read (unknown ones last).
+            Self::Dimensions => sorted(
+                read(col("Dimensions", "Dimensions", 110.0, false)),
+                SortKey::Dimensions,
+            ),
+            Self::Length => sorted(read(col("Length", "Length", 80.0, false)), SortKey::Length),
+            Self::DateTaken => sorted(
+                read(col("DateTaken", "Date taken", 140.0, false)),
+                SortKey::DateTaken,
+            ),
+            Self::Authors => sorted(
+                read(col("Authors", "Authors", 150.0, false)),
+                SortKey::Authors,
+            ),
+            Self::Version => sorted(
+                read(col("Version", "File version", 120.0, false)),
+                SortKey::Version,
+            ),
             Self::Attributes => read(col("Attributes", "Attributes", 80.0, false)),
         }
     }

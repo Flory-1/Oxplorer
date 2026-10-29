@@ -12,6 +12,9 @@ use crate::entry::FileEntry;
 use crate::i18n::t;
 use crate::tags::TagColor;
 
+mod month;
+pub use month::{month_label, MONTHS};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum GroupBy {
     #[default]
@@ -20,13 +23,17 @@ pub enum GroupBy {
     Modified,
     Size,
     Tag,
+    /// By month and year ("October 2026"), newest first: the date a photo
+    /// was taken where it is known, else the date modified.
+    Month,
 }
 
 impl GroupBy {
-    pub const ALL: [GroupBy; 5] = [
+    pub const ALL: [GroupBy; 6] = [
         Self::None,
         Self::Type,
         Self::Modified,
+        Self::Month,
         Self::Size,
         Self::Tag,
     ];
@@ -39,6 +46,7 @@ impl GroupBy {
             Self::Modified => "Date modified",
             Self::Size => "Size",
             Self::Tag => "Tag",
+            Self::Month => "Month",
         }
     }
 }
@@ -90,6 +98,9 @@ pub struct GroupContext<'a> {
     pub tags: &'a dyn Fn(&FileEntry) -> Vec<TagColor>,
     /// The name of a tag (users can rename them).
     pub tag_label: &'a dyn Fn(TagColor) -> String,
+    /// When the item (a photo) was taken, if that's known (read in the
+    /// background, see `props`).
+    pub date_taken: &'a dyn Fn(&FileEntry) -> Option<SystemTime>,
 }
 
 impl GroupContext<'_> {
@@ -174,6 +185,7 @@ fn bucket(e: &FileEntry, by: GroupBy, cx: &GroupContext<'_>) -> Bucket {
             ),
             None => Bucket::new(100, "tag:none", t("No tag")),
         },
+        GroupBy::Month => month::bucket((cx.date_taken)(e).or(e.modified)),
     }
 }
 
@@ -416,6 +428,7 @@ mod tests {
             today: day(2026, 10, 29),
             tags: &no_tags,
             tag_label: &tag_name,
+            date_taken: &|_| None,
         }
     }
 

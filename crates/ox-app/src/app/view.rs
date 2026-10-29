@@ -7,6 +7,8 @@ use crate::tabs::Tab;
 use ox_core::columns::{ColumnId, ColumnLayout};
 use ox_core::folder_views::{FolderViews, SavedView};
 
+mod prop_values;
+
 pub enum ViewAction {
     /// Change the columns of the details view.
     Columns(ColumnEdit),

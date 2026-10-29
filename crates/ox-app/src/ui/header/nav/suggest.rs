@@ -1,14 +1,15 @@
 //! The suggestions under the search box: earlier searches and completions of
 //! the query syntax (from `ox_core::search_history`). Up/Down choose one,
 //! Enter or a click takes it, Tab completes, Escape closes the list. While
-//! it's closed the box handles its keys as before.
+//! it's closed the box handles its keys as before. Also the path
+//! completions of the address bar and the *New link* dialog.
 
 use egui::{vec2, Align2, EventFilter, FontId, Id, Key, Rect, RectAlign, Response, Sense, Ui};
 use ox_core::i18n::t as tr;
 use ox_core::search_history::{Suggestion, SuggestionKind};
 
 /// Suggestions shown at most.
-pub(super) const MAX: usize = 12;
+pub(in crate::ui) const MAX: usize = 12;
 const ROW_H: f32 = 24.0;
 
 /// Kept between frames.
@@ -27,7 +28,7 @@ struct State {
 }
 
 /// What the user did in the list.
-pub(super) enum Picked {
+pub(in crate::ui) enum Picked {
     /// Put this suggestion into the box; `run` = search for it right away.
     Take(Suggestion, bool),
     /// Forget this earlier search.
@@ -47,7 +48,7 @@ struct Keys {
     escape: bool,
 }
 
-pub(super) struct Dropdown {
+pub(in crate::ui) struct Dropdown {
     field: Id,
     id: Id,
     state: State,
@@ -75,7 +76,7 @@ fn filter(open: bool) -> EventFilter {
 
 impl Dropdown {
     /// Before the text field: takes the list's keys while it is open.
-    pub(super) fn before(ui: &mut Ui, field: Id) -> Self {
+    pub(in crate::ui) fn before(ui: &mut Ui, field: Id) -> Self {
         let id = field.with("suggestions");
         let state: State = ui.data(|d| d.get_temp(id)).unwrap_or_default();
         let mut keys = Keys::default();
@@ -100,13 +101,17 @@ impl Dropdown {
 
     /// For the text field: while the list is open, Tab and Escape act on it
     /// instead of moving or dropping the focus.
-    pub(super) fn event_filter(&self) -> EventFilter {
+    pub(in crate::ui) fn event_filter(&self) -> EventFilter {
         filter(self.state.open)
     }
 
     /// Show the text field with `add`, keeping its focus while the pointer
     /// is on the list (a click there would take it away otherwise).
-    pub(super) fn add_field(&self, ui: &mut Ui, add: impl FnOnce(&mut Ui) -> Response) -> Response {
+    pub(in crate::ui) fn add_field(
+        &self,
+        ui: &mut Ui,
+        add: impl FnOnce(&mut Ui) -> Response,
+    ) -> Response {
         let on_list = self.state.open
             && self.state.rect.is_some_and(|r| {
                 ui.ctx()
@@ -127,7 +132,7 @@ impl Dropdown {
 
     /// After the text field: show `suggestions` for `text` under `anchor`
     /// while `edit` has focus.
-    pub(super) fn show(
+    pub(in crate::ui) fn show(
         mut self,
         ui: &mut Ui,
         anchor: &Response,
@@ -227,7 +232,12 @@ fn list(ui: &mut Ui, suggestions: &[Suggestion], selected: &mut Option<usize>) -
                 .rect_filled(rect, 4.0, v.widgets.hovered.weak_bg_fill);
         }
         let history = s.kind == SuggestionKind::History;
-        let icon = if history { "🕘" } else { "🔣" };
+        let icon = match s.kind {
+            SuggestionKind::History => "🕘",
+            SuggestionKind::Folder => "📁",
+            SuggestionKind::File => "📄",
+            SuggestionKind::Filter | SuggestionKind::Value => "🔣",
+        };
         let weak = v.weak_text_color();
         let strong = v.text_color();
         let font = FontId::proportional(13.0);
@@ -297,9 +307,35 @@ fn list(ui: &mut Ui, suggestions: &[Suggestion], selected: &mut Option<usize>) -
     picked
 }
 
+/// Path completions shown at most.
+const MAX_PATHS: usize = 20;
+
+/// The folders and files that complete the path `text` in the field `id`
+/// (a relative one inside `base`), without `text` itself. Kept until the
+/// text changes, so the folder isn't read every frame.
+pub(in crate::ui) fn path_suggestions(
+    ui: &Ui,
+    id: Id,
+    text: &str,
+    base: Option<&std::path::Path>,
+) -> Vec<Suggestion> {
+    let key = id.with("path_completions");
+    let cached: Option<(String, Vec<Suggestion>)> = ui.data(|d| d.get_temp(key));
+    if let Some((_, list)) = cached.filter(|(t, _)| t == text) {
+        return list;
+    }
+    let list: Vec<Suggestion> = ox_core::path_complete::complete(text, base, MAX_PATHS)
+        .into_iter()
+        .map(|c| c.into_suggestion())
+        .filter(|s| s.text != text)
+        .collect();
+    ui.data_mut(|d| d.insert_temp(key, (text.to_owned(), list.clone())));
+    list
+}
+
 /// Put the text cursor of the field `id` at the end of `text` (after a
 /// suggestion replaced it).
-pub(super) fn cursor_to_end(ui: &Ui, id: Id, text: &str) {
+pub(in crate::ui) fn cursor_to_end(ui: &Ui, id: Id, text: &str) {
     use egui::text::{CCursor, CCursorRange};
     let mut state = egui::text_edit::TextEditState::load(ui.ctx(), id).unwrap_or_default();
     let end = CCursor::new(text.chars().count());
