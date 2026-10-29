@@ -886,6 +886,7 @@ mod cloud;
 mod data_view;
 mod disk_usage;
 mod flat_links;
+mod help_preview;
 mod help_search;
 mod help_views;
 mod index_live;
@@ -925,4 +926,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(player_more::TABLE)
         .chain(preview_docs::TABLE)
         .chain(data_view::TABLE)
+        .chain(help_preview::TABLE)
 }

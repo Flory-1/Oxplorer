@@ -68,6 +68,8 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 - **Archives as folders**: open `.zip`, `.7z`, `.tar`, `.tar.gz` and `.tgz` files to browse
   them, preview what's inside and drag or copy items out. *Extract here*, *Extract to "name"*
   and *Compress to ZIP* are in the right-click menu.
+- **Picture tools**: rotate, flip, convert (PNG, JPG, WebP) and resize one or many pictures,
+  with undo
 - **Recycle Bin view**: deleted items with their original location; restore, delete
   permanently or empty the bin, and drop files onto it to delete them
 - **Undo and redo** (Ctrl+Z / Ctrl+Y) for renames, moves, copies, new items and deletes to the
@@ -103,8 +105,14 @@ The **Info** tab has the item's details; the other tabs show its content. Everyt
 the background, so large files never block the window.
 
 - **Pictures**, **text and code** with syntax highlighting, the **first page of PDFs**
+- **More picture formats**: SVG, HEIC/HEIF, AVIF, JPEG XL and camera RAW (through Windows'
+  codecs), animated GIF and WebP, and the photo's details (camera, exposure, location)
+- **Office documents and mails** through the same preview handlers Explorer uses
+- **Data files**: CSV/TSV as a table, JSON/XML/YAML/TOML as a tree, SQLite tables, and a **hex
+  view** for every file
 - **Player**: audio and video play right in the preview with Windows' own media engine, so
-  every format Windows can play works. It has a seek bar, 10 s back/forward, repeat and volume.
+  every format Windows can play works. It has a seek bar, 10 s back/forward, repeat, shuffle,
+  speed, a queue, playlists and subtitles, and keeps playing in a mini player while you browse.
 - **Markdown** files formatted, with tables, task lists, highlighted code and the pictures
   next to them
 - **Git**: for folders in a repository, the history of all branches as a commit graph with

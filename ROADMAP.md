@@ -33,6 +33,10 @@ Windows machine yet.
   - the search index run as administrator: built from the NTFS master file table and kept up to
     date by the change journal (`cargo test -p ox-core -- --ignored mft` checks it against C:\)
   - the disk usage treemap, the duplicates and empty folders pages, and the search suggestions
+  - the Document tab (Office preview handlers): its position at other DPI settings, hiding under
+    menus and Quick Look, keyboard focus, and files kept open while it shows them
+  - HEIC from an iPhone (that it isn't turned twice), AVIF and camera RAW with the Store codecs,
+    animated GIF/WebP, the hex view and data tables, the mini player, subtitles and picture tools
 - ⏳ **Copy engine benchmarks** against Explorer, robocopy and TeraCopy (many small files, one
   huge file, SSD → USB stick, network share), with the numbers in the README. The
   `copy_bench` example measures the engine, robocopy and xcopy; Explorer and TeraCopy by hand
@@ -65,16 +69,8 @@ Windows machine yet.
 
 ## Phase 11 — Previews and media
 
-- ⏳ **Office and other documents** in the preview through Windows' preview handlers
-  (`IPreviewHandler`): Word, Excel, PowerPoint, Outlook mails and everything else Explorer
-  can preview
-- ⏳ **More picture formats**: SVG, HEIC/HEIF, AVIF, RAW (through Windows' codecs), animated
-  GIF/WebP, and the photo's **EXIF details** (camera, exposure, date taken, location)
-- ⏳ **Data files**: CSV/TSV as a table, JSON/XML/YAML as a collapsible tree, SQLite tables
-- ⏳ **Hex view** for binary files
-- ⏳ **Player**: next/previous file of the folder, playlists, subtitles (`.srt`), playback speed,
-  and *keep playing* while browsing other folders
-- ⏳ **Picture tools**: rotate, convert (PNG/JPG/WebP) and resize one or many pictures
+- 💡 Lossless JPEG rotation (only the EXIF orientation, now that the preview honours it)
+- 💡 Data views and the hex view for items inside archives
 - 💡 Diff of two selected text files, and the changes of a file in a Git repository
 
 ## Phase 12 — Your own tools

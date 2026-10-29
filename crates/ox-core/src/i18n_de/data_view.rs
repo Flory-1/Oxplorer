@@ -16,7 +16,6 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Header row", "Kopfzeile"),
     ("Yes", "Ja"),
     ("No", "Nein"),
-    ("Format", "Format"),
     ("Nodes", "Knoten"),
     ("Error", "Fehler"),
     ("Tables", "Tabellen"),
