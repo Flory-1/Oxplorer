@@ -27,6 +27,7 @@ mod transfer_watch;
 mod undo;
 mod view;
 mod window;
+mod wsl;
 pub use action::{Action, TabAction};
 pub use cleanup::{CleanupAction, CleanupView, ConfirmCleanup};
 pub use compare::{CompareAction, CompareState};
@@ -253,6 +254,8 @@ pub struct OxApp {
     pub cleanups: cleanup::Cleanups,
     /// Picture tools: the running job (rotate, convert, …).
     pub pictures: PictureTools,
+    /// The WSL distributions (for the sidebar and the Home page).
+    pub wsl: wsl::Wsl,
 }
 
 /// What background work started by an action reports back.
@@ -406,6 +409,7 @@ impl OxApp {
             gallery_walks: Vec::new(),
             cleanups: Default::default(),
             pictures: Default::default(),
+            wsl: Default::default(),
         }
     }
 
@@ -480,6 +484,7 @@ impl OxApp {
         self.poll_git();
         self.poll_cloud();
         self.poll_libraries();
+        self.poll_wsl();
         self.poll_player(ctx);
         self.poll_watcher();
         self.poll_jobs();
@@ -525,7 +530,7 @@ impl OxApp {
             max_results: self.settings.search.max_results,
             threads: self.settings.search.threads,
         };
-        let drives: Vec<PathBuf> = self.drives.iter().map(|d| d.mount.clone()).collect();
+        let drives = self.index_drives();
         let index = self
             .settings
             .search
@@ -730,7 +735,7 @@ impl OxApp {
             }
             self.index_settings = Some(wanted);
         }
-        let drives: Vec<PathBuf> = self.drives.iter().map(|d| d.mount.clone()).collect();
+        let drives = self.index_drives();
         let config = self.settings.search.index_config(&drives);
         // Live updates follow the same folders (and restart when they change).
         let live = self.settings.search.live_config(&config, &self.drives);

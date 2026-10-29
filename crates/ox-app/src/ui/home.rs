@@ -1,5 +1,7 @@
 //! Home / Quick Access start page: favorites, drives and recent items.
 
+mod wsl;
+
 use ox_core::i18n::t as tr;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -66,6 +68,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                     let pinned = app.quick.is_favorite(&d.mount);
                     resp.context_menu(|ui| super::folder_link_menu(ui, &d.mount, pinned, &mut actions));
                 }
+                wsl::cards(app, ui, accent, &mut actions);
             });
             ui.add_space(22.0);
 

@@ -22,6 +22,7 @@ mod sessions;
 mod settings_page;
 mod sidebar;
 mod transfers;
+mod wsl;
 
 pub use menus::*;
 use ox_core::i18n::t as tr;

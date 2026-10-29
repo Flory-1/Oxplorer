@@ -426,6 +426,11 @@ impl OxApp {
                     self.toast(ox_core::trf!("Couldn't open a terminal: {e}", e = e));
                 }
             }
+            Action::OpenWslTerminal(dir) => {
+                if let Err(e) = ox_core::wsl::open_terminal(&dir) {
+                    self.toast(ox_core::trf!("Couldn't open a WSL terminal: {e}", e = e));
+                }
+            }
             Action::Reveal(p) => {
                 if let Err(e) = fsops::reveal_in_system(&p) {
                     self.toast(ox_core::trf!(

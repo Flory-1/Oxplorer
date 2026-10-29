@@ -335,6 +335,10 @@ fn crumb_name(p: &Path) -> String {
     if let Some(server) = ox_core::network::server_name(p) {
         return server.to_owned();
     }
+    // A WSL distribution starts the path: "Ubuntu › home › me".
+    if let Some(distro) = ox_core::wsl::root_name(p) {
+        return distro.to_owned();
+    }
     if p.parent().is_none() && ox_core::network::server_of(p).is_some() {
         // A share's root: just the share, after the server crumb.
         let s = p.to_string_lossy();

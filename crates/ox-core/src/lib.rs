@@ -64,6 +64,7 @@ pub mod transfer;
 pub mod undo;
 pub mod update;
 pub mod watcher;
+pub mod wsl;
 
 pub use entry::{FileEntry, SortKey, SortOrder};
 pub use settings::Settings;

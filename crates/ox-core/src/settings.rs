@@ -299,7 +299,8 @@ impl Search {
 
     /// What live updates follow: the indexed folders `cfg`, except those on
     /// removable and network drives (a watch would keep a USB stick from
-    /// being ejected). `None` if live updates are off or nothing is left.
+    /// being ejected) and in WSL distributions (it would keep WSL running).
+    /// `None` if live updates are off or nothing is left.
     pub fn live_config(
         &self,
         cfg: &crate::index::IndexConfig,
@@ -310,9 +311,10 @@ impl Search {
         }
         let mut cfg = cfg.clone();
         cfg.roots.retain(|r| {
-            !drives
-                .iter()
-                .any(|d| (d.removable || d.remote.is_some()) && r.starts_with(&d.mount))
+            !crate::wsl::is_wsl_path(r)
+                && !drives
+                    .iter()
+                    .any(|d| (d.removable || d.remote.is_some()) && r.starts_with(&d.mount))
         });
         (!cfg.roots.is_empty()).then_some(cfg)
     }
@@ -553,7 +555,7 @@ mod tests {
             drive("/net", false, Some(r"\\server\share")),
         ];
         let mut s = Search {
-            index_roots: ["/fixed", "/usb/photos", "/net"]
+            index_roots: ["/fixed", "/usb/photos", "/net", r"\\wsl$\Ubuntu\home"]
                 .map(PathBuf::from)
                 .to_vec(),
             ..Search::default()
