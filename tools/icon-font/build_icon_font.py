@@ -127,6 +127,11 @@ ICONS = {
     "✨": "sparkles",
     "📜": "scroll-text",
     "🌿": "git-branch",
+    # Pinned tabs, named sessions and windows
+    "📌": "pin",
+    "📍": "pin-off",
+    "💾": "save",
+    "🗔": "app-window",
 }
 
 UNITS = 1000

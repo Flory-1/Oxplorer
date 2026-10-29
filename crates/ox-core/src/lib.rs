@@ -31,6 +31,7 @@ pub mod power;
 pub mod recycle;
 pub mod rename;
 pub mod search;
+pub mod sessions;
 pub mod settings;
 pub mod shell;
 pub mod tags;

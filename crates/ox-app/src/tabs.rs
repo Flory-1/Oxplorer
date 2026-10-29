@@ -19,6 +19,7 @@ pub type GroupId = u64;
 mod flat;
 mod groups;
 mod location;
+mod pinned;
 mod session;
 #[cfg(test)]
 mod tests;
@@ -127,6 +128,8 @@ pub struct SearchState {
 pub struct Tab {
     pub id: TabId,
     pub group: Option<GroupId>,
+    /// Pinned tabs are small and come first (see `pinned.rs`).
+    pub pinned: bool,
     history: Vec<Location>,
     pos: usize,
     pub view: FolderView,
@@ -152,6 +155,7 @@ impl Tab {
         Self {
             id,
             group: None,
+            pinned: false,
             history: vec![location],
             pos: 0,
             view: FolderView::default(),
@@ -400,11 +404,11 @@ impl Tabs {
         let id = self.alloc_id();
         let mut tab = Tab::new(id, loc, settings);
         let idx = match after.and_then(|a| self.index_of(a)) {
-            // Nothing goes before the Home tab.
+            // Nothing goes before the Home tab and the pinned tabs.
             Some(i) => {
                 // New tabs opened from a grouped tab join that group.
                 tab.group = self.tabs[i].group;
-                i + 1
+                (i + 1).max(self.pinned_end())
             }
             None => self.tabs.len(),
         };
@@ -500,10 +504,11 @@ impl Tabs {
         self.panes = (p[0] != p[1]).then_some(p);
     }
 
-    /// Close every tab but `keep` (and the Home tab).
+    /// Close every tab but `keep` (and the Home tab and the pinned tabs).
     pub fn close_others(&mut self, keep: TabId) {
         let home = self.home();
-        self.tabs.retain(|t| t.id == keep || t.id == home);
+        self.tabs
+            .retain(|t| t.id == keep || t.id == home || t.pinned);
         self.active = keep;
         self.drop_empty_groups();
     }
@@ -515,17 +520,27 @@ impl Tabs {
         if self.is_home(id) {
             return;
         }
-        let (loc, mode, key, order) = (
+        let (loc, mode, key, order, pinned) = (
             src.location().clone(),
             src.view_mode,
             src.sort_key,
             src.sort_order,
+            src.pinned,
         );
         let new_id = self.open(loc, Some(id), true, settings);
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == new_id) {
             t.view_mode = mode;
             t.sort_key = key;
             t.sort_order = order;
+        }
+        // A pinned tab's copy is pinned too, right after it.
+        if pinned {
+            if let Some(from) = self.index_of(new_id) {
+                let mut t = self.tabs.remove(from);
+                t.pinned = true;
+                let at = self.index_of(id).map_or(1, |i| i + 1);
+                self.tabs.insert(at, t);
+            }
         }
     }
 
@@ -544,14 +559,15 @@ impl Tabs {
             return;
         };
         let tab = self.tabs.remove(from);
-        // The Home tab stays first.
-        let target = target.clamp(1, self.tabs.len());
+        // The Home tab stays first, then come the pinned tabs.
+        let target = self.clamp_target(tab.pinned, target);
         // Dropping a tab between tabs of a group makes it join that group.
         let neighbour_group = self
             .tabs
             .get(target)
             .and_then(|t| t.group)
-            .filter(|g| target > 0 && self.tabs[target - 1].group == Some(*g));
+            .filter(|g| target > 0 && self.tabs[target - 1].group == Some(*g))
+            .filter(|_| !tab.pinned);
         self.tabs.insert(target, tab);
         if neighbour_group.is_some() {
             self.tabs[target].group = neighbour_group;

@@ -491,6 +491,7 @@ impl OxApp {
             Action::ShowInFolder(path) => self.show_in_folder(path),
             Action::NewLink(dir, kind) => self.new_link_dialog(dir, kind),
             Action::ShowLinkTarget(link) => self.show_link_target(link),
+            Action::Session(a) => self.process_session(a),
             Action::Toast(t) => self.toast(t),
             Action::RestoreFromBin(paths) => {
                 let items = self.tabs.active().view.bin.select(&paths);
@@ -547,6 +548,8 @@ impl OxApp {
             TabAction::ToggleSplit => self.tabs.toggle_split(s),
             TabAction::SwitchPane => self.tabs.switch_pane(),
             TabAction::Duplicate(id) => self.tabs.duplicate(id, s),
+            TabAction::Pin(id, true) => self.tabs.pin(id),
+            TabAction::Pin(id, false) => self.tabs.unpin(id),
             TabAction::CloseOthers(id) => self.tabs.close_others(id),
             TabAction::NewGroup(id) => {
                 let gid = self.tabs.new_group(id);

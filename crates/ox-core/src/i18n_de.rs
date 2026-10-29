@@ -883,6 +883,7 @@ pub const TABLE: &[(&str, &str)] = &[
 
 mod flat_links;
 mod operations;
+mod tabs;
 
 /// Every entry: [`TABLE`] and the tables of the submodules (split for the
 /// line budget; add new entries to the last one).
@@ -891,4 +892,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .iter()
         .chain(operations::TABLE)
         .chain(flat_links::TABLE)
+        .chain(tabs::TABLE)
 }

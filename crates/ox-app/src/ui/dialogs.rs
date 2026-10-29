@@ -327,6 +327,10 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
                 }
             }
             Dialog::NewLink(d) => keep = super::link_dialog::show(ui, d, app),
+            Dialog::SessionName { old, text, focus } => {
+                keep =
+                    super::sessions::name_dialog(ui, &app.sessions, old, text, focus, &mut actions);
+            }
             Dialog::RenameGroup { id, text, focus } => {
                 ui.heading(tr("Name this group"));
                 ui.add_space(6.0);

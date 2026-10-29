@@ -25,13 +25,15 @@ impl Tabs {
         };
         let mut t = self.tabs.remove(from);
         t.group = Some(gid);
+        // Pinned tabs aren't in groups: joining one unpins it.
+        t.pinned = false;
         let insert_at = self
             .tabs
             .iter()
             .rposition(|x| x.group == Some(gid))
             .map(|i| i + 1)
             .unwrap_or(from.min(self.tabs.len()))
-            .max(1);
+            .max(self.pinned_end());
         self.tabs.insert(insert_at, t);
         self.drop_empty_groups();
     }
