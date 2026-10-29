@@ -107,6 +107,11 @@ const TOPICS: &[Topic] = &[
                  keep both or replace if newer.",
                 "Pause, resume or cancel a transfer in the panel. Failed files can be retried \
                  with one click.",
+                "When a file fails, the job waits and asks: retry, skip, or skip all errors of \
+                 the job.",
+                "Waiting transfers can be held, moved up or down, or set to run after the \
+                 current ones; \"Paste after current transfers\" queues a paste that way. \
+                 Settings → Copy engine: what happens when all transfers are done.",
                 "Settings → Copy engine: verify copies, limit the speed, and see the history.",
                 "The clipboard is shared with Windows Explorer in both directions.",
             ]),

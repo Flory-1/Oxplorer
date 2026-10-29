@@ -177,6 +177,15 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             &shortcuts::label(Command::Paste),
             act(move || Action::Paste(f3)),
         );
+        if app.engine.has_active() {
+            let dir = f.clone();
+            cmd(
+                "📥",
+                tr("Paste after current transfers"),
+                "",
+                act(move || Action::PasteAfterCurrent(dir)),
+            );
+        }
         cmd(
             "🖳",
             tr("Open terminal here"),

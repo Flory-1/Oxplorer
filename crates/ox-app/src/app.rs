@@ -9,10 +9,12 @@ mod input;
 mod poll;
 mod process;
 mod properties;
+mod transfer_watch;
 mod undo;
 mod window;
 pub use action::{Action, TabAction};
 pub use properties::Properties;
+pub use transfer_watch::TransferWatch;
 
 use ox_core::i18n::t as tr;
 use std::collections::HashSet;
@@ -128,6 +130,7 @@ pub struct OxApp {
     refresh_at: [Option<Instant>; 2],
     background: Vec<BackgroundOp>,
     seen_jobs: HashSet<u64>,
+    pub transfer_watch: TransferWatch,
     text_clipboard: Option<arboard::Clipboard>,
     applied_settings: Option<Settings>,
     pub icons: crate::icons::IconCache,
@@ -266,6 +269,7 @@ impl OxApp {
             refresh_at: [None; 2],
             background: Vec::new(),
             seen_jobs: HashSet::new(),
+            transfer_watch: Default::default(),
             text_clipboard: None,
             applied_settings: None,
             icons: crate::icons::IconCache::new(&cc.egui_ctx),
@@ -368,6 +372,7 @@ impl OxApp {
         self.poll_watcher();
         self.poll_jobs();
         self.poll_undo();
+        self.poll_transfer_watch(ctx);
         self.poll_background();
         self.poll_notices();
         self.poll_dropped_files(ctx);
@@ -539,12 +544,13 @@ impl OxApp {
         if sources.is_empty() {
             return;
         }
-        self.engine.submit(TransferRequest::new(
-            kind,
-            sources,
-            dest,
-            self.settings.transfer.default_conflict,
-        ));
+        let req =
+            TransferRequest::new(kind, sources, dest, self.settings.transfer.default_conflict);
+        if std::mem::take(&mut self.transfer_watch.run_after_next) {
+            self.engine.submit_after_current(req);
+        } else {
+            self.engine.submit(req);
+        }
         self.ui.show_transfers = true;
     }
 

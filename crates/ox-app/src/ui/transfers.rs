@@ -1,5 +1,10 @@
 //! The transfer panel: replaces the Windows copy dialog.
 
+mod ask;
+mod queue;
+mod when_done;
+pub use when_done::countdown;
+
 use ox_core::i18n::t as tr;
 use std::sync::atomic::Ordering;
 
@@ -13,8 +18,10 @@ use crate::app::OxApp;
 pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let accent = crate::theme::accent(&app.settings);
     let jobs = app.engine.jobs();
+    let rows = queue::order(&jobs, &app.engine.queue());
     let mut remove = Vec::new();
     let mut retries = Vec::new();
+    let mut moves = Vec::new();
     ui.horizontal(|ui| {
         ui.label(RichText::new(tr("Transfers")).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -44,11 +51,22 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            for job in jobs.iter().rev() {
-                job_row(ui, job, accent, &mut remove, &mut retries);
+            for (job, place) in &rows {
+                job_row(
+                    ui,
+                    job,
+                    accent,
+                    *place,
+                    &mut moves,
+                    &mut remove,
+                    &mut retries,
+                );
                 ui.add_space(6.0);
             }
         });
+    for (id, places) in moves {
+        app.engine.move_in_queue(id, places);
+    }
     for id in remove {
         app.engine.remove(id);
     }
@@ -61,6 +79,8 @@ fn job_row(
     ui: &mut Ui,
     job: &Job,
     accent: Color32,
+    place: queue::Place,
+    moves: &mut Vec<(u64, isize)>,
     remove: &mut Vec<u64>,
     retries: &mut Vec<TransferRequest>,
 ) {
@@ -122,6 +142,9 @@ fn job_row(
             dest = dest
         ),
     };
+    let title = ask::title(job)
+        .or_else(|| queue::title(job))
+        .unwrap_or(title);
 
     egui::Frame::group(ui.style())
         .inner_margin(egui::Margin::same(8))
@@ -138,7 +161,7 @@ fn job_row(
                         if ui.small_button("⏹").on_hover_text(tr("Cancel")).clicked() {
                             job.cancel();
                         }
-                        if state == JobState::Running {
+                        if matches!(state, JobState::Running | JobState::Queued) {
                             let (icon, tip) = if job.is_paused() {
                                 ("▶", tr("Resume"))
                             } else {
@@ -150,8 +173,10 @@ fn job_row(
                                 } else {
                                     job.pause();
                                 }
+                                moves.push((job.id, 0)); // the queue checks again
                             }
                         }
+                        queue::controls(ui, job, place, moves);
                     }
                 });
             });
@@ -190,6 +215,8 @@ fn job_row(
                     });
                 return;
             }
+
+            ask::question(ui, job);
 
             if !state.is_finished() && state != JobState::Queued {
                 let total = job.total_bytes.load(Ordering::Relaxed);

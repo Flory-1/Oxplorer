@@ -8,7 +8,7 @@ use std::time::SystemTime;
 
 use super::copy::{self, CopyError, CopyOptions};
 use super::throttle::Throttle;
-use super::{verify, ConflictPolicy, EngineConfig, Job, TransferKind};
+use super::{verify, ConflictPolicy, EngineConfig, ErrorChoice, Job, TransferKind};
 use crate::fsops;
 
 #[derive(Debug)]
@@ -297,6 +297,7 @@ pub(super) fn execute(job: &Job, plan: Plan, cfg: &EngineConfig, workers: usize)
         opts: &opts,
         throttle: throttle.as_ref(),
         verify: cfg.verify,
+        ask: cfg.ask_on_error,
     };
     let (tx, rx) = crossbeam_channel::unbounded();
     for task in plan.files {
@@ -314,7 +315,7 @@ pub(super) fn execute(job: &Job, plan: Plan, cfg: &EngineConfig, workers: usize)
                         break;
                     }
                     job.set_current(&task.src);
-                    transfer_file(job, &task, ctx);
+                    while transfer_file(job, &task, ctx) {}
                 }
             });
         }
@@ -334,9 +335,12 @@ struct FileCtx<'a> {
     opts: &'a CopyOptions,
     throttle: Option<&'a Throttle>,
     verify: bool,
+    /// Ask about failed files instead of only collecting the errors.
+    ask: bool,
 }
 
-fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) {
+/// Returns `true` if the file failed and should be tried again.
+fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) -> bool {
     let opts = ctx.opts;
     let mut reported = 0u64;
     let result = (|| -> Result<(), CopyError> {
@@ -394,8 +398,19 @@ fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) {
             job.done_files.fetch_add(1, Ordering::Relaxed);
         }
         Err(CopyError::Cancelled) => {}
-        Err(CopyError::Io(e)) => job.push_file_error(&task.src, Some(&task.dst), describe(&e)),
+        Err(CopyError::Io(e)) => {
+            let message = describe(&e);
+            if ctx.ask && job.ask_about_error(&task.src, &task.dst, &message) == ErrorChoice::Retry
+            {
+                // Take this attempt's bytes back; the next one counts them again.
+                job.done_bytes
+                    .fetch_sub(task.size.max(reported), Ordering::Relaxed);
+                return true;
+            }
+            job.push_file_error(&task.src, Some(&task.dst), message)
+        }
     }
+    false
 }
 
 fn describe(e: &io::Error) -> String {

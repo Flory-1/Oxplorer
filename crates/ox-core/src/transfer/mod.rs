@@ -18,13 +18,16 @@
 //! Jobs can be paused, resumed and cancelled at any time and report live
 //! progress through lock-free counters, so the UI can poll them every frame.
 
+mod ask;
 mod copy;
 pub mod history;
 mod plan;
+mod queue;
 mod throttle;
 mod verify;
+pub mod when_done;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
@@ -33,6 +36,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+pub use ask::{ErrorChoice, ErrorQuestion};
 pub use copy::CopyOptions;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,6 +139,9 @@ pub struct EngineConfig {
     pub verify: bool,
     /// Bytes per second per job, `0` = unlimited.
     pub speed_limit: u64,
+    /// When a file fails, pause the job and ask (retry / skip / skip all)
+    /// instead of only collecting the error for the end.
+    pub ask_on_error: bool,
 }
 
 impl Default for EngineConfig {
@@ -148,6 +155,7 @@ impl Default for EngineConfig {
             preserve_timestamps: true,
             verify: false,
             speed_limit: 0,
+            ask_on_error: false,
         }
     }
 }
@@ -222,6 +230,10 @@ pub struct Job {
     speed: Mutex<SpeedMeter>,
     /// See [`Job::created`].
     created: Mutex<Vec<(PathBuf, PathBuf)>>,
+    /// The open question about a failed file.
+    prompt: ask::ErrorPrompt,
+    /// Start only after everything ahead in the queue is done.
+    run_after: AtomicBool,
 }
 
 impl Job {
@@ -253,6 +265,8 @@ impl Job {
             finished: Mutex::new(None),
             speed: Mutex::new(SpeedMeter::default()),
             created: Mutex::new(Vec::new()),
+            prompt: Default::default(),
+            run_after: AtomicBool::new(false),
         }
     }
 
@@ -417,9 +431,11 @@ impl Job {
         });
     }
 
-    /// Block while paused. Returns `false` if the job was cancelled.
+    /// Block while paused (or while another worker asks about an error).
+    /// Returns `false` if the job was cancelled.
     fn checkpoint(&self) -> bool {
-        while self.paused.load(Ordering::Relaxed) && !self.is_cancelled() {
+        while (self.paused.load(Ordering::Relaxed) || self.prompt.is_open()) && !self.is_cancelled()
+        {
             thread::sleep(Duration::from_millis(50));
         }
         !self.is_cancelled()
@@ -486,45 +502,12 @@ fn job_volumes(req: &TransferRequest) -> Vec<String> {
     vols
 }
 
-/// Which jobs are running, and on which volumes.
-#[derive(Default)]
-struct Scheduler {
-    running: usize,
-    busy: HashMap<String, usize>,
-}
-
-impl Scheduler {
-    fn can_start(&self, job: &Job, cfg: &EngineConfig) -> bool {
-        self.running < cfg.max_concurrent_jobs.max(1)
-            && (!cfg.per_disk_queue || job.volumes.iter().all(|v| !self.busy.contains_key(v)))
-    }
-
-    fn start(&mut self, job: &Job) {
-        self.running += 1;
-        for v in &job.volumes {
-            *self.busy.entry(v.clone()).or_default() += 1;
-        }
-    }
-
-    fn finish(&mut self, job: &Job) {
-        self.running -= 1;
-        for v in &job.volumes {
-            if let Some(n) = self.busy.get_mut(v) {
-                *n -= 1;
-                if *n == 0 {
-                    self.busy.remove(v);
-                }
-            }
-        }
-    }
-}
-
 /// Owns all transfer jobs. Cheap to share: wrap it in an `Arc` or keep one per app.
 pub struct TransferEngine {
     config: Arc<RwLock<EngineConfig>>,
     jobs: Mutex<Vec<Arc<Job>>>,
     next_id: AtomicU64,
-    scheduler: Arc<(Mutex<Scheduler>, Condvar)>,
+    scheduler: Arc<(Mutex<queue::Scheduler>, Condvar)>,
     notifier: Arc<RwLock<Option<Notifier>>>,
 }
 
@@ -540,7 +523,7 @@ impl TransferEngine {
             config: Arc::new(RwLock::new(config)),
             jobs: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
-            scheduler: Arc::new((Mutex::new(Scheduler::default()), Condvar::new())),
+            scheduler: Arc::new((Mutex::new(queue::Scheduler::default()), Condvar::new())),
             notifier: Arc::new(RwLock::new(None)),
         }
     }
@@ -557,9 +540,15 @@ impl TransferEngine {
 
     /// Start a new job and return a handle to it.
     pub fn submit(&self, req: TransferRequest) -> Arc<Job> {
+        self.submit_job(req, false)
+    }
+
+    fn submit_job(&self, req: TransferRequest, run_after: bool) -> Arc<Job> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let job = Arc::new(Job::new(id, &req));
+        job.run_after.store(run_after, Ordering::Relaxed);
         self.jobs.lock().unwrap().push(job.clone());
+        self.scheduler.0.lock().unwrap().enqueue(job.clone());
 
         let config = self.config.clone();
         let scheduler = self.scheduler.clone();
@@ -579,6 +568,7 @@ impl TransferEngine {
                     let mut sched = lock.lock().unwrap();
                     loop {
                         if worker_job.is_cancelled() {
+                            sched.dequeue(worker_job.id);
                             worker_job.set_state(JobState::Cancelled);
                             notify();
                             return;

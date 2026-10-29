@@ -24,6 +24,8 @@ pub enum Action {
     CopyItems(Vec<PathBuf>),
     CutItems(Vec<PathBuf>),
     Paste(PathBuf),
+    /// Paste as a transfer that waits until the current ones are done.
+    PasteAfterCurrent(PathBuf),
     Transfer(TransferKind, Vec<PathBuf>, PathBuf),
     /// Items dropped onto a folder; the kind is decided from modifiers and drives.
     Drop(Vec<PathBuf>, PathBuf),
