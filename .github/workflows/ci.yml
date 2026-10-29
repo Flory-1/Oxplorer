@@ -1,9 +1,8 @@
 name: CI
 
+# Manual only (Actions → CI → Run workflow); the release workflow tests every tag.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
