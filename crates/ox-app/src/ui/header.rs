@@ -1007,12 +1007,10 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
             ) {
                 actions.push(Action::OpenInNewTab(Location::Settings, true));
             }
-            if btn(
-                ui,
-                true,
-                "⌨",
-                &shortcuts::hint(tr("Command palette"), Command::Palette),
-            ) {
+            if keyboard_button(ui)
+                .on_hover_text(shortcuts::hint(tr("Command palette"), Command::Palette))
+                .clicked()
+            {
                 app.ui.palette = Some(Default::default());
             }
             if btn(ui, true, "◧", tr("Toggle sidebar")) {
@@ -1045,4 +1043,48 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
         });
     });
     app.actions.extend(actions);
+}
+
+/// The command palette button: a small drawn keyboard, as wide as the
+/// symbols next to it (the ⌨ glyph of Windows' emoji font is much wider).
+fn keyboard_button(ui: &mut Ui) -> egui::Response {
+    // The symbols next to it are drawn wider than the space their font
+    // reserves, so reserve the same narrow slot to get the same gaps, and
+    // click on the whole icon.
+    let (slot, _) =
+        ui.allocate_exact_size(vec2(11.0, ui.spacing().interact_size.y), Sense::hover());
+    let hit = Rect::from_center_size(slot.center(), vec2(15.0, slot.height()));
+    let resp = ui.interact(
+        hit,
+        egui::Id::unique("command_palette_button"),
+        Sense::click(),
+    );
+    let color = ui.style().interact(&resp).text_color();
+    let p = ui.painter();
+    // Same size as the ◫ / ◧ symbols next to it, on whole pixels so the
+    // keys stay crisp.
+    let ppp = ui.ctx().pixels_per_point();
+    let snap = |v: f32| (v * ppp).round() / ppp;
+    let min = egui::pos2(snap(slot.center().x - 5.5), snap(slot.center().y - 5.5));
+    let body = Rect::from_min_size(min, vec2(11.0, 11.0));
+    p.rect_stroke(
+        body,
+        CornerRadius::same(2),
+        Stroke::new(1.0, color),
+        egui::StrokeKind::Inside,
+    );
+    // Two rows of three keys, and the space bar: a plain mesh, because egui
+    // softens the edges of shapes by half a pixel and 1-pixel keys would fade.
+    let mut mesh = egui::Mesh::default();
+    let mut px = |x: f32, y: f32, w: f32| {
+        mesh.add_colored_rect(Rect::from_min_size(min + vec2(x, y), vec2(w, 1.0)), color);
+    };
+    for y in [3.0, 5.0] {
+        for x in [3.0, 5.0, 7.0] {
+            px(x, y, 1.0);
+        }
+    }
+    px(3.0, 7.0, 5.0);
+    p.add(mesh);
+    resp
 }
