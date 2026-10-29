@@ -111,6 +111,8 @@ struct Ctx<'a> {
     can_paste: bool,
     /// The user's entries of the "New" menu.
     new_items: Vec<ox_core::settings::NewItem>,
+    /// Developer entries in the menus.
+    dev: bool,
     modifiers: Modifiers,
 }
 
@@ -165,6 +167,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         destinations: super::quick_destinations(app),
         can_paste: folder.is_some(),
         new_items: app.settings.new_items.0.clone(),
+        dev: app.settings.developer.context_menus,
         folder,
         modifiers: ui.input(|i| i.modifiers),
     };
@@ -306,6 +309,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 cx.can_paste,
                 pinned,
                 &cx.new_items,
+                cx.dev,
                 &mut actions,
             )
         });
@@ -940,6 +944,7 @@ fn item_context_menu(
             can_paste: cx.can_paste || e.is_dir,
             destinations: &cx.destinations,
             shell: ox_core::shell::supported(),
+            dev: cx.dev,
         };
         super::item_menu(ui, &target, actions);
     });

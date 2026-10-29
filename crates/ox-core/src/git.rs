@@ -229,6 +229,101 @@ pub fn status(root: &Path) -> io::Result<RepoStatus> {
     Ok(parse(root, &out))
 }
 
+/// The checked out branch ("main"), or "HEAD" when none is.
+pub fn current_branch(root: &Path) -> io::Result<String> {
+    let out = run(root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    Ok(String::from_utf8_lossy(&out).trim().to_owned())
+}
+
+/// The URL of the repository's `origin` remote (or its first remote).
+pub fn remote_url(root: &Path) -> io::Result<Option<String>> {
+    let name = match run(root, &["remote", "get-url", "origin"]) {
+        Ok(out) => return Ok(Some(String::from_utf8_lossy(&out).trim().to_owned())),
+        Err(_) => {
+            let remotes = run(root, &["remote"])?;
+            match String::from_utf8_lossy(&remotes).lines().next() {
+                Some(n) => n.trim().to_owned(),
+                None => return Ok(None),
+            }
+        }
+    };
+    let out = run(root, &["remote", "get-url", &name])?;
+    Ok(Some(String::from_utf8_lossy(&out).trim().to_owned()))
+}
+
+/// The web page of a remote: `git@github.com:me/repo.git`,
+/// `ssh://git@host:22/me/repo.git` and `https://user@host/me/repo.git` all
+/// become `https://host/me/repo`. Local remotes have none.
+pub fn web_url(remote: &str) -> Option<String> {
+    let remote = remote.trim();
+    let (host, path) = if let Some(rest) = remote
+        .strip_prefix("https://")
+        .or_else(|| remote.strip_prefix("http://"))
+        .or_else(|| remote.strip_prefix("ssh://"))
+        .or_else(|| remote.strip_prefix("git://"))
+    {
+        let (host, path) = rest.split_once('/')?;
+        // Drop "user:password@" and ":port".
+        let host = host.rsplit('@').next()?;
+        let host = host.split(':').next()?;
+        (host.to_owned(), path.to_owned())
+    } else {
+        // scp-like: [user@]host:path
+        let (host, path) = remote.split_once(':')?;
+        if host.contains('/') || host.contains('\\') || host.len() < 2 {
+            return None; // a local path ("C:\repo", "/srv/repo")
+        }
+        (host.rsplit('@').next()?.to_owned(), path.to_owned())
+    };
+    let path = path.trim_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    if host.is_empty() || path.is_empty() {
+        return None;
+    }
+    Some(format!("https://{host}/{path}"))
+}
+
+/// The web page of `path` (a file or folder in the repository at `root`)
+/// on the branch `branch`, in the URL style of GitHub, GitLab or Bitbucket.
+pub fn web_url_of(repo_url: &str, root: &Path, path: &Path, branch: &str, is_dir: bool) -> String {
+    let rel: Vec<String> = path
+        .strip_prefix(root)
+        .map(|r| {
+            r.components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    if rel.is_empty() {
+        return repo_url.to_owned();
+    }
+    let rel = rel.join("/");
+    let kind = if is_dir { "tree" } else { "blob" };
+    if repo_url.contains("gitlab") {
+        format!("{repo_url}/-/{kind}/{branch}/{rel}")
+    } else if repo_url.contains("bitbucket") {
+        format!("{repo_url}/src/{branch}/{rel}")
+    } else {
+        format!("{repo_url}/{kind}/{branch}/{rel}")
+    }
+}
+
+/// The last commit that changed `path` (a file or folder in the repository
+/// at `root`), if any did.
+pub fn last_commit(root: &Path, path: &Path) -> io::Result<Option<Commit>> {
+    let out = run(
+        root,
+        &[
+            "log",
+            "-1",
+            "--format=%H%x1f%P%x1f%an%x1f%ct%x1f%x1f%s%x1e",
+            "--",
+            &path.to_string_lossy(),
+        ],
+    )?;
+    Ok(parse_log(&String::from_utf8_lossy(&out)).into_iter().next())
+}
+
 /// One commit of the history.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Commit {
@@ -521,6 +616,40 @@ mod tests {
     }
 
     #[test]
+    fn web_pages_of_remotes() {
+        let want = Some("https://github.com/me/repo".to_owned());
+        assert_eq!(web_url("git@github.com:me/repo.git"), want);
+        assert_eq!(web_url("https://github.com/me/repo.git"), want);
+        assert_eq!(web_url("https://me:token@github.com/me/repo"), want);
+        assert_eq!(web_url("ssh://git@github.com:22/me/repo.git/"), want);
+        assert_eq!(
+            web_url("git@gitlab.com:group/sub/repo.git").as_deref(),
+            Some("https://gitlab.com/group/sub/repo")
+        );
+        assert_eq!(web_url("/srv/git/repo.git"), None);
+        assert_eq!(web_url(r"C:\repos\x"), None);
+        assert_eq!(web_url("../other"), None);
+
+        let root = Path::new("/r");
+        let gh = "https://github.com/me/repo";
+        assert_eq!(
+            web_url_of(gh, root, &root.join("src/main.rs"), "main", false),
+            "https://github.com/me/repo/blob/main/src/main.rs"
+        );
+        assert_eq!(web_url_of(gh, root, root, "main", true), gh);
+        assert_eq!(
+            web_url_of(
+                "https://gitlab.com/g/r",
+                root,
+                &root.join("docs"),
+                "dev",
+                true
+            ),
+            "https://gitlab.com/g/r/-/tree/dev/docs"
+        );
+    }
+
+    #[test]
     fn runs_git_in_a_real_repository() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
@@ -550,5 +679,40 @@ mod tests {
         assert_eq!(s.state(&root.join("src")), Some(GitState::Added));
         assert_eq!(s.state(&root.join(".gitignore")), Some(GitState::Untracked));
         assert_eq!(s.state(&root.join("build")), Some(GitState::Ignored));
+
+        let commit = |msg: &str| {
+            git(&[
+                "-c",
+                "user.name=Ada",
+                "-c",
+                "user.email=ada@example.com",
+                "commit",
+                "-q",
+                "-m",
+                msg,
+            ])
+        };
+        assert!(commit("Add a"));
+        std::fs::write(root.join("b.txt"), "b").unwrap();
+        assert!(git(&["add", "b.txt"]));
+        assert!(commit("Add b"));
+        assert_eq!(current_branch(root).unwrap(), "main");
+        let last = last_commit(root, &root.join("src/a.txt")).unwrap().unwrap();
+        assert_eq!(
+            (last.subject.as_str(), last.author.as_str()),
+            ("Add a", "Ada")
+        );
+        let log = log(root, 10).unwrap();
+        assert_eq!(log.len(), 2);
+        assert_eq!(log[0].refs, [GitRef::Head("main".into())]);
+        assert_eq!(remote_url(root).unwrap(), None);
+        assert!(git(&["remote", "add", "origin", "git@github.com:me/r.git"]));
+        assert_eq!(
+            remote_url(root)
+                .unwrap()
+                .and_then(|u| web_url(&u))
+                .as_deref(),
+            Some("https://github.com/me/r")
+        );
     }
 }

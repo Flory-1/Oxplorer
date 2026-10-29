@@ -11,7 +11,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, Sender};
 use egui::{Context, Key, Modifiers};
 use ox_core::archive;
 use ox_core::clipboard::{ClipMode, FileClipboard};
@@ -70,7 +70,6 @@ pub enum Action {
     /// Show or hide the terminal panel (starting the shell the first time).
     ToggleTerminal,
     RestartTerminal,
-    /// Type `cd <folder>` into the terminal.
     /// Items were renamed or moved (old path, new path): tags go along.
     PathsMoved(Vec<(PathBuf, PathBuf)>),
     /// Give a tag colour a custom name (empty = default).
@@ -83,6 +82,14 @@ pub enum Action {
     Unpin(PathBuf),
     MoveFavorite(PathBuf, isize),
     CopyPathText(Vec<PathBuf>),
+    /// "Copy path as": the paths in another form.
+    CopyPathAs(Vec<PathBuf>, ox_core::pathfmt::PathFormat),
+    /// Open files or folders with the editor from Settings → Developer.
+    OpenInEditor(Vec<PathBuf>),
+    /// Open the page of a file or folder on GitHub, GitLab, … (its repository's remote).
+    OpenGitRemote(PathBuf),
+    /// Copy the checked out branch of the repository a path is in.
+    CopyGitBranch(PathBuf),
     OpenTerminal(PathBuf),
     Reveal(PathBuf),
     Properties(Vec<PathBuf>),
@@ -266,6 +273,17 @@ pub struct OxApp {
     index_force: bool,
     /// Index-related settings the current index was built with.
     index_settings: Option<(Vec<PathBuf>, Vec<String>)>,
+    /// Results of background work started by actions (Git, the editor).
+    notices: (Sender<Notice>, Receiver<Notice>),
+}
+
+/// What background work started by an action reports back.
+pub enum Notice {
+    Nothing,
+    Toast(String),
+    OpenUrl(String),
+    /// Put text on the clipboard and say so.
+    Copy(String, String),
 }
 
 impl OxApp {
@@ -367,6 +385,7 @@ impl OxApp {
             sizes_key: None,
             git_key: Vec::new(),
             git_pending: Vec::new(),
+            notices: crossbeam_channel::unbounded(),
             sizes_applied: 0,
             index_started: false,
             index_next: None,
@@ -439,6 +458,7 @@ impl OxApp {
         self.poll_watcher();
         self.poll_jobs();
         self.poll_background();
+        self.poll_notices();
         self.poll_dropped_files(ctx);
         self.follow_folder_in_terminal();
         if self.ui.show_terminal && self.ui.terminal_focused {
@@ -661,6 +681,30 @@ impl OxApp {
                 tab.refresh_visible(folders_first, case);
             }
         }
+    }
+
+    fn poll_notices(&mut self) {
+        while let Ok(notice) = self.notices.1.try_recv() {
+            match notice {
+                Notice::Nothing => {}
+                Notice::Toast(text) => self.toast(text),
+                Notice::OpenUrl(url) => self.ctx.open_url(egui::OpenUrl::new_tab(url)),
+                Notice::Copy(text, toast) => {
+                    self.ctx.copy_text(text);
+                    self.toast(toast);
+                }
+            }
+        }
+    }
+
+    /// Run `work` on another thread; what it returns is shown or done next frame.
+    fn in_background(&self, work: impl FnOnce() -> Notice + Send + 'static) {
+        let tx = self.notices.0.clone();
+        let ctx = self.ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(work());
+            ctx.request_repaint();
+        });
     }
 
     fn poll_watcher(&mut self) {
@@ -940,6 +984,9 @@ impl OxApp {
                 shows_files && has_sel && !in_bin && !read_only && ox_core::shell::supported()
             }
             C::Paste | C::NewFolder => shows_files && folder.is_some(),
+            C::OpenInEditor => {
+                shows_files && !in_bin && !read_only && (has_sel || folder.is_some())
+            }
             _ => true,
         };
         let (pressed, back, forward) = ctx.input_mut(|i| {
@@ -998,6 +1045,11 @@ impl OxApp {
                 C::Properties => actions.push(Action::Properties(selection.clone())),
                 C::ShellMenu => actions.push(Action::ShellMenu(selection.clone())),
                 C::ToggleTerminal => actions.push(Action::ToggleTerminal),
+                C::OpenInEditor => actions.push(Action::OpenInEditor(if has_sel {
+                    selection.clone()
+                } else {
+                    folder.clone().into_iter().collect()
+                })),
             }
         }
         self.actions.extend(actions);
@@ -1422,6 +1474,82 @@ impl OxApp {
                     .join("\n");
                 self.ctx.copy_text(text);
                 self.toast(tr("Path copied"));
+            }
+            Action::CopyPathAs(paths, fmt) => {
+                let text = paths
+                    .iter()
+                    .map(|p| {
+                        let root = ox_core::git::repo_root(p);
+                        ox_core::pathfmt::format(p, fmt, root.as_deref())
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                self.ctx.copy_text(text);
+                self.toast(tr("Path copied"));
+            }
+            Action::OpenInEditor(paths) => {
+                let template = self.settings.developer.editor.clone();
+                for path in paths {
+                    match fsops::open_in_editor(&template, &path) {
+                        Ok(child) => self.in_background(move || match child.wait_with_output() {
+                            Ok(out) if !out.status.success() => {
+                                // One line, without the final full stop (cmd's message has both).
+                                let err = String::from_utf8_lossy(&out.stderr)
+                                    .split_whitespace()
+                                    .collect::<Vec<_>>()
+                                    .join(" ");
+                                let err = err.trim_end_matches('.');
+                                Notice::Toast(ox_core::trf!(
+                                    "The editor didn't start ({e}). Check Settings → Developer.",
+                                    e = if err.is_empty() {
+                                        out.status.to_string()
+                                    } else {
+                                        err.to_owned()
+                                    }
+                                ))
+                            }
+                            _ => Notice::Nothing,
+                        }),
+                        Err(e) => self.toast(ox_core::trf!(
+                            "The editor didn't start ({e}). Check Settings → Developer.",
+                            e = e
+                        )),
+                    }
+                }
+            }
+            Action::OpenGitRemote(path) => self.in_background(move || {
+                let page = || -> Option<String> {
+                    let root = ox_core::git::repo_root(&path)?;
+                    let remote = ox_core::git::remote_url(&root).ok()??;
+                    let repo = ox_core::git::web_url(&remote)?;
+                    let branch = ox_core::git::current_branch(&root).ok()?;
+                    Some(ox_core::git::web_url_of(
+                        &repo,
+                        &root,
+                        &path,
+                        &branch,
+                        path.is_dir(),
+                    ))
+                };
+                match page() {
+                    Some(url) => Notice::OpenUrl(url),
+                    None => Notice::Toast(
+                        tr("This repository has no remote on GitHub, GitLab or another website.")
+                            .into(),
+                    ),
+                }
+            }),
+            Action::CopyGitBranch(path) => {
+                self.in_background(move || {
+                    match ox_core::git::repo_root(&path).map(|r| ox_core::git::current_branch(&r)) {
+                        Some(Ok(branch)) => Notice::Copy(
+                            branch.clone(),
+                            ox_core::trf!("Copied branch name “{b}”", b = branch),
+                        ),
+                        Some(Err(e)) => Notice::Toast(e.to_string()),
+                        None => Notice::Toast(tr("Not in a Git repository.").into()),
+                    }
+                })
             }
             Action::OpenTerminal(dir) => {
                 if let Err(e) = fsops::open_terminal(&dir) {

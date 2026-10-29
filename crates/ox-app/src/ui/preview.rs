@@ -34,6 +34,8 @@ enum Loaded {
         text: String,
         numbers: String,
         truncated: bool,
+        /// Encoding, line endings, indentation.
+        details: Vec<(&'static str, String)>,
     },
     /// Audio/video details and the embedded cover picture.
     Media {
@@ -59,13 +61,15 @@ enum Loaded {
 }
 
 enum Content {
-    Loading(Receiver<Loaded>),
+    Loading(Receiver<(Loaded, Option<Commit>)>),
     Image(TextureHandle, [u32; 2]),
     Page(TextureHandle, u32),
     Text {
         text: String,
         numbers: String,
         truncated: bool,
+        /// Encoding, line endings, indentation.
+        details: Vec<(&'static str, String)>,
         /// A Markdown file: also shown rendered.
         markdown: bool,
     },
@@ -141,11 +145,16 @@ impl Content {
             Content::Image(_, [w, h]) => vec![(tr("Dimensions"), format!("{w} × {h} px"))],
             Content::Page(_, pages) => vec![(tr("Pages"), pages.to_string())],
             Content::Text {
-                numbers, truncated, ..
+                numbers,
+                truncated,
+                details,
+                ..
             } => {
                 let lines = numbers.lines().count();
                 let more = if *truncated { "+" } else { "" };
-                vec![(tr("Lines"), format!("{lines}{more}"))]
+                let mut facts = vec![(tr("Lines"), format!("{lines}{more}"))];
+                facts.extend(details.iter().cloned());
+                facts
             }
             Content::Media { info, .. } | Content::Font { info, .. } => info.clone(),
             Content::Folder {
@@ -181,6 +190,24 @@ pub struct PreviewState {
     font_seq: u64,
     /// Layout cache of the Markdown view.
     markdown: egui_commonmark::CommonMarkCache,
+    /// The last commit that changed the item, in Git repositories.
+    last_commit: Option<Commit>,
+    /// SHA-256 and MD5, once asked for.
+    checksums: Option<Checksums>,
+}
+
+enum Checksums {
+    Running(Receiver<Result<(String, String), String>>),
+    Done(Result<(String, String), String>),
+}
+
+/// The last commit that changed `e` (not for items inside archives).
+fn last_commit(e: &FileEntry) -> Option<Commit> {
+    if ox_core::archive::split_virtual(&e.path).is_some() {
+        return None;
+    }
+    let root = ox_core::git::repo_root(&e.path)?;
+    ox_core::git::last_commit(&root, &e.path).ok().flatten()
 }
 
 fn is_markdown(e: &FileEntry) -> bool {
@@ -357,12 +384,23 @@ fn read_text(path: &Path) -> Loaded {
 }
 
 fn text_from_bytes(mut buf: Vec<u8>) -> Loaded {
-    if buf.iter().take(8192).any(|&b| b == 0) {
+    use ox_core::textinfo::{self, Encoding};
+    let enc = textinfo::encoding(&buf);
+    let utf16 = matches!(enc, Encoding::Utf16Le | Encoding::Utf16Be);
+    if !utf16 && buf.iter().take(8192).any(|&b| b == 0) {
         return Loaded::Nothing; // binary
     }
     let mut truncated = buf.len() > MAX_TEXT_BYTES;
     buf.truncate(MAX_TEXT_BYTES);
-    let all = String::from_utf8_lossy(&buf);
+    let all = textinfo::decode(&buf, enc);
+    let details = vec![
+        (tr("Encoding"), enc.label().to_owned()),
+        (
+            tr("Line endings"),
+            textinfo::line_endings(&all).label().to_owned(),
+        ),
+        (tr("Indentation"), textinfo::indent(&all).label()),
+    ];
     let lines: Vec<&str> = all.lines().take(MAX_TEXT_LINES + 1).collect();
     truncated |= lines.len() > MAX_TEXT_LINES;
     let lines = &lines[..lines.len().min(MAX_TEXT_LINES)];
@@ -374,6 +412,7 @@ fn text_from_bytes(mut buf: Vec<u8>) -> Loaded {
         text: lines.join("\n"),
         numbers,
         truncated,
+        details,
     }
 }
 
@@ -537,13 +576,17 @@ impl PreviewState {
             let entry = entry.clone();
             let repaint = ctx.clone();
             std::thread::spawn(move || {
-                let _ = tx.send(load(entry, show_hidden));
+                let loaded = load(entry.clone(), show_hidden);
+                let _ = tx.send((loaded, last_commit(&entry)));
                 repaint.request_repaint();
             });
             self.content = Some(Content::Loading(rx));
+            self.last_commit = None;
+            self.checksums = None;
         }
         if let Some(Content::Loading(rx)) = &self.content {
-            if let Ok(loaded) = rx.try_recv() {
+            if let Ok((loaded, commit)) = rx.try_recv() {
+                self.last_commit = commit;
                 self.content = Some(match loaded {
                     Loaded::Image(img, size) => {
                         let tex = ctx.load_texture("preview", img, TextureOptions::LINEAR);
@@ -557,10 +600,12 @@ impl PreviewState {
                         text,
                         numbers,
                         truncated,
+                        details,
                     } => Content::Text {
                         text,
                         numbers,
                         truncated,
+                        details,
                         markdown: is_markdown(entry),
                     },
                     Loaded::Media { info, cover } => Content::Media {
@@ -746,7 +791,23 @@ fn tabbed(
                         ),
                     ));
                 }
+                if let Some(c) = &state.last_commit {
+                    facts.push((
+                        tr("Last commit"),
+                        format!(
+                            "{} {}\n{}, {}",
+                            c.short(),
+                            c.subject,
+                            c.author,
+                            commit_time(c, date_fmt)
+                        ),
+                    ));
+                }
                 info_grid(ui, e, facts, date_fmt);
+                if !e.is_dir && ox_core::archive::split_virtual(&e.path).is_none() {
+                    ui.add_space(6.0);
+                    checksums(ui, &mut state.checksums, e, actions);
+                }
                 ui.add_space(8.0);
                 let label = match content {
                     Content::Media { .. } => tr("▶ Play"),
@@ -1028,6 +1089,8 @@ pub struct GitInfo {
     commits: Vec<Commit>,
     rows: Vec<GraphRow>,
     lanes: usize,
+    /// The repository's page on GitHub, GitLab, … (from its remote).
+    web: Option<String>,
 }
 
 /// The history of the repository `dir` is in. Kept for a few seconds, so
@@ -1045,7 +1108,12 @@ fn git_info(dir: &Path) -> Option<Arc<GitInfo>> {
     let commits = ox_core::git::log(&root, MAX_COMMITS).ok()?;
     let status = ox_core::git::status(&root).ok();
     let (rows, lanes) = ox_core::git::graph(&commits);
+    let web = ox_core::git::remote_url(&root)
+        .ok()
+        .flatten()
+        .and_then(|r| ox_core::git::web_url(&r));
     let info = Arc::new(GitInfo {
+        web,
         branch: status.as_ref().and_then(|s| s.branch_label()),
         changed: status.as_ref().map_or(0, |s| s.changed_files()),
         root,
@@ -1093,7 +1161,26 @@ fn git_graph(ui: &mut Ui, git: &GitInfo, date_fmt: &str, actions: &mut Vec<Actio
     ui.horizontal_wrapped(|ui| {
         ui.label(RichText::new(format!("📦 {name}")).strong());
         if let Some(branch) = &git.branch {
-            ui.label(RichText::new(format!("🌿 {branch}")).color(lane_color(0)));
+            let chip =
+                egui::Button::new(RichText::new(format!("🌿 {branch}")).color(lane_color(0)))
+                    .frame(false);
+            if ui.add(chip).on_hover_text(tr("Copy branch name")).clicked() {
+                actions.push(Action::CopyGitBranch(git.root.clone()));
+            }
+        }
+        if let Some(web) = &git.web {
+            let host = web
+                .trim_start_matches("https://")
+                .split('/')
+                .next()
+                .unwrap_or_default();
+            if ui
+                .small_button(format!("🌐 {host}"))
+                .on_hover_text(web.as_str())
+                .clicked()
+            {
+                actions.push(Action::OpenGitRemote(git.root.clone()));
+            }
         }
     });
     let changes = if git.changed == 0 {
@@ -1274,4 +1361,57 @@ fn ref_style(r: &GitRef) -> (String, egui::Color32) {
 fn commit_time(c: &Commit, date_fmt: &str) -> String {
     let t = SystemTime::UNIX_EPOCH + Duration::from_secs(c.time.max(0) as u64);
     format::time(t, date_fmt)
+}
+
+/// SHA-256 and MD5 of the file, computed when asked for (big files take a
+/// while), with buttons to copy them.
+fn checksums(ui: &mut Ui, state: &mut Option<Checksums>, e: &FileEntry, actions: &mut Vec<Action>) {
+    if let Some(Checksums::Running(rx)) = state {
+        if let Ok(result) = rx.try_recv() {
+            *state = Some(Checksums::Done(result));
+        }
+    }
+    match state {
+        None => {
+            if ui
+                .button(tr("🔐 Compute checksums"))
+                .on_hover_text(tr("SHA-256 and MD5 of the file"))
+                .clicked()
+            {
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                let path = e.path.clone();
+                let ctx = ui.ctx().clone();
+                std::thread::spawn(move || {
+                    let result = ox_core::textinfo::checksums(&path).map_err(|e| e.to_string());
+                    let _ = tx.send(result);
+                    ctx.request_repaint();
+                });
+                *state = Some(Checksums::Running(rx));
+            }
+        }
+        Some(Checksums::Running(_)) => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(RichText::new(tr("Computing checksums…")).weak());
+            });
+        }
+        Some(Checksums::Done(Err(err))) => {
+            ui.colored_label(egui::Color32::from_rgb(0xe5, 0x48, 0x4d), err.as_str());
+        }
+        Some(Checksums::Done(Ok((sha, md5)))) => {
+            for (name, value) in [("SHA-256", sha), ("MD5", md5)] {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(name).weak());
+                    if ui.small_button("📋").on_hover_text(tr("Copy")).clicked() {
+                        ui.ctx().copy_text(value.clone());
+                        actions.push(Action::Toast(ox_core::trf!("Copied {what}", what = name)));
+                    }
+                });
+                ui.add(
+                    egui::Label::new(RichText::new(value.as_str()).monospace().size(10.5))
+                        .wrap_mode(egui::TextWrapMode::Wrap),
+                );
+            }
+        }
+    }
 }

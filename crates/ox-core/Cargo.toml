@@ -22,6 +22,8 @@ tar = "0.4"
 flate2 = "1"
 sys-locale = "0.3"
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["bzip2", "deflate"] }
+sha2 = "0.10"
+md-5 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
 clipboard-win = { version = "5", features = ["std"] }
@@ -49,3 +51,5 @@ windows = { version = "0.62", features = [
 [dev-dependencies]
 tempfile = "3"
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["compress"] }
+sha2 = "0.10"
+md-5 = "0.10"

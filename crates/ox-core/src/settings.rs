@@ -315,6 +315,26 @@ impl Default for Preview {
     }
 }
 
+/// Settings → Developer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Developer {
+    /// Command line that opens a file or folder in the editor; `{path}` is
+    /// replaced with it.
+    pub editor: String,
+    /// "Open in editor", "Copy path as" and "Git" in the context menus.
+    pub context_menus: bool,
+}
+
+impl Default for Developer {
+    fn default() -> Self {
+        Self {
+            editor: "code \"{path}\"".into(),
+            context_menus: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Settings {
@@ -330,6 +350,7 @@ pub struct Settings {
     /// Changed keyboard shortcuts: command name → keys ("" = none).
     pub shortcuts: std::collections::BTreeMap<String, String>,
     pub terminal: Terminal,
+    pub developer: Developer,
 }
 
 /// A file type in the "New" menus: its label, the file name it starts with

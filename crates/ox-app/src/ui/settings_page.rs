@@ -18,6 +18,7 @@ enum Section {
     Sidebar,
     Preview,
     NewMenu,
+    Developer,
     Transfer,
     Search,
     Shortcuts,
@@ -25,13 +26,14 @@ enum Section {
 }
 
 /// The pages in the order of the list on the left, with their names.
-const SECTIONS: [(Section, &str); 10] = [
+const SECTIONS: [(Section, &str); 11] = [
     (Section::Appearance, "🎨 Appearance"),
     (Section::Browsing, "📂 Browsing"),
     (Section::Startup, "🚀 Startup"),
     (Section::Sidebar, "◧ Sidebar"),
     (Section::Preview, "◨ Preview pane"),
     (Section::NewMenu, "➕ New menu"),
+    (Section::Developer, "🛠 Developer"),
     (Section::Transfer, "⇄ Copy engine"),
     (Section::Search, "🔍 Search"),
     (Section::Shortcuts, "⌨ Shortcuts"),
@@ -98,6 +100,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                         Section::Sidebar => sidebar(ui, &mut app.settings),
                         Section::Preview => preview(ui, &mut app.settings),
                         Section::NewMenu => new_menu(ui, &mut app.settings),
+                        Section::Developer => developer(ui, &mut app.settings),
                         Section::Transfer => transfer(ui, &mut app.settings),
                         Section::Search => {
                             search(ui, &mut app.settings);
@@ -144,6 +147,7 @@ fn reset_section(s: &mut Settings, section: Section) {
             s.browsing.show_preview = d.browsing.show_preview;
         }
         Section::NewMenu => s.new_items = d.new_items,
+        Section::Developer => s.developer = d.developer,
         Section::Transfer => s.transfer = d.transfer,
         Section::Search => s.search = d.search,
         Section::Shortcuts | Section::About => {}
@@ -655,6 +659,68 @@ fn preview(ui: &mut Ui, s: &mut Settings) {
             ui.add(egui::Slider::new(&mut p.width, super::PREVIEW_WIDTH).suffix(" px"));
         },
     );
+}
+
+/// Editors offered on the Developer page: name and command line.
+const EDITORS: [(&str, &str); 7] = [
+    ("Visual Studio Code", "code \"{path}\""),
+    ("VS Code Insiders", "code-insiders \"{path}\""),
+    ("Cursor", "cursor \"{path}\""),
+    ("Zed", "zed \"{path}\""),
+    ("Sublime Text", "subl \"{path}\""),
+    ("Notepad++", "notepad++ \"{path}\""),
+    ("Notepad", "notepad \"{path}\""),
+];
+
+fn developer(ui: &mut Ui, s: &mut Settings) {
+    let d = &mut s.developer;
+    row(
+        ui,
+        tr("Editor"),
+        &ox_core::trf!(
+            "Opens files and folders with “Open in editor” ({keys}). {path} in the command is replaced with the file or folder.",
+            keys = shortcuts::label(Command::OpenInEditor),
+            path = "{path}"
+        ),
+        |ui| {
+            ui.vertical(|ui| {
+                let current = EDITORS
+                    .iter()
+                    .find(|(_, cmd)| *cmd == d.editor)
+                    .map_or(tr("Custom"), |(name, _)| name);
+                egui::ComboBox::from_id_salt("editor")
+                    .selected_text(current)
+                    .width(220.0)
+                    .show_ui(ui, |ui| {
+                        for (name, cmd) in EDITORS {
+                            ui.selectable_value(&mut d.editor, cmd.to_owned(), name);
+                        }
+                    });
+                ui.add(
+                    egui::TextEdit::singleline(&mut d.editor)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(220.0),
+                );
+            });
+        },
+    );
+    toggle(
+        ui,
+        &mut d.context_menus,
+        tr("Developer entries in menus"),
+        tr("“Open in editor”, “Copy path as” (forward slashes, quoted, relative to the Git repository, file:// URL, name) and, in Git repositories, “Git” (open on GitHub or GitLab, copy the branch name) in the right-click menus."),
+    );
+    ui.add_space(4.0);
+    ui.label(RichText::new(tr("Also for developers")).strong());
+    ui.add_space(2.0);
+    for line in [
+        tr("• Preview pane → Git: the commit graph of the repository a folder is in."),
+        tr("• Preview pane → Info: encoding, line endings and indentation of text files, the last commit that changed a file, and SHA-256 and MD5 checksums."),
+        tr("• Preview pane → Markdown: Markdown files formatted."),
+        tr("• Settings → Browsing → Git status: the Git column and the branch in the status bar."),
+    ] {
+        ui.label(RichText::new(line).weak());
+    }
 }
 
 /// The user's entries of the "New" menus.

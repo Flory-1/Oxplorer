@@ -173,6 +173,28 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             "",
             act(move || Action::Reveal(f5)),
         );
+        let f6 = f.clone();
+        cmd(
+            "📝",
+            tr("Open folder in editor"),
+            &shortcuts::label(Command::OpenInEditor),
+            act(move || Action::OpenInEditor(vec![f6])),
+        );
+        if let Some(root) = ox_core::git::repo_root(&f) {
+            let (r1, r2) = (root.clone(), root);
+            cmd(
+                "🌐",
+                tr("Open repository on GitHub / GitLab"),
+                "",
+                act(move || Action::OpenGitRemote(r1)),
+            );
+            cmd(
+                "🌿",
+                tr("Copy Git branch name"),
+                "",
+                act(move || Action::CopyGitBranch(r2)),
+            );
+        }
         if app.quick.is_favorite(&f) {
             cmd(
                 "☆",
@@ -215,6 +237,13 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             tr("Copy path of selection"),
             &shortcuts::label(Command::CopyPath),
             act(move || Action::CopyPathText(s2)),
+        );
+        let ed = selection.clone();
+        cmd(
+            "📝",
+            tr("Open selection in editor"),
+            &shortcuts::label(Command::OpenInEditor),
+            act(move || Action::OpenInEditor(ed)),
         );
         cmd(
             "ℹ",
