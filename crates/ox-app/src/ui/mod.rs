@@ -48,7 +48,9 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             .show(ui, |ui| status_bar(app, ui));
     }
 
-    if app.ui.show_transfers && !app.engine.jobs().is_empty() {
+    if app.ui.show_transfers
+        && (!app.engine.jobs().is_empty() || !app.engine.resumable().is_empty())
+    {
         egui::Panel::bottom("transfers")
             .resizable(true)
             .default_size(150.0)

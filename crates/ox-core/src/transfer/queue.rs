@@ -127,7 +127,7 @@ impl Job {
 impl TransferEngine {
     /// Queue a job that starts only after every running and waiting job is done.
     pub fn submit_after_current(&self, req: TransferRequest) -> Arc<Job> {
-        self.submit_job(req, true)
+        self.submit_job(req, true, None)
     }
 
     /// Jobs that haven't started yet, in the order they will start.

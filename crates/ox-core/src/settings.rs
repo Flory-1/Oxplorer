@@ -190,6 +190,12 @@ pub struct Transfer {
     pub ask_on_error: bool,
     /// What happens when the last transfer is done.
     pub when_done: crate::transfer::when_done::WhenDone,
+    /// Copy permissions (ACLs) along with the files.
+    pub keep_permissions: bool,
+    /// Copy alternate data streams (the internet mark is always kept).
+    pub keep_streams: bool,
+    /// Copied folders get the dates of the originals.
+    pub keep_folder_dates: bool,
 }
 
 impl Default for Transfer {
@@ -209,6 +215,9 @@ impl Default for Transfer {
             drag_moves_on_same_drive: true,
             ask_on_error: true,
             when_done: Default::default(),
+            keep_permissions: cfg.keep_permissions,
+            keep_streams: cfg.keep_streams,
+            keep_folder_dates: cfg.keep_folder_dates,
         }
     }
 }
@@ -225,6 +234,10 @@ impl Transfer {
             verify: self.verify,
             speed_limit: u64::from(self.speed_limit_mib) * 1024 * 1024,
             ask_on_error: self.ask_on_error,
+            journal_dir: Some(crate::transfer::journal::default_dir()),
+            keep_permissions: self.keep_permissions,
+            keep_streams: self.keep_streams,
+            keep_folder_dates: self.keep_folder_dates,
         }
     }
 }

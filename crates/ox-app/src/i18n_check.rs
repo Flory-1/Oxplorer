@@ -53,6 +53,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("ui/transfers/ask.rs"),
     app!("ui/transfers/queue.rs"),
     app!("ui/transfers/when_done.rs"),
+    app!("ui/transfers/resume.rs"),
     core!("archive.rs"),
     core!("default_app.rs"),
     core!("details.rs"),
@@ -68,6 +69,8 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     core!("transfer/plan.rs"),
     core!("undo.rs"),
     core!("transfer/when_done.rs"),
+    core!("transfer/journal.rs"),
+    core!("transfer/metadata.rs"),
 ];
 
 /// The value of the string literal starting at `src[i]` (a `"`), and where it ends.

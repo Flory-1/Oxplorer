@@ -7,6 +7,7 @@ use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
 use super::copy::{self, CopyError, CopyOptions};
+use super::metadata;
 use super::throttle::Throttle;
 use super::{verify, ConflictPolicy, EngineConfig, ErrorChoice, Job, TransferKind};
 use crate::fsops;
@@ -30,6 +31,8 @@ pub(super) struct Plan {
     pub cleanup_dirs: Vec<PathBuf>,
     /// Candidates for [`Job::created`](super::Job::created) (source, destination).
     pub roots: Vec<(PathBuf, PathBuf)>,
+    /// Scanned folders as `(source, target)`, parents before children.
+    pub dir_pairs: Vec<(PathBuf, PathBuf)>,
 }
 
 impl Plan {
@@ -117,6 +120,7 @@ pub(super) fn build(job: &Job) -> Plan {
         }
         let meta = match fs::symlink_metadata(src) {
             Ok(m) => m,
+            Err(_) if job.journal.already_moved(job, src) => continue,
             Err(e) => {
                 job.push_error(src, e.to_string());
                 continue;
@@ -145,6 +149,7 @@ pub(super) fn build(job: &Job) -> Plan {
                 TransferKind::Move => continue,
             }
         }
+        job.journal.root(src, &mut dst);
 
         // Fast path: a move to a free name on the same volume is just a rename.
         if job.kind == TransferKind::Move && !fsops::exists(&dst) && fs::rename(src, &dst).is_ok() {
@@ -192,6 +197,7 @@ fn note_new(plan: &mut Plan, src: &Path, dst: &Path) -> bool {
 /// `merge`: `dst` already exists, so new items inside it are remembered one by one.
 fn scan_dir(job: &Job, src: &Path, dst: &Path, plan: &mut Plan, merge: bool) {
     plan.dirs.push(dst.to_path_buf());
+    plan.dir_pairs.push((src.to_path_buf(), dst.to_path_buf()));
     job.set_current(src);
     let entries = match fs::read_dir(src) {
         Ok(e) => e,
@@ -298,6 +304,7 @@ pub(super) fn execute(job: &Job, plan: Plan, cfg: &EngineConfig, workers: usize)
         throttle: throttle.as_ref(),
         verify: cfg.verify,
         ask: cfg.ask_on_error,
+        keep: metadata::Keep::new(cfg),
     };
     let (tx, rx) = crossbeam_channel::unbounded();
     for task in plan.files {
@@ -321,6 +328,9 @@ pub(super) fn execute(job: &Job, plan: Plan, cfg: &EngineConfig, workers: usize)
         }
     });
 
+    if !job.is_cancelled() {
+        metadata::finish_dirs(job, &plan.dir_pairs, &ctx.keep);
+    }
     if job.kind == TransferKind::Move && !job.is_cancelled() {
         // Children were pushed before parents, so plain iteration removes bottom-up.
         // Folders that still hold skipped files are left alone.
@@ -337,12 +347,14 @@ struct FileCtx<'a> {
     verify: bool,
     /// Ask about failed files instead of only collecting the errors.
     ask: bool,
+    keep: metadata::Keep,
 }
 
 /// Returns `true` if the file failed and should be tried again.
 fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) -> bool {
     let opts = ctx.opts;
     let mut reported = 0u64;
+    job.journal.started(&task.src, &task.dst);
     let result = (|| -> Result<(), CopyError> {
         if task.conflict {
             // We're overwriting: make sure a read-only target doesn't block us.
@@ -382,6 +394,7 @@ fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) -> bool {
             }
             job.verified_files.fetch_add(1, Ordering::Relaxed);
         }
+        metadata::apply_file(job, &task.src, &task.dst, &ctx.keep)?;
         if job.kind == TransferKind::Move {
             fsops::remove_file_forced(&task.src).map_err(CopyError::Io)?;
         }
@@ -396,6 +409,8 @@ fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) -> bool {
     match result {
         Ok(()) => {
             job.done_files.fetch_add(1, Ordering::Relaxed);
+            job.journal
+                .finished(&task.src, &task.dst, task.size, task.modified);
         }
         Err(CopyError::Cancelled) => {}
         Err(CopyError::Io(e)) => {
