@@ -274,6 +274,8 @@ pub struct Search {
     pub index_refresh_minutes: u32,
     /// Show results while typing (needs the index).
     pub search_as_you_type: bool,
+    /// Remember the searches that were run and suggest them again.
+    pub remember_searches: bool,
 }
 
 impl Search {
@@ -314,6 +316,7 @@ impl Default for Search {
             .to_vec(),
             index_refresh_minutes: 30,
             search_as_you_type: true,
+            remember_searches: true,
         }
     }
 }

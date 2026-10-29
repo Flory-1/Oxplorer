@@ -435,6 +435,7 @@ impl OxApp {
                 if query.trim().is_empty() {
                     return;
                 }
+                self.process_history(HistoryAction::Remember(query.clone()));
                 self.navigate(Location::Search { root, query });
             }
             Action::SearchLive(root, query) => {
@@ -495,6 +496,7 @@ impl OxApp {
             Action::NewLink(dir, kind) => self.new_link_dialog(dir, kind),
             Action::ShowLinkTarget(link) => self.show_link_target(link),
             Action::Session(a) => self.process_session(a),
+            Action::SearchHistory(a) => self.process_history(a),
             Action::View(a) => self.process_view(a),
             Action::Toast(t) => self.toast(t),
             Action::RestoreFromBin(paths) => {

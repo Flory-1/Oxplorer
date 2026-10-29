@@ -81,6 +81,8 @@ pub enum Action {
     /// Search while typing: updates the current search tab instead of adding history.
     SearchLive(Option<PathBuf>, String),
     SaveSearch(Option<PathBuf>, String),
+    /// The searches that were run (suggested under the search box).
+    SearchHistory(super::HistoryAction),
     RemoveSavedSearch(usize),
     RebuildIndex,
     SelectAll,
