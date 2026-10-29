@@ -73,6 +73,8 @@ pub enum Action {
     OpenTerminal(PathBuf),
     Reveal(PathBuf),
     Properties(Vec<PathBuf>),
+    /// Cloud files: *Always keep on this device*, *Free up space*, or neither.
+    KeepOnDevice(Vec<PathBuf>, ox_core::cloud::Pin),
     /// Make items read-only or not, hidden or not (`None` leaves it).
     SetAttributes(Vec<PathBuf>, Option<bool>, Option<bool>),
     Search(Option<PathBuf>, String),

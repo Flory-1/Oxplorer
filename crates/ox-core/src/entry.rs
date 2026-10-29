@@ -22,6 +22,9 @@ pub struct FileEntry {
     pub created: Option<SystemTime>,
     pub hidden: bool,
     pub readonly: bool,
+    /// OneDrive/Dropbox status ([`crate::cloud`]). From the attributes when
+    /// listed; [`crate::cloud::refine`] adds the rest inside sync roots.
+    pub cloud: Option<crate::cloud::CloudStatus>,
 }
 
 impl FileEntry {
@@ -44,6 +47,7 @@ impl FileEntry {
         };
         let name = display_name(&path);
         let hidden = is_hidden(&name, meta);
+        let cloud = cloud_status(meta);
         Self {
             path,
             name,
@@ -54,6 +58,7 @@ impl FileEntry {
             created: meta.created().ok(),
             hidden,
             readonly: meta.permissions().readonly(),
+            cloud,
         }
     }
 
@@ -184,6 +189,17 @@ pub(crate) fn is_hidden(_name: &str, meta: &fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
     const HIDDEN: u32 = 0x2;
     meta.file_attributes() & HIDDEN != 0
+}
+
+#[cfg(windows)]
+fn cloud_status(meta: &fs::Metadata) -> Option<crate::cloud::CloudStatus> {
+    use std::os::windows::fs::MetadataExt;
+    crate::cloud::from_attributes(meta.file_attributes(), meta.is_dir())
+}
+
+#[cfg(not(windows))]
+fn cloud_status(_meta: &fs::Metadata) -> Option<crate::cloud::CloudStatus> {
+    None
 }
 
 #[cfg(not(windows))]
@@ -328,6 +344,7 @@ mod tests {
             created: None,
             hidden: false,
             readonly: false,
+            cloud: None,
         };
         assert_eq!(e.display_name(false), "report.final");
         assert_eq!(e.display_name(true), "report.final.pdf");

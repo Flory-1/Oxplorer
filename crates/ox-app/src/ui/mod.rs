@@ -1,5 +1,6 @@
 //! All drawing code. Each submodule draws one area of the window.
 
+pub mod cloud;
 mod compare;
 mod dialogs;
 mod files;

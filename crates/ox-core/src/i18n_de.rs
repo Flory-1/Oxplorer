@@ -881,6 +881,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Don't show this again for this version", "Für diese Version nicht mehr anzeigen"),
 ];
 
+mod cloud;
 mod flat_links;
 mod operations;
 mod tabs;
@@ -897,4 +898,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(tabs::TABLE)
         .chain(views::TABLE)
         .chain(zoom_select::TABLE)
+        .chain(cloud::TABLE)
 }

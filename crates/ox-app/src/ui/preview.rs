@@ -164,10 +164,17 @@ impl Content {
     }
 }
 
+/// What the preview shows: path, modified time and cloud status.
+type PreviewKey = (
+    PathBuf,
+    Option<SystemTime>,
+    Option<ox_core::cloud::CloudStatus>,
+);
+
 /// The preview of one item, cached until the selection (or the file) changes.
 #[derive(Default)]
 pub struct PreviewState {
-    key: Option<(PathBuf, Option<SystemTime>)>,
+    key: Option<PreviewKey>,
     content: Option<Content>,
     /// The tab last picked; used whenever the file offers it.
     wanted: Option<PreviewTab>,
@@ -206,7 +213,7 @@ impl PreviewState {
 
     /// Make sure the preview shows `entry`, starting a background load if needed.
     fn update(&mut self, ctx: &egui::Context, entry: &FileEntry, show_hidden: bool) {
-        let key = (entry.path.clone(), entry.modified);
+        let key = (entry.path.clone(), entry.modified, entry.cloud);
         if self.key.as_ref() != Some(&key) {
             self.key = Some(key);
             let (tx, rx) = crossbeam_channel::bounded(1);

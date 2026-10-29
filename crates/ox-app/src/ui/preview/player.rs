@@ -23,17 +23,6 @@ pub(super) struct Playback {
     pub(super) dragging: Option<f32>,
 }
 
-/// "1:05" or "1:02:03".
-pub(super) fn clock(secs: f32) -> String {
-    let s = secs.max(0.0) as u64;
-    let (h, m, s) = (s / 3600, s / 60 % 60, s % 60);
-    if h > 0 {
-        format!("{h}:{m:02}:{s:02}")
-    } else {
-        format!("{m}:{s:02}")
-    }
-}
-
 /// The built-in player: the video (or the cover of audio files), a seek
 /// bar and the buttons. The file is opened when the tab is shown. The
 /// picture is at most `max_h` high (Quick Look; unlimited in the pane).
@@ -128,11 +117,15 @@ pub(super) fn player_tab(
     let total = st.duration.map_or(0.0, |d| d.as_secs_f32());
     let mut pos = pb.dragging.unwrap_or(st.position.as_secs_f32()).min(total);
     ui.horizontal(|ui| {
-        let time = |t: f32| RichText::new(clock(t)).monospace().size(11.0);
+        let time = |t: f32| {
+            RichText::new(ox_core::format::clock(t))
+                .monospace()
+                .size(11.0)
+        };
         ui.label(time(pos));
         let right = ui.fonts_mut(|f| {
             f.layout_no_wrap(
-                clock(total),
+                ox_core::format::clock(total),
                 egui::FontId::monospace(11.0),
                 egui::Color32::WHITE,
             )

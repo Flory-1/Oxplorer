@@ -5,6 +5,7 @@
 //! borrow checker happy and makes every user command go through one place.
 
 mod action;
+mod cloud;
 mod compare;
 mod flat;
 mod input;
@@ -220,6 +221,8 @@ pub struct OxApp {
     pub sessions: SavedSessions,
     /// This window among other Oxplorer windows (files they share).
     instance: instances::Instance,
+    /// When the panes were last checked for syncing cloud files.
+    cloud_check: Option<Instant>,
 }
 
 /// What background work started by an action reports back.
@@ -229,6 +232,8 @@ pub enum Notice {
     OpenUrl(String),
     /// Put text on the clipboard and say so.
     Copy(String, String),
+    /// These folders changed: list them again, and show the text if any.
+    Changed(Vec<PathBuf>, Option<String>),
 }
 
 impl OxApp {
@@ -361,6 +366,7 @@ impl OxApp {
             undo: Default::default(),
             sessions: Default::default(),
             instance,
+            cloud_check: None,
         }
     }
 
@@ -429,6 +435,7 @@ impl OxApp {
         self.poll_compare();
         self.poll_folder_sizes();
         self.poll_git();
+        self.poll_cloud();
         self.poll_watcher();
         self.poll_jobs();
         self.poll_undo();

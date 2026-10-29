@@ -59,8 +59,12 @@ impl IconCache {
         } else {
             IconKey::for_path(&e.path, e.is_dir)
         };
+        // Online-only cloud files: reading their own icon would download them.
+        let online = e.cloud == Some(ox_core::cloud::CloudStatus::OnlineOnly);
         let key = match key {
-            IconKey::Path(_) if by_name => IconKey::Extension(e.extension()),
+            IconKey::Path(_) if by_name || (online && !e.is_dir) => {
+                IconKey::Extension(e.extension())
+            }
             k => k,
         };
         let textures = self.textures.borrow();

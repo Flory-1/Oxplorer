@@ -425,6 +425,7 @@ impl OxApp {
                 }
             }
             Action::Properties(paths) => self.open_properties(paths),
+            Action::KeepOnDevice(paths, pin) => self.keep_on_device(paths, pin),
             Action::SetAttributes(paths, readonly, hidden) => {
                 self.set_attributes(&paths, readonly, hidden)
             }

@@ -128,6 +128,7 @@ pub(super) fn paint_tile(
         vec2(tile.icon, tile.icon),
     );
     let (area_w, area_h) = tile.thumb_area();
+    let mut badge_at = icon_rect;
     let thumb = cx
         .thumbs
         .filter(|_| crate::thumbs::wanted(e))
@@ -138,6 +139,7 @@ pub(super) fn paint_tile(
             vec2(area_w, area_h),
         );
         let r = crate::thumbs::fit(area, size);
+        badge_at = r;
         let tint = if dim {
             Color32::from_white_alpha(110)
         } else {
@@ -172,6 +174,10 @@ pub(super) fn paint_tile(
             .icons
             .and_then(|c| c.texture_sized(e, cx.is_bin || cx.read_only, tile.icon * ppp));
         icons::paint_entry(ui.painter(), icon_rect, e, dim, texture);
+    }
+    if let Some(status) = e.cloud {
+        crate::ui::cloud::paint_badge(ui.painter(), badge_at, status, dim);
+        crate::ui::cloud::badge_tooltip(resp, badge_at, status);
     }
     // Tag dots in the top-right corner of the icon.
     for (i, &tag) in cx.tags.tags(&e.path).iter().enumerate() {

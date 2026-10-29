@@ -259,20 +259,11 @@ fn add_file(job: &Job, src: PathBuf, dst: PathBuf, meta: &fs::Metadata, plan: &m
     });
 }
 
-/// Symlinked folders and NTFS junctions are not followed.
+/// Symlinked folders and NTFS junctions are not followed. `is_symlink` is
+/// true for both (name-surrogate reparse points); other reparse points,
+/// such as OneDrive's cloud folders, are ordinary folders to copy.
 fn is_link_dir(meta: &fs::Metadata) -> bool {
-    if meta.file_type().is_symlink() {
-        return true;
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        const REPARSE_POINT: u32 = 0x400;
-        if meta.is_dir() && meta.file_attributes() & REPARSE_POINT != 0 {
-            return true;
-        }
-    }
-    false
+    meta.file_type().is_symlink()
 }
 
 fn same_path(a: &Path, b: &Path) -> bool {
@@ -433,5 +424,30 @@ fn describe(e: &io::Error) -> String {
         io::ErrorKind::PermissionDenied => crate::i18n::t("Access denied.").into(),
         io::ErrorKind::NotFound => crate::i18n::t("The file no longer exists.").into(),
         _ => e.to_string(),
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    #[test]
+    fn junctions_are_links_and_folders_are_not() {
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("target");
+        let link = tmp.path().join("link");
+        std::fs::create_dir(&target).unwrap();
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&target)
+            .output()
+            .is_ok_and(|o| o.status.success());
+        assert!(!super::is_link_dir(
+            &std::fs::symlink_metadata(&target).unwrap()
+        ));
+        if made {
+            assert!(super::is_link_dir(
+                &std::fs::symlink_metadata(&link).unwrap()
+            ));
+        }
     }
 }

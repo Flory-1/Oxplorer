@@ -22,6 +22,7 @@ macro_rules! core {
 pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("app.rs"),
     app!("app/action.rs"),
+    app!("app/cloud.rs"),
     app!("app/compare.rs"),
     app!("app/flat.rs"),
     app!("app/input.rs"),
@@ -45,6 +46,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("tabs/location.rs"),
     app!("tabs/session.rs"),
     app!("thumbs.rs"),
+    app!("ui/cloud.rs"),
     app!("ui/compare.rs"),
     app!("ui/dialogs.rs"),
     app!("ui/files.rs"),
@@ -94,6 +96,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("ui/transfers/resume.rs"),
     core!("archive.rs"),
     core!("columns.rs"),
+    core!("cloud/mod.rs"),
     core!("default_app.rs"),
     core!("details.rs"),
     core!("entry.rs"),

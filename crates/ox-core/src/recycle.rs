@@ -69,6 +69,7 @@ pub fn list() -> Result<Vec<BinItem>, String> {
                 created: None,
                 hidden: false,
                 readonly: false,
+                cloud: None,
             };
             BinItem { entry, item }
         })

@@ -131,7 +131,7 @@ fn paint_row(
 
     for &(id, w) in columns {
         if id == ColumnId::Name {
-            paint_name(ui, rect, x, w, e, cx, dim, text, &fade);
+            paint_name(ui, rect, x, w, e, resp, cx, dim, text, &fade);
             x += w;
             continue;
         }
@@ -181,6 +181,7 @@ fn paint_name(
     x: f32,
     name_w: f32,
     e: &FileEntry,
+    resp: &Response,
     cx: &Ctx<'_>,
     dim: bool,
     text: Color32,
@@ -195,7 +196,12 @@ fn paint_name(
     let texture = cx
         .icons
         .and_then(|c| c.texture(e, cx.is_bin || cx.read_only));
-    icons::paint_entry(&p, icons::icon_rect(x + 2.0, y, icon_size), e, dim, texture);
+    let icon = icons::icon_rect(x + 2.0, y, icon_size);
+    icons::paint_entry(&p, icon, e, dim, texture);
+    if let Some(status) = e.cloud {
+        crate::ui::cloud::paint_badge(&p, icon, status, dim);
+        crate::ui::cloud::badge_tooltip(resp, icon, status);
+    }
     let name = if e.is_symlink {
         format!("{} ↗", e.display_name(cx.show_ext))
     } else {

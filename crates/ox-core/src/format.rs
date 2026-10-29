@@ -74,6 +74,17 @@ pub fn duration(d: Duration) -> String {
     }
 }
 
+/// A playing position: "1:05" or "1:02:03".
+pub fn clock(secs: f32) -> String {
+    let s = secs.max(0.0) as u64;
+    let (h, m, s) = (s / 3600, s / 60 % 60, s % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
+    }
+}
+
 /// Format a timestamp in local time using a `chrono` format string.
 pub fn time(t: SystemTime, fmt: &str) -> String {
     let dt: chrono::DateTime<chrono::Local> = t.into();
@@ -83,6 +94,13 @@ pub fn time(t: SystemTime, fmt: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clocks() {
+        assert_eq!(clock(65.4), "1:05");
+        assert_eq!(clock(3723.0), "1:02:03");
+        assert_eq!(clock(-1.0), "0:00");
+    }
 
     #[test]
     fn sizes() {

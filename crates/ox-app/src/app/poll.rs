@@ -89,6 +89,14 @@ impl OxApp {
                     self.ctx.copy_text(text);
                     self.toast(toast);
                 }
+                Notice::Changed(folders, toast) => {
+                    for f in &folders {
+                        self.mark_changed(Some(f));
+                    }
+                    if let Some(text) = toast {
+                        self.toast(text);
+                    }
+                }
             }
         }
     }

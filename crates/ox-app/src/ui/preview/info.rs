@@ -77,6 +77,13 @@ pub fn info_rows(
     if let Some(target) = details.and_then(|d| d.link_target.as_ref()) {
         rows.push((tr("Link to"), target.display().to_string()));
     }
+    // OneDrive & co.: the fresh status with the provider, else the listing's.
+    let cloud = details.and_then(|d| d.cloud.as_ref());
+    if let Some((status, provider)) = cloud {
+        rows.push((tr("Status"), format!("{} ({provider})", status.label())));
+    } else if let Some(status) = e.cloud {
+        rows.push((tr("Status"), status.label().to_owned()));
+    }
     let dates = [
         (tr("Modified"), e.modified),
         (tr("Created"), e.created),
@@ -112,7 +119,8 @@ pub(super) fn group_digits(n: u64) -> String {
 /// The details of a file's type (dimensions, length, artist, …) without
 /// loading its preview, for the Properties dialog. Reads the file.
 pub fn type_facts(e: &FileEntry) -> Vec<(&'static str, String)> {
-    if e.is_dir {
+    // Online-only files aren't read: that would download them.
+    if e.is_dir || std::fs::metadata(&e.path).is_ok_and(|m| ox_core::cloud::online(&m)) {
         return Vec::new();
     }
     if is_image(e) {

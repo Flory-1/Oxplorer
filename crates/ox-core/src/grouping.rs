@@ -395,6 +395,7 @@ mod tests {
             created: None,
             hidden: false,
             readonly: false,
+            cloud: None,
         }
     }
 

@@ -127,6 +127,9 @@ pub(super) fn load(entry: FileEntry, show_hidden: bool, large: bool) -> Loaded {
             Err(e) => Loaded::Error(e.to_string()),
         };
     }
+    if std::fs::metadata(&entry.path).is_ok_and(|m| ox_core::cloud::online(&m)) {
+        return Loaded::Nothing; // Online only: reading it would download it.
+    }
     if ox_core::archive::kind(&entry.path).is_some() {
         // Archives: what's inside (opening them browses them).
         return match ox_core::archive::index(&entry.path) {

@@ -18,6 +18,9 @@ pub struct MenuTarget<'a> {
     pub shell: bool,
     /// Show the developer entries (Settings → Developer).
     pub dev: bool,
+    /// Items in a cloud folder (OneDrive, …): whether all of them are
+    /// always kept on this device. `None` elsewhere.
+    pub cloud: Option<bool>,
 }
 
 /// Folders offered in "Copy to" / "Move to": favorites and other open tabs.
@@ -279,6 +282,10 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     }
     if sel.len() == 1 && ui.button(tr("🖥 Show in Windows Explorer")).clicked() {
         actions.push(Action::Reveal(sel[0].clone()));
+    }
+    if let Some(all_kept) = t.cloud {
+        ui.separator();
+        super::cloud::menu(ui, &sel, all_kept, actions);
     }
     if t.dev {
         ui.separator();

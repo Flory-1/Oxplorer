@@ -32,6 +32,9 @@ struct Job {
     modified: Option<SystemTime>,
     /// Long side in pixels (a bucket).
     size: u32,
+    /// An online-only cloud file: only the Shell's cached thumbnail, so
+    /// the file isn't downloaded.
+    cache_only: bool,
 }
 
 /// A loaded thumbnail: its texture, the file's date and the bucket.
@@ -41,7 +44,8 @@ enum Slot {
     /// Being loaded; the smaller one meanwhile, if any.
     Loading(Option<Loaded>),
     Ready(Loaded),
-    Failed(Option<SystemTime>),
+    /// No thumbnail for this version, and whether only the cache was asked.
+    Failed(Option<SystemTime>, bool),
 }
 
 struct Queue {
@@ -54,6 +58,7 @@ struct Done {
     path: PathBuf,
     modified: Option<SystemTime>,
     size: u32,
+    cache_only: bool,
     image: Option<ColorImage>,
     dropped: bool,
 }
@@ -144,7 +149,7 @@ impl Thumbnails {
                     Some(Loaded(tex, modified, _)) if modified == done.modified => {
                         Slot::Ready(Loaded(tex, modified, u32::MAX))
                     }
-                    _ => Slot::Failed(done.modified),
+                    _ => Slot::Failed(done.modified, done.cache_only),
                 },
             };
             slots.insert(done.path, slot);
@@ -163,6 +168,7 @@ impl Thumbnails {
     /// when the file changed, or in a larger size when the box grew).
     pub fn get(&self, e: &FileEntry, pixels: f32) -> Option<(egui::TextureId, Vec2)> {
         let size = ox_core::grid_zoom::thumb_bucket(pixels);
+        let cache_only = e.cloud == Some(ox_core::cloud::CloudStatus::OnlineOnly);
         let shown = |l: &Loaded| (l.0.id(), l.0.size_vec2());
         let mut slots = self.slots.borrow_mut();
         let old = match slots.get(&e.path) {
@@ -170,7 +176,10 @@ impl Thumbnails {
                 return old.as_ref().filter(|l| l.1 == e.modified).map(shown);
             }
             Some(Slot::Ready(l)) if l.1 == e.modified && l.2 >= size => return Some(shown(l)),
-            Some(Slot::Failed(modified)) if *modified == e.modified => return None,
+            // Tried again once the file is downloaded.
+            Some(Slot::Failed(modified, c)) if *modified == e.modified && *c == cache_only => {
+                return None
+            }
             // Too small: shown while the larger one loads.
             Some(Slot::Ready(l)) if l.1 == e.modified => match slots.remove(&e.path) {
                 Some(Slot::Ready(l)) => Some(l),
@@ -186,6 +195,7 @@ impl Thumbnails {
             path: e.path.clone(),
             modified: e.modified,
             size,
+            cache_only,
         });
         if jobs.len() > MAX_QUEUED {
             let old = jobs.remove(0);
@@ -193,6 +203,7 @@ impl Thumbnails {
                 path: old.path,
                 modified: old.modified,
                 size: old.size,
+                cache_only: old.cache_only,
                 image: None,
                 dropped: true,
             });
@@ -213,11 +224,12 @@ fn worker(queue: &Queue, tx: &Sender<Done>, ctx: &Context) {
                 jobs = queue.ready.wait(jobs).unwrap_or_else(|p| p.into_inner());
             }
         };
-        let image = load(&job.path, job.size);
+        let image = load(&job.path, job.size, job.cache_only);
         let done = Done {
             path: job.path,
             modified: job.modified,
             size: job.size,
+            cache_only: job.cache_only,
             image,
             dropped: false,
         };
@@ -228,12 +240,17 @@ fn worker(queue: &Queue, tx: &Sender<Done>, ctx: &Context) {
     }
 }
 
-fn load(path: &Path, size: u32) -> Option<ColorImage> {
-    if let Some(t) = ox_core::shell::thumbnail(path, size) {
+fn load(path: &Path, size: u32, cache_only: bool) -> Option<ColorImage> {
+    let shell = if cache_only {
+        ox_core::shell::thumbnail_in_cache(path, size)
+    } else {
+        ox_core::shell::thumbnail(path, size)
+    };
+    if let Some(t) = shell {
         let size = [t.width as usize, t.height as usize];
         return Some(ColorImage::from_rgba_premultiplied(size, &t.rgba));
     }
-    if ox_core::shell::supported() {
+    if ox_core::shell::supported() || cache_only {
         return None;
     }
     let ext = path
@@ -286,9 +303,9 @@ mod tests {
         if ox_core::shell::supported() {
             return; // needs the Shell's thumbnail cache
         }
-        let img = load(&path, 128).unwrap();
+        let img = load(&path, 128, false).unwrap();
         assert_eq!(img.size, [128, 64]);
-        assert_eq!(load(&path, 256).unwrap().size, [256, 128]);
-        assert!(load(&dir.path().join("missing.png"), 128).is_none());
+        assert_eq!(load(&path, 256, false).unwrap().size, [256, 128]);
+        assert!(load(&dir.path().join("missing.png"), 128, false).is_none());
     }
 }
