@@ -11,6 +11,7 @@ use crate::shortcuts::{self, Command};
 use crate::tabs::Location;
 
 mod cleanup;
+mod commands;
 mod disk_usage;
 mod pictures;
 mod player;
@@ -559,6 +560,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
     );
     views::entries(app, &mut v);
     cleanup::entries(app, &mut v);
+    commands::entries(app, &mut v);
     disk_usage::entries(app, &mut v);
     pictures::entries(app, &mut v);
     player::entries(app, &mut v);

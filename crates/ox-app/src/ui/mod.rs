@@ -2,6 +2,7 @@
 
 mod cleanup;
 pub mod cloud;
+pub(crate) mod commands;
 mod compare;
 mod dialogs;
 mod disk_usage;
@@ -145,6 +146,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     toasts(app, ui.ctx());
     transfers::countdown(app, ui.ctx());
     picture_tools::progress(app, ui.ctx());
+    commands::show(app, ui.ctx());
     drag_preview(ui.ctx());
 }
 
