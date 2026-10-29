@@ -116,16 +116,26 @@ pub fn paint_entry(
     }
     if e.is_symlink {
         let r = rect.width() * 0.18;
-        let c = rect.left_bottom() + vec2(r, -r);
-        p.circle_filled(c, r, Color32::WHITE);
-        p.text(
-            c,
-            Align2::CENTER_CENTER,
-            "↗",
-            FontId::proportional(r * 1.6),
-            Color32::from_rgb(0x2f, 0x6f, 0xe0),
-        );
+        paint_link_badge(p, rect.left_bottom() + vec2(r, -r), r);
     }
+}
+
+/// The arrow badge of a symbolic link or junction, a circle of radius `r`
+/// around `c`.
+pub fn paint_link_badge(p: &Painter, c: Pos2, r: f32) {
+    let blue = Color32::from_rgb(0x2f, 0x6f, 0xe0);
+    p.circle(
+        c,
+        r,
+        Color32::WHITE,
+        Stroke::new(1.0, blue.gamma_multiply(0.5)),
+    );
+    // An arrow to the top right, drawn so it doesn't depend on a font.
+    let s = Stroke::new((r * 0.22).max(1.2), blue);
+    let (a, b) = (c + vec2(-r * 0.45, r * 0.45), c + vec2(r * 0.45, -r * 0.45));
+    p.line_segment([a, b], s);
+    p.line_segment([b, b + vec2(-r * 0.6, 0.0)], s);
+    p.line_segment([b, b + vec2(0.0, r * 0.6)], s);
 }
 
 fn fade(c: Color32, faded: bool) -> Color32 {

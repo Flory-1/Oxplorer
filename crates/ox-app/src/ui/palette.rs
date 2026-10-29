@@ -171,6 +171,15 @@ fn entries(app: &OxApp) -> Vec<Entry> {
                 act(move || Action::NewFromItem(dir.clone(), i)),
             );
         }
+        use ox_core::links::LinkKind;
+        for (kind, label) in [
+            (LinkKind::Symbolic, tr("New symbolic link…")),
+            (LinkKind::Junction, tr("New junction…")),
+            (LinkKind::Hard, tr("New hard link…")),
+        ] {
+            let dir = f.clone();
+            cmd("🔗", label, "", act(move || Action::NewLink(dir, kind)));
+        }
         cmd(
             "📥",
             tr("Paste"),

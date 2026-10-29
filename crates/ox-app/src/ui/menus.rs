@@ -1,6 +1,7 @@
 //! Context menus: items, backgrounds, folder links, tags and the New submenu.
 
 use super::*;
+use ox_core::links::LinkKind;
 
 /// Context information for the item context menu.
 pub struct MenuTarget<'a> {
@@ -346,6 +347,16 @@ pub fn new_menu(ui: &mut Ui, folder: &Path, new_items: &[NewItem], actions: &mut
     }
     if ui.button(tr("📄 Text document")).clicked() {
         actions.push(Action::NewFile(folder.to_path_buf()));
+    }
+    ui.separator();
+    for (kind, label) in [
+        (LinkKind::Symbolic, tr("🔗 Symbolic link…")),
+        (LinkKind::Junction, tr("🔗 Junction…")),
+        (LinkKind::Hard, tr("🔗 Hard link…")),
+    ] {
+        if ui.button(label).clicked() {
+            actions.push(Action::NewLink(folder.to_path_buf(), kind));
+        }
     }
     if !new_items.is_empty() {
         ui.separator();

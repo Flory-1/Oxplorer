@@ -6,6 +6,8 @@ mod files;
 pub mod header;
 pub(crate) mod help_page;
 mod home;
+pub(crate) mod link_dialog;
+mod links;
 mod menus;
 pub(crate) mod palette;
 pub(crate) mod preview;
@@ -363,6 +365,12 @@ fn status_bar(app: &mut OxApp, ui: &mut Ui) {
                     ));
                 } else {
                     ui.label(ox_core::trf!("{v1} selected", v1 = selected.len()));
+                }
+                if let [one] = selected.as_slice() {
+                    if let Some(link) = links::describe(ui.ctx(), one) {
+                        ui.separator();
+                        ui.label(RichText::new(link).weak());
+                    }
                 }
             }
             if let Some(s) = &tab.search {

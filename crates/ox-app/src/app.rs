@@ -8,6 +8,7 @@ mod action;
 mod compare;
 mod flat;
 mod input;
+mod links;
 mod poll;
 mod process;
 mod properties;
@@ -72,6 +73,7 @@ pub enum Dialog {
         text: String,
         focus: bool,
     },
+    NewLink(Box<crate::ui::link_dialog::LinkDialog>),
 }
 
 /// A file operation running on a helper thread (label, result, folder to refresh).

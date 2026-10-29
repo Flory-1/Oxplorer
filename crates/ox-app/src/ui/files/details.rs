@@ -90,6 +90,7 @@ pub(super) fn details(
             let drop_hover = item_interact(view, i, &entry, &resp, cx, actions);
             paint_row(ui, rect, &entry, selected, drop_hover, &resp, cx, columns);
             item_context_menu(&resp, view, &entry, cx, actions);
+            item_tooltip(ui, resp, &entry, cx, false);
         }
     });
     remember_scroll(
