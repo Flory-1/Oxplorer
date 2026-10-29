@@ -47,7 +47,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Wasted space: {size}", "Verschwendeter Platz: {size}"),
     ("Empty folders: {n}", "Leere Ordner: {n}"),
     ("(took {time})", "(Dauer: {time})"),
-    ("🔄 Scan again", "🔄 Erneut suchen"),
+    ("🔄 Scan again", "🔄 Erneut scannen"),
     (
         "⚠ {items} couldn't be read",
         "⚠ {items} konnten nicht gelesen werden",

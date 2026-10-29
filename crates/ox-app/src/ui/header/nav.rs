@@ -158,6 +158,9 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) -> Rect 
                 Location::Gallery => {
                     ui.label(tr("🎞  Gallery"));
                 }
+                Location::DiskUsage(p) => {
+                    ui.label(ox_core::trf!("🖴  Disk usage of {path}", path = p.display()));
+                }
                 Location::Archive { archive, inner } => {
                     if let Some(parent) = archive.parent() {
                         breadcrumbs(ui, parent, actions);

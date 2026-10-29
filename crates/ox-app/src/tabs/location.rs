@@ -40,6 +40,8 @@ pub enum Location {
         root: PathBuf,
         mode: CleanupMode,
     },
+    /// What takes up the space in a folder or drive (a treemap).
+    DiskUsage(PathBuf),
 }
 
 impl Location {
@@ -67,6 +69,9 @@ impl Location {
                     }
                 }
             }
+            Location::DiskUsage(p) => {
+                ox_core::trf!("Disk usage: {name}", name = entry::display_name(p))
+            }
         }
     }
 
@@ -84,6 +89,7 @@ impl Location {
             Location::Library { .. } => "📚",
             Location::Gallery => "🎞",
             Location::Cleanup { mode, .. } => Self::cleanup_icon(*mode),
+            Location::DiskUsage(_) => "🖴",
         }
     }
 

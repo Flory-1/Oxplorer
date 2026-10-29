@@ -8,6 +8,7 @@ mod action;
 mod cleanup;
 mod cloud;
 mod compare;
+mod disk_usage;
 mod flat;
 mod input;
 mod instances;
@@ -27,6 +28,7 @@ mod window;
 pub use action::{Action, TabAction};
 pub use cleanup::{CleanupAction, CleanupView, ConfirmCleanup};
 pub use compare::{CompareAction, CompareState};
+pub use disk_usage::{DiskUsageAction, DiskUsageScans};
 pub use instances::Start;
 pub use properties::Properties;
 pub use search_history::{HistoryAction, RecentSearches};
@@ -177,6 +179,8 @@ pub struct OxApp {
     /// Quick Look, while it is open (Space).
     pub quick_look: Option<crate::ui::quick_look::QuickLook>,
     pub folder_sizes: FolderSizes,
+    /// The trees scanned for disk usage views.
+    pub disk_usage: DiskUsageScans,
     /// Keyboard shortcuts in effect (defaults + the user's changes).
     pub keymap: crate::shortcuts::Keymap,
     /// Colour schemes: built-in ones and the user's (see `ox_core::themes`).
@@ -351,6 +355,7 @@ impl OxApp {
             },
             preview: Default::default(),
             quick_look: None,
+            disk_usage: Default::default(),
             folder_sizes: {
                 let repaint = cc.egui_ctx.clone();
                 FolderSizes::new(move || repaint.request_repaint())
@@ -459,6 +464,7 @@ impl OxApp {
         self.poll_compare();
         self.poll_cleanups();
         self.poll_folder_sizes();
+        self.poll_disk_usage();
         self.poll_git();
         self.poll_cloud();
         self.poll_libraries();
@@ -611,7 +617,8 @@ impl OxApp {
             Location::Cleanup { root, mode } => {
                 self.cleanups.start(tab.id, root, mode, show_hidden, ctx);
             }
-            Location::Home | Location::Settings | Location::Help => {}
+            // Disk usage views get their scan in `poll_disk_usage`.
+            Location::Home | Location::Settings | Location::Help | Location::DiskUsage(_) => {}
         }
     }
 

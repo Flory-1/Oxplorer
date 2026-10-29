@@ -883,12 +883,13 @@ pub const TABLE: &[(&str, &str)] = &[
 
 mod cleanup;
 mod cloud;
+mod disk_usage;
 mod flat_links;
 mod help_views;
 mod libraries;
 mod operations;
-mod search_tags;
 mod search_history;
+mod search_tags;
 mod tabs;
 mod views;
 mod zoom_select;
@@ -909,4 +910,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(search_tags::TABLE)
         .chain(search_history::TABLE)
         .chain(cleanup::TABLE)
+        .chain(disk_usage::TABLE)
 }

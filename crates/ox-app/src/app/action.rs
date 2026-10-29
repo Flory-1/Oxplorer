@@ -123,6 +123,8 @@ pub enum Action {
     Session(super::SessionAction),
     /// How the file view looks (columns, …).
     View(super::ViewAction),
+    /// The disk usage view: scan again, stop.
+    DiskUsage(super::DiskUsageAction),
 }
 
 pub enum TabAction {

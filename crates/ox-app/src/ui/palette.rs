@@ -11,6 +11,7 @@ use crate::shortcuts::{self, Command};
 use crate::tabs::Location;
 
 mod cleanup;
+mod disk_usage;
 mod tabs;
 mod views;
 
@@ -556,6 +557,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
     );
     views::entries(app, &mut v);
     cleanup::entries(app, &mut v);
+    disk_usage::entries(app, &mut v);
 
     tabs::entries(app, &mut v);
 

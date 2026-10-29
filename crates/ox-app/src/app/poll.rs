@@ -221,6 +221,7 @@ impl OxApp {
     pub fn mark_changed(&mut self, dir: Option<&Path>) {
         if let Some(d) = dir {
             self.folder_sizes.invalidate(d);
+            self.disk_usage.changed(d);
         }
         self.tabs.mark_stale(dir);
     }
