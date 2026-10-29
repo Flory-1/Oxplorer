@@ -101,6 +101,8 @@ pub enum Action {
     MoveToBin(Vec<PathBuf>),
     /// Compare folders (the split view's panes).
     Compare(super::CompareAction),
+    /// How the file view looks (columns, …).
+    View(super::ViewAction),
 }
 
 pub enum TabAction {

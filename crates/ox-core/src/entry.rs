@@ -216,6 +216,29 @@ pub enum SortKey {
     Modified,
     Type,
     Size,
+    Created,
+}
+
+impl SortKey {
+    /// Every key, in the order the menus list them.
+    pub const ALL: [SortKey; 5] = [
+        Self::Name,
+        Self::Modified,
+        Self::Created,
+        Self::Type,
+        Self::Size,
+    ];
+
+    /// English name (translated where it is shown).
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Name => "Name",
+            Self::Modified => "Date modified",
+            Self::Created => "Date created",
+            Self::Type => "Type",
+            Self::Size => "Size",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -252,6 +275,7 @@ pub fn sort_entries(
         let ord = match key {
             SortKey::Name => natural_cmp(&a.name, &b.name),
             SortKey::Modified => a.modified.cmp(&b.modified),
+            SortKey::Created => a.created.cmp(&b.created),
             SortKey::Type => a
                 .type_label()
                 .cmp(&b.type_label())

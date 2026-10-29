@@ -1,8 +1,12 @@
 //! The file view: details list and grid, with selection, drag & drop and context menus.
 
+mod cells;
+mod column_header;
 mod details;
 mod grid;
 mod item;
+pub(crate) use cells::header_label;
+pub(crate) use column_header::{column_context, column_menu};
 use details::details;
 use grid::grid;
 use item::{item_context_menu, item_interact};
@@ -25,25 +29,7 @@ use crate::icons;
 use crate::shortcuts::{self, Command};
 use crate::tabs::{FolderView, Location};
 
-const DATE_W: f32 = 140.0;
-const TYPE_W: f32 = 150.0;
-const SIZE_W: f32 = 90.0;
-const FOLDER_W: f32 = 260.0;
-const GIT_W: f32 = 44.0;
 const TILE: egui::Vec2 = egui::Vec2::new(108.0, 104.0);
-const MIN_NAME_W: f32 = 180.0;
-
-/// Widths of the details columns (0 = hidden). Narrow views (e.g. a split
-/// pane) drop Type first, then shrink or drop Folder, then drop Date.
-#[derive(Clone, Copy)]
-struct Columns {
-    name: f32,
-    folder: f32,
-    git: f32,
-    date: f32,
-    kind: f32,
-    size: f32,
-}
 
 fn git_color(state: ox_core::git::GitState, v: &egui::Visuals) -> Color32 {
     use ox_core::git::GitState::*;
@@ -54,33 +40,6 @@ fn git_color(state: ox_core::git::GitState, v: &egui::Visuals) -> Color32 {
         Renamed => Color32::from_rgb(0x4c, 0x8d, 0xf6),
         Untracked => Color32::from_rgb(0x9b, 0x6b, 0xf2),
         Ignored => v.weak_text_color().gamma_multiply(0.7),
-    }
-}
-
-impl Columns {
-    fn fit(width: f32, with_folder: bool, with_git: bool) -> Self {
-        let avail = width - 16.0;
-        let mut c = Columns {
-            name: 0.0,
-            folder: if with_folder { FOLDER_W } else { 0.0 },
-            git: if with_git { GIT_W } else { 0.0 },
-            date: DATE_W,
-            kind: TYPE_W,
-            size: SIZE_W,
-        };
-        let rest = |c: &Columns| avail - (c.folder + c.git + c.date + c.kind + c.size);
-        if rest(&c) < MIN_NAME_W {
-            c.kind = 0.0;
-        }
-        if rest(&c) < MIN_NAME_W && c.folder > 0.0 {
-            let w = c.folder - (MIN_NAME_W - rest(&c));
-            c.folder = if w >= 120.0 { w } else { 0.0 };
-        }
-        if rest(&c) < MIN_NAME_W {
-            c.date = 0.0;
-        }
-        c.name = rest(&c).max(MIN_NAME_W.min(avail - c.size)).max(60.0);
-        c
     }
 }
 
@@ -101,6 +60,8 @@ struct Ctx<'a> {
     icons: Option<&'a crate::icons::IconCache>,
     /// Picture and video previews in the grid, or `None` when they are off.
     thumbs: Option<&'a crate::thumbs::Thumbnails>,
+    /// Values of the extra columns, or `None` where files can't be read.
+    props: Option<&'a crate::column_values::ColumnValues>,
     /// Trash items behind the entries when showing the Recycle Bin.
     bin: &'a BinListing,
     tags: &'a ox_core::tags::TagStore,
@@ -162,6 +123,9 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             && !app.tabs.active().location().is_bin()
             && !app.tabs.active().location().is_read_only())
         .then_some(&app.thumbs),
+        props: (!app.tabs.active().location().is_bin()
+            && !app.tabs.active().location().is_read_only())
+        .then_some(&app.column_values),
         bin: &bin,
         sizes: (app.settings.browsing.folder_sizes
             && matches!(app.tabs.active().location(), Location::Folder(_)))
@@ -185,6 +149,8 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     };
     let folders_first = app.settings.browsing.folders_first;
     let case = app.settings.search.case_sensitive;
+    let layout = &app.settings.browsing.columns;
+    let col_cx = column_context(app.tabs.active());
     let mut actions = Vec::new();
     let tab = app.tabs.active_mut();
 
@@ -214,10 +180,11 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             &mut tab.view,
             tab.id,
             &cx,
+            layout,
+            col_cx,
             &mut actions,
             &mut sort_clicked,
-            tab.sort_key,
-            tab.sort_order,
+            (tab.sort_key, tab.sort_order),
         ),
         ViewMode::Grid => grid(ui, &mut tab.view, tab.id, &cx, &mut actions),
     }

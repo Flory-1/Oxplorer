@@ -5,6 +5,7 @@
 
 pub mod archive;
 pub mod clipboard;
+pub mod columns;
 pub mod compare;
 pub mod default_app;
 pub mod details;
@@ -26,6 +27,7 @@ pub mod pdf;
 pub mod places;
 pub mod player;
 pub mod power;
+pub mod props;
 pub mod recycle;
 pub mod rename;
 pub mod search;

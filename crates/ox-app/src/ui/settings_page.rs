@@ -309,15 +309,10 @@ fn browsing(ui: &mut Ui, s: &mut Settings) {
     });
     row(ui, tr("Default sort"), "", |ui| {
         egui::ComboBox::from_id_salt("default_sort")
-            .selected_text(format!("{:?}", b.default_sort))
+            .selected_text(tr(b.default_sort.label()))
             .show_ui(ui, |ui| {
-                for k in [
-                    SortKey::Name,
-                    SortKey::Modified,
-                    SortKey::Type,
-                    SortKey::Size,
-                ] {
-                    ui.selectable_value(&mut b.default_sort, k, format!("{k:?}"));
+                for k in SortKey::ALL {
+                    ui.selectable_value(&mut b.default_sort, k, tr(k.label()));
                 }
             });
         ui.selectable_value(&mut b.default_order, SortOrder::Ascending, "⏶");

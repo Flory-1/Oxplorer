@@ -10,6 +10,8 @@ use crate::app::{Action, OxApp, TabAction};
 use crate::shortcuts::{self, Command};
 use crate::tabs::Location;
 
+mod views;
+
 #[derive(Default)]
 pub struct PaletteState {
     pub query: String,
@@ -446,6 +448,7 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         "",
         act(|| Action::ClearRecent),
     );
+    views::entries(app, &mut v);
 
     // Places
     let mut place = |icon, label: String, path: std::path::PathBuf| {
