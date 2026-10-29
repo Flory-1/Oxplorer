@@ -2,7 +2,8 @@
 
 use ox_core::i18n::t as tr;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime};
 
 use crossbeam_channel::Receiver;
 use egui::{ColorImage, RichText, TextureHandle, TextureOptions, Ui};
@@ -10,6 +11,7 @@ use egui_extras::syntax_highlighting::{highlight, CodeTheme};
 use ox_core::dirsize::DirSize;
 use ox_core::entry::{FileEntry, FileKind};
 use ox_core::format;
+use ox_core::git::{Commit, GitRef, GraphRow};
 
 use crate::app::{Action, OxApp};
 
@@ -32,6 +34,8 @@ enum Loaded {
         text: String,
         numbers: String,
         truncated: bool,
+        /// Encoding, line endings, indentation.
+        details: Vec<(&'static str, String)>,
     },
     /// Audio/video details and the embedded cover picture.
     Media {
@@ -42,6 +46,8 @@ enum Loaded {
         folders: usize,
         files: usize,
         bytes: u64,
+        /// The history of the Git repository the folder is in.
+        git: Option<Arc<GitInfo>>,
     },
     /// A font file: its bytes (installed into egui to draw it), details
     /// and every character it has a glyph for.
@@ -55,13 +61,17 @@ enum Loaded {
 }
 
 enum Content {
-    Loading(Receiver<Loaded>),
+    Loading(Receiver<(Loaded, Option<Commit>)>),
     Image(TextureHandle, [u32; 2]),
     Page(TextureHandle, u32),
     Text {
         text: String,
         numbers: String,
         truncated: bool,
+        /// Encoding, line endings, indentation.
+        details: Vec<(&'static str, String)>,
+        /// A Markdown file: also shown rendered.
+        markdown: bool,
     },
     Media {
         info: Vec<(&'static str, String)>,
@@ -71,6 +81,8 @@ enum Content {
         folders: usize,
         files: usize,
         bytes: u64,
+        /// The history of the Git repository the folder is in.
+        git: Option<Arc<GitInfo>>,
     },
     Font {
         /// egui font family the file was installed as.
@@ -87,11 +99,14 @@ enum Content {
 pub enum PreviewTab {
     Info,
     Image,
+    Markdown,
     Text,
     Page,
     Media,
     FontSample,
     Glyphs,
+    Git,
+    Player,
 }
 
 impl PreviewTab {
@@ -99,11 +114,14 @@ impl PreviewTab {
         match self {
             PreviewTab::Info => tr("ℹ Info"),
             PreviewTab::Image => tr("🖼 Image"),
+            PreviewTab::Markdown => tr("📖 Markdown"),
             PreviewTab::Text => tr("📝 Text"),
             PreviewTab::Page => tr("📄 Page"),
             PreviewTab::Media => tr("🎵 Cover"),
             PreviewTab::FontSample => tr("Aa Preview"),
             PreviewTab::Glyphs => tr("🔣 Glyphs"),
+            PreviewTab::Git => tr("🌿 Git"),
+            PreviewTab::Player => tr("▶ Player"),
         }
     }
 }
@@ -114,9 +132,16 @@ impl Content {
         match self {
             Content::Image(..) => vec![Info, Image],
             Content::Page(..) => vec![Info, Page],
+            Content::Text { markdown: true, .. } => vec![Info, Markdown, Text],
             Content::Text { .. } => vec![Info, Text],
+            Content::Media { cover, .. } if ox_core::player::supported() => {
+                let mut tabs = vec![Info, Player];
+                tabs.extend(cover.as_ref().map(|_| Media));
+                tabs
+            }
             Content::Media { cover: Some(_), .. } => vec![Info, Media],
             Content::Font { .. } => vec![Info, FontSample, Glyphs],
+            Content::Folder { git: Some(_), .. } => vec![Info, Git],
             _ => vec![Info],
         }
     }
@@ -127,17 +152,23 @@ impl Content {
             Content::Image(_, [w, h]) => vec![(tr("Dimensions"), format!("{w} × {h} px"))],
             Content::Page(_, pages) => vec![(tr("Pages"), pages.to_string())],
             Content::Text {
-                numbers, truncated, ..
+                numbers,
+                truncated,
+                details,
+                ..
             } => {
                 let lines = numbers.lines().count();
                 let more = if *truncated { "+" } else { "" };
-                vec![(tr("Lines"), format!("{lines}{more}"))]
+                let mut facts = vec![(tr("Lines"), format!("{lines}{more}"))];
+                facts.extend(details.iter().cloned());
+                facts
             }
             Content::Media { info, .. } | Content::Font { info, .. } => info.clone(),
             Content::Folder {
                 folders,
                 files,
                 bytes,
+                ..
             } => vec![(
                 tr("Contains"),
                 format!(
@@ -164,6 +195,52 @@ pub struct PreviewState {
     /// The previewed font installed into egui (removed when the next loads).
     font_family: Option<String>,
     font_seq: u64,
+    /// Layout cache of the Markdown view.
+    markdown: egui_commonmark::CommonMarkCache,
+    /// The last commit that changed the item, in Git repositories.
+    last_commit: Option<Commit>,
+    /// SHA-256 and MD5, once asked for.
+    checksums: Option<Checksums>,
+    play: PlayerState,
+}
+
+/// The Player tab.
+#[derive(Default)]
+struct PlayerState {
+    /// The audio or video file being played.
+    playback: Option<Playback>,
+    /// Start playing when the Player tab opens next (the Info tab's ▶ Play).
+    autoplay: bool,
+    /// Kept from file to file.
+    volume: Option<f32>,
+    looping: bool,
+}
+
+struct Playback {
+    path: PathBuf,
+    player: Result<ox_core::player::Player, String>,
+    /// The last video frame.
+    texture: Option<TextureHandle>,
+    /// Where the seek bar is being dragged to (seconds).
+    dragging: Option<f32>,
+}
+
+enum Checksums {
+    Running(Receiver<Result<(String, String), String>>),
+    Done(Result<(String, String), String>),
+}
+
+/// The last commit that changed `e` (not for items inside archives).
+fn last_commit(e: &FileEntry) -> Option<Commit> {
+    if ox_core::archive::split_virtual(&e.path).is_some() {
+        return None;
+    }
+    let root = ox_core::git::repo_root(&e.path)?;
+    ox_core::git::last_commit(&root, &e.path).ok().flatten()
+}
+
+fn is_markdown(e: &FileEntry) -> bool {
+    matches!(e.extension().as_str(), "md" | "markdown" | "mdown" | "mkd")
 }
 
 fn is_image(e: &FileEntry) -> bool {
@@ -202,6 +279,7 @@ fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
                 folders: items.iter().filter(|i| i.is_dir).count(),
                 files: items.iter().filter(|i| !i.is_dir).count(),
                 bytes: items.iter().filter(|i| !i.is_dir).map(|i| i.size).sum(),
+                git: git_info(&entry.path),
             },
             Err(e) => Loaded::Error(e.to_string()),
         };
@@ -221,6 +299,7 @@ fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
                     folders: folders.len(),
                     files: files.len(),
                     bytes: files.iter().map(|e| e.size).sum(),
+                    git: None,
                 }
             }
             Err(e) => Loaded::Error(ox_core::trf!("Can't read this archive: {e}", e = e)),
@@ -235,6 +314,13 @@ fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
     if matches!(entry.kind(), FileKind::Audio | FileKind::Video) {
         if let Some(media) = media_info(&entry.path, entry.kind() == FileKind::Video) {
             return media;
+        }
+        if ox_core::player::supported() {
+            // No details, but it can still be played.
+            return Loaded::Media {
+                info: Vec::new(),
+                cover: None,
+            };
         }
     }
     if entry.kind() == FileKind::Font {
@@ -296,6 +382,7 @@ fn load_from_archive(entry: &FileEntry, arc: &Path, inner: &Path) -> Loaded {
                 folders: items.iter().filter(|i| i.is_dir).count(),
                 files: items.iter().filter(|i| !i.is_dir).count(),
                 bytes: items.iter().filter(|i| !i.is_dir).map(|i| i.size).sum(),
+                git: None,
             },
             Err(e) => Loaded::Error(e.to_string()),
         };
@@ -333,12 +420,23 @@ fn read_text(path: &Path) -> Loaded {
 }
 
 fn text_from_bytes(mut buf: Vec<u8>) -> Loaded {
-    if buf.iter().take(8192).any(|&b| b == 0) {
+    use ox_core::textinfo::{self, Encoding};
+    let enc = textinfo::encoding(&buf);
+    let utf16 = matches!(enc, Encoding::Utf16Le | Encoding::Utf16Be);
+    if !utf16 && buf.iter().take(8192).any(|&b| b == 0) {
         return Loaded::Nothing; // binary
     }
     let mut truncated = buf.len() > MAX_TEXT_BYTES;
     buf.truncate(MAX_TEXT_BYTES);
-    let all = String::from_utf8_lossy(&buf);
+    let all = textinfo::decode(&buf, enc);
+    let details = vec![
+        (tr("Encoding"), enc.label().to_owned()),
+        (
+            tr("Line endings"),
+            textinfo::line_endings(&all).label().to_owned(),
+        ),
+        (tr("Indentation"), textinfo::indent(&all).label()),
+    ];
     let lines: Vec<&str> = all.lines().take(MAX_TEXT_LINES + 1).collect();
     truncated |= lines.len() > MAX_TEXT_LINES;
     let lines = &lines[..lines.len().min(MAX_TEXT_LINES)];
@@ -350,6 +448,7 @@ fn text_from_bytes(mut buf: Vec<u8>) -> Loaded {
         text: lines.join("\n"),
         numbers,
         truncated,
+        details,
     }
 }
 
@@ -513,13 +612,18 @@ impl PreviewState {
             let entry = entry.clone();
             let repaint = ctx.clone();
             std::thread::spawn(move || {
-                let _ = tx.send(load(entry, show_hidden));
+                let loaded = load(entry.clone(), show_hidden);
+                let _ = tx.send((loaded, last_commit(&entry)));
                 repaint.request_repaint();
             });
             self.content = Some(Content::Loading(rx));
+            self.last_commit = None;
+            self.checksums = None;
+            self.play.playback = None;
         }
         if let Some(Content::Loading(rx)) = &self.content {
-            if let Ok(loaded) = rx.try_recv() {
+            if let Ok((loaded, commit)) = rx.try_recv() {
+                self.last_commit = commit;
                 self.content = Some(match loaded {
                     Loaded::Image(img, size) => {
                         let tex = ctx.load_texture("preview", img, TextureOptions::LINEAR);
@@ -533,10 +637,13 @@ impl PreviewState {
                         text,
                         numbers,
                         truncated,
+                        details,
                     } => Content::Text {
                         text,
                         numbers,
                         truncated,
+                        details,
+                        markdown: is_markdown(entry),
                     },
                     Loaded::Media { info, cover } => Content::Media {
                         info,
@@ -547,10 +654,12 @@ impl PreviewState {
                         folders,
                         files,
                         bytes,
+                        git,
                     } => Content::Folder {
                         folders,
                         files,
                         bytes,
+                        git,
                     },
                     Loaded::Font { data, info, chars } => Content::Font {
                         family: self.install_font(ctx, data),
@@ -589,6 +698,12 @@ impl PreviewState {
     fn clear(&mut self) {
         self.key = None;
         self.content = None;
+        self.play.playback = None;
+    }
+
+    /// Stop and close the player.
+    pub fn stop_playback(&mut self) {
+        self.play.playback = None;
     }
 }
 
@@ -698,6 +813,10 @@ fn tabbed(
         glyph_grid(ui, family, chars, actions);
         return;
     }
+    if let (PreviewTab::Git, Content::Folder { git: Some(git), .. }) = (tab, content) {
+        git_graph(ui, git, date_fmt, actions);
+        return;
+    }
     egui::ScrollArea::vertical()
         .id_salt("preview_tab")
         .auto_shrink([false, false])
@@ -715,16 +834,44 @@ fn tabbed(
                         ),
                     ));
                 }
+                if let Some(c) = &state.last_commit {
+                    facts.push((
+                        tr("Last commit"),
+                        format!(
+                            "{} {}\n{}, {}",
+                            c.short(),
+                            c.subject,
+                            c.author,
+                            commit_time(c, date_fmt)
+                        ),
+                    ));
+                }
                 info_grid(ui, e, facts, date_fmt);
+                if !e.is_dir && ox_core::archive::split_virtual(&e.path).is_none() {
+                    ui.add_space(6.0);
+                    checksums(ui, &mut state.checksums, e, actions);
+                }
                 ui.add_space(8.0);
+                let playable =
+                    matches!(content, Content::Media { .. }) && ox_core::player::supported();
                 let label = match content {
                     Content::Media { .. } => tr("▶ Play"),
                     Content::Folder { .. } => tr("📂 Open"),
                     _ => tr("📂 Open with default app"),
                 };
-                if ui.button(label).clicked() {
-                    actions.push(Action::Open(e.path.clone()));
-                }
+                ui.horizontal(|ui| {
+                    if ui.button(label).clicked() {
+                        if playable {
+                            state.wanted = Some(PreviewTab::Player);
+                            state.play.autoplay = true;
+                        } else {
+                            actions.push(Action::Open(e.path.clone()));
+                        }
+                    }
+                    if playable && ui.button(tr("📂 Open with default app")).clicked() {
+                        actions.push(Action::Open(e.path.clone()));
+                    }
+                });
                 if let Content::Error(err) = content {
                     ui.add_space(6.0);
                     ui.colored_label(egui::Color32::from_rgb(0xe5, 0x48, 0x4d), err);
@@ -733,6 +880,18 @@ fn tabbed(
             PreviewTab::FontSample => {
                 if let Content::Font { family, .. } = content {
                     font_sample(ui, family, &mut state.sample);
+                }
+            }
+            PreviewTab::Player => {
+                let cover = match content {
+                    Content::Media { cover, .. } => cover.as_ref(),
+                    _ => None,
+                };
+                player_tab(ui, &mut state.play, e, cover);
+            }
+            PreviewTab::Markdown => {
+                if let Content::Text { text, .. } = content {
+                    markdown(ui, &mut state.markdown, text, e);
                 }
             }
             _ => body(ui, content, e),
@@ -899,6 +1058,19 @@ fn glyph_grid(ui: &mut Ui, family: &str, chars: &[char], actions: &mut Vec<Actio
         });
 }
 
+/// A Markdown file rendered. Relative image paths are taken from its folder.
+fn markdown(ui: &mut Ui, cache: &mut egui_commonmark::CommonMarkCache, text: &str, e: &FileEntry) {
+    let folder = e
+        .path
+        .parent()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    egui_commonmark::CommonMarkViewer::new()
+        .default_implicit_uri_scheme(format!("file://{folder}/"))
+        .max_image_width(Some(ui.available_width().max(50.0) as usize))
+        .show(ui, cache, text);
+}
+
 /// The type-specific tabs (Image, Text, Page, Cover).
 fn body(ui: &mut Ui, content: &Content, e: &FileEntry) {
     match content {
@@ -912,6 +1084,7 @@ fn body(ui: &mut Ui, content: &Content, e: &FileEntry) {
             text,
             numbers,
             truncated,
+            ..
         } => {
             const SIZE: f32 = 11.5;
             // Long lines scroll sideways instead of widening the pane.
@@ -928,7 +1101,11 @@ fn body(ui: &mut Ui, content: &Content, e: &FileEntry) {
                             } else {
                                 CodeTheme::light(SIZE)
                             };
-                            let job = highlight(ui.ctx(), ui.style(), &theme, text, &e.extension());
+                            // The highlighter takes the font from the style, not the
+                            // theme: give it the line numbers' size so rows line up.
+                            let mut style = (**ui.style()).clone();
+                            style.override_font_id = Some(egui::FontId::monospace(SIZE));
+                            let job = highlight(ui.ctx(), &style, &theme, text, &e.extension());
                             egui::Label::new(job)
                         } else {
                             egui::Label::new(RichText::new(text.as_str()).monospace().size(SIZE))
@@ -963,5 +1140,529 @@ fn body(ui: &mut Ui, content: &Content, e: &FileEntry) {
             ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(6.0));
         }
         _ => {}
+    }
+}
+
+/// How many commits the Git tab shows.
+const MAX_COMMITS: usize = 500;
+
+/// A repository's recent history, laid out as a graph.
+pub struct GitInfo {
+    root: PathBuf,
+    /// e.g. "main ↑2 ↓1".
+    branch: Option<String>,
+    changed: usize,
+    commits: Vec<Commit>,
+    rows: Vec<GraphRow>,
+    lanes: usize,
+    /// The repository's page on GitHub, GitLab, … (from its remote).
+    web: Option<String>,
+}
+
+/// The history of the repository `dir` is in. Kept for a few seconds, so
+/// going through the folders of one repository doesn't run `git log` for
+/// each of them.
+fn git_info(dir: &Path) -> Option<Arc<GitInfo>> {
+    static CACHE: Mutex<Option<(Instant, Arc<GitInfo>)>> = Mutex::new(None);
+    const KEEP: Duration = Duration::from_secs(10);
+    let root = ox_core::git::repo_root(dir)?;
+    if let Some((at, info)) = CACHE.lock().ok()?.as_ref() {
+        if info.root == root && at.elapsed() < KEEP {
+            return Some(info.clone());
+        }
+    }
+    let commits = ox_core::git::log(&root, MAX_COMMITS).ok()?;
+    let status = ox_core::git::status(&root).ok();
+    let (rows, lanes) = ox_core::git::graph(&commits);
+    let web = ox_core::git::remote_url(&root)
+        .ok()
+        .flatten()
+        .and_then(|r| ox_core::git::web_url(&r));
+    let info = Arc::new(GitInfo {
+        web,
+        branch: status.as_ref().and_then(|s| s.branch_label()),
+        changed: status.as_ref().map_or(0, |s| s.changed_files()),
+        root,
+        commits,
+        rows,
+        lanes,
+    });
+    if let Ok(mut cache) = CACHE.lock() {
+        *cache = Some((Instant::now(), info.clone()));
+    }
+    Some(info)
+}
+
+/// Colours of the graph's lanes, repeating.
+const LANE_COLORS: [egui::Color32; 8] = [
+    egui::Color32::from_rgb(0x4c, 0x9a, 0xff),
+    egui::Color32::from_rgb(0xf5, 0x9e, 0x0b),
+    egui::Color32::from_rgb(0x22, 0xc5, 0x5e),
+    egui::Color32::from_rgb(0xe1, 0x4d, 0x8a),
+    egui::Color32::from_rgb(0x8b, 0x5c, 0xf6),
+    egui::Color32::from_rgb(0x14, 0xb8, 0xa6),
+    egui::Color32::from_rgb(0xef, 0x44, 0x44),
+    egui::Color32::from_rgb(0xa3, 0xa3, 0x3a),
+];
+
+fn lane_color(lane: usize) -> egui::Color32 {
+    LANE_COLORS[lane % LANE_COLORS.len()]
+}
+
+/// The repository's branch and history as a commit graph: one row per
+/// commit with its branches and tags, message, author and date. Clicking a
+/// commit copies its hash.
+fn git_graph(ui: &mut Ui, git: &GitInfo, date_fmt: &str, actions: &mut Vec<Action>) {
+    use egui::{epaint::CubicBezierShape, pos2, vec2, Sense, Stroke};
+    const LANE_W: f32 = 14.0;
+    const ROW_H: f32 = 38.0;
+    /// More lanes than this are cut off at the right.
+    const MAX_LANES: usize = 8;
+
+    let name = git
+        .root
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| git.root.display().to_string());
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new(format!("📦 {name}")).strong());
+        if let Some(branch) = &git.branch {
+            let chip =
+                egui::Button::new(RichText::new(format!("🌿 {branch}")).color(lane_color(0)))
+                    .frame(false);
+            if ui.add(chip).on_hover_text(tr("Copy branch name")).clicked() {
+                actions.push(Action::CopyGitBranch(git.root.clone()));
+            }
+        }
+        if let Some(web) = &git.web {
+            let host = web
+                .trim_start_matches("https://")
+                .split('/')
+                .next()
+                .unwrap_or_default();
+            if ui
+                .small_button(format!("🌐 {host}"))
+                .on_hover_text(web.as_str())
+                .clicked()
+            {
+                actions.push(Action::OpenGitRemote(git.root.clone()));
+            }
+        }
+    });
+    let changes = if git.changed == 0 {
+        tr("No changes").to_owned()
+    } else {
+        ox_core::trf!(
+            "{v1} changed",
+            v1 = ox_core::i18n::count(git.changed as u64, "file")
+        )
+    };
+    ui.label(RichText::new(changes).weak().small());
+    if git.commits.is_empty() {
+        ui.add_space(8.0);
+        ui.label(RichText::new(tr("No commits yet.")).weak());
+        return;
+    }
+    ui.add_space(4.0);
+
+    let graph_w = git.lanes.min(MAX_LANES) as f32 * LANE_W + 6.0;
+    let v = ui.visuals().clone();
+    let bg = v.panel_fill;
+    egui::ScrollArea::vertical()
+        .id_salt("preview_git")
+        .auto_shrink([false, false])
+        .show_rows(ui, ROW_H, git.commits.len(), |ui, range| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for i in range {
+                let (c, row) = (&git.commits[i], &git.rows[i]);
+                let (rect, resp) =
+                    ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
+                let painter = ui.painter_at(rect);
+                if resp.hovered() {
+                    painter.rect_filled(rect, 4.0, v.widgets.hovered.weak_bg_fill);
+                }
+                // The graph.
+                let x = |lane: usize| rect.left() + 3.0 + LANE_W * (lane as f32 + 0.5);
+                let (top, mid, bottom) = (rect.top(), rect.center().y, rect.bottom());
+                let graph = painter.with_clip_rect(rect.with_max_x(rect.left() + graph_w));
+                let stroke = |lane: usize| Stroke::new(2.0, lane_color(lane));
+                let curve = |from: egui::Pos2, to: egui::Pos2, lane: usize| {
+                    if (from.x - to.x).abs() < 0.5 {
+                        graph.line_segment([from, to], stroke(lane));
+                    } else {
+                        let h = (to.y - from.y) / 2.0;
+                        graph.add(CubicBezierShape::from_points_stroke(
+                            [from, pos2(from.x, from.y + h), pos2(to.x, to.y - h), to],
+                            false,
+                            egui::Color32::TRANSPARENT,
+                            stroke(lane),
+                        ));
+                    }
+                };
+                for &l in &row.through {
+                    graph.line_segment([pos2(x(l), top), pos2(x(l), bottom)], stroke(l));
+                }
+                for &l in &row.from_above {
+                    curve(pos2(x(l), top), pos2(x(row.lane), mid), l);
+                }
+                for &l in &row.to_below {
+                    curve(pos2(x(row.lane), mid), pos2(x(l), bottom), l);
+                }
+                let dot = pos2(x(row.lane), mid);
+                let color = lane_color(row.lane);
+                if c.parents.len() > 1 {
+                    // Merges: a ring.
+                    graph.circle(dot, 4.0, bg, Stroke::new(2.0, color));
+                } else {
+                    graph.circle(dot, 4.5, color, Stroke::new(1.5, bg));
+                }
+
+                // Branches, tags and the message, then hash, author and date.
+                let text_x = rect.left() + graph_w + 4.0;
+                let text_w = (rect.right() - text_x - 4.0).max(10.0);
+                let mut job = egui::text::LayoutJob::default();
+                job.wrap.max_width = text_w;
+                job.wrap.max_rows = 1;
+                job.wrap.break_anywhere = true;
+                let font = egui::FontId::proportional(12.5);
+                for r in &c.refs {
+                    // A remote branch next to its local one says nothing new.
+                    if let GitRef::Remote(name) = r {
+                        let local = name.split_once('/').map_or("", |(_, b)| b);
+                        if c.refs
+                            .iter()
+                            .any(|o| matches!(o, GitRef::Head(n) | GitRef::Branch(n) if n == local))
+                        {
+                            continue;
+                        }
+                    }
+                    let (label, color) = ref_style(r);
+                    job.append(
+                        &format!(" {label} "),
+                        0.0,
+                        egui::TextFormat {
+                            font_id: egui::FontId::proportional(11.0),
+                            color: egui::Color32::WHITE,
+                            background: color.gamma_multiply(0.85),
+                            ..Default::default()
+                        },
+                    );
+                    job.append(
+                        " ",
+                        0.0,
+                        egui::TextFormat::simple(font.clone(), v.text_color()),
+                    );
+                }
+                job.append(
+                    &c.subject,
+                    0.0,
+                    egui::TextFormat::simple(font, v.text_color()),
+                );
+                let galley = painter.layout_job(job);
+                painter.galley(pos2(text_x, top + 4.0), galley, v.text_color());
+                let when = commit_time(c, date_fmt);
+                painter.text(
+                    pos2(text_x, top + 21.0),
+                    egui::Align2::LEFT_TOP,
+                    format!("{} · {} · {when}", c.short(), c.author),
+                    egui::FontId::proportional(11.0),
+                    v.weak_text_color(),
+                );
+
+                let resp = resp.on_hover_ui(|ui| {
+                    ui.set_max_width(360.0);
+                    ui.label(RichText::new(&c.subject).strong());
+                    if !c.refs.is_empty() {
+                        let names: Vec<&str> = c.refs.iter().map(GitRef::name).collect();
+                        ui.label(names.join(", "));
+                    }
+                    ui.label(RichText::new(&c.hash).monospace().small());
+                    ui.label(format!("{} · {when}", c.author));
+                    ui.label(RichText::new(tr("Click to copy the hash.")).weak().small());
+                });
+                if resp.clicked() {
+                    ui.ctx().copy_text(c.hash.clone());
+                    actions.push(Action::Toast(ox_core::trf!(
+                        "Copied {what}",
+                        what = c.short()
+                    )));
+                }
+                resp.context_menu(|ui| {
+                    if ui.button(tr("Copy commit hash")).clicked() {
+                        ui.ctx().copy_text(c.hash.clone());
+                        ui.close();
+                    }
+                    if ui.button(tr("Copy message")).clicked() {
+                        ui.ctx().copy_text(c.subject.clone());
+                        ui.close();
+                    }
+                });
+            }
+        });
+    if git.commits.len() >= MAX_COMMITS {
+        ui.label(
+            RichText::new(ox_core::trf!(
+                "The newest {n} commits are shown.",
+                n = MAX_COMMITS
+            ))
+            .weak()
+            .small(),
+        );
+    }
+}
+
+/// A ref's chip text and colour: the current branch, tags, remote branches
+/// and local branches each look different.
+fn ref_style(r: &GitRef) -> (String, egui::Color32) {
+    use egui::Color32;
+    match r {
+        GitRef::Head(b) => (format!("● {b}"), Color32::from_rgb(0x16, 0xa3, 0x4a)),
+        GitRef::Detached => ("HEAD".into(), Color32::from_rgb(0x16, 0xa3, 0x4a)),
+        GitRef::Branch(b) => (b.clone(), Color32::from_rgb(0x25, 0x63, 0xeb)),
+        GitRef::Remote(b) => (b.clone(), Color32::from_rgb(0x6b, 0x72, 0x80)),
+        GitRef::Tag(t) => (format!("🏷 {t}"), Color32::from_rgb(0xb4, 0x53, 0x09)),
+    }
+}
+
+fn commit_time(c: &Commit, date_fmt: &str) -> String {
+    let t = SystemTime::UNIX_EPOCH + Duration::from_secs(c.time.max(0) as u64);
+    format::time(t, date_fmt)
+}
+
+/// SHA-256 and MD5 of the file, computed when asked for (big files take a
+/// while), with buttons to copy them.
+fn checksums(ui: &mut Ui, state: &mut Option<Checksums>, e: &FileEntry, actions: &mut Vec<Action>) {
+    if let Some(Checksums::Running(rx)) = state {
+        if let Ok(result) = rx.try_recv() {
+            *state = Some(Checksums::Done(result));
+        }
+    }
+    match state {
+        None => {
+            if ui
+                .button(tr("🔐 Compute checksums"))
+                .on_hover_text(tr("SHA-256 and MD5 of the file"))
+                .clicked()
+            {
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                let path = e.path.clone();
+                let ctx = ui.ctx().clone();
+                std::thread::spawn(move || {
+                    let result = ox_core::textinfo::checksums(&path).map_err(|e| e.to_string());
+                    let _ = tx.send(result);
+                    ctx.request_repaint();
+                });
+                *state = Some(Checksums::Running(rx));
+            }
+        }
+        Some(Checksums::Running(_)) => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(RichText::new(tr("Computing checksums…")).weak());
+            });
+        }
+        Some(Checksums::Done(Err(err))) => {
+            ui.colored_label(egui::Color32::from_rgb(0xe5, 0x48, 0x4d), err.as_str());
+        }
+        Some(Checksums::Done(Ok((sha, md5)))) => {
+            for (name, value) in [("SHA-256", sha), ("MD5", md5)] {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(name).weak());
+                    if ui.small_button("📋").on_hover_text(tr("Copy")).clicked() {
+                        ui.ctx().copy_text(value.clone());
+                        actions.push(Action::Toast(ox_core::trf!("Copied {what}", what = name)));
+                    }
+                });
+                ui.add(
+                    egui::Label::new(RichText::new(value.as_str()).monospace().size(10.5))
+                        .wrap_mode(egui::TextWrapMode::Wrap),
+                );
+            }
+        }
+    }
+}
+
+/// "1:05" or "1:02:03".
+fn clock(secs: f32) -> String {
+    let s = secs.max(0.0) as u64;
+    let (h, m, s) = (s / 3600, s / 60 % 60, s % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
+    }
+}
+
+/// The built-in player: the video (or the cover of audio files), a seek
+/// bar and the buttons. The file is opened when the tab is shown.
+fn player_tab(ui: &mut Ui, state: &mut PlayerState, e: &FileEntry, cover: Option<&TextureHandle>) {
+    use ox_core::player::Player;
+    let volume = *state.volume.get_or_insert(0.8);
+    if state.playback.as_ref().is_none_or(|p| p.path != e.path) {
+        let ctx = ui.ctx().clone();
+        let player =
+            Player::open(&e.path, move || ctx.request_repaint()).map_err(|e| e.to_string());
+        if let Ok(p) = &player {
+            p.set_volume(volume as f64);
+            p.set_looping(state.looping);
+            if std::mem::take(&mut state.autoplay) {
+                p.play();
+            }
+        }
+        state.playback = Some(Playback {
+            path: e.path.clone(),
+            player,
+            texture: None,
+            dragging: None,
+        });
+    }
+    let pb = state.playback.as_mut().expect("opened above");
+    let player = match &mut pb.player {
+        Ok(p) => p,
+        Err(err) => {
+            ui.colored_label(egui::Color32::from_rgb(0xe5, 0x48, 0x4d), err.as_str());
+            return;
+        }
+    };
+    if let Some(frame) = player.frame() {
+        let size = [frame.size[0] as usize, frame.size[1] as usize];
+        let image = ColorImage::from_rgba_unmultiplied(size, &frame.rgba);
+        match &mut pb.texture {
+            Some(tex) if tex.size() == size => tex.set(image, TextureOptions::LINEAR),
+            _ => {
+                pb.texture = Some(ui.ctx().load_texture(
+                    "preview_video",
+                    image,
+                    TextureOptions::LINEAR,
+                ))
+            }
+        }
+    }
+    let st = player.status();
+    let width = ui.available_width();
+
+    // The picture.
+    if st.video {
+        match &pb.texture {
+            Some(tex) => {
+                let size = tex.size_vec2();
+                ui.add(egui::Image::new((tex.id(), size * (width / size.x))).corner_radius(6.0));
+            }
+            None => {
+                let (rect, _) = ui.allocate_exact_size(
+                    egui::vec2(width, width * 9.0 / 16.0),
+                    egui::Sense::hover(),
+                );
+                ui.painter().rect_filled(rect, 6.0, egui::Color32::BLACK);
+            }
+        }
+    } else if let Some(tex) = cover {
+        let size = tex.size_vec2();
+        let scale = (width / size.x).min(1.0);
+        ui.vertical_centered(|ui| {
+            ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(6.0));
+        });
+    } else {
+        ui.add_space(16.0);
+        ui.vertical_centered(|ui| {
+            ui.label(RichText::new("🎵").size(56.0).weak());
+        });
+        ui.add_space(16.0);
+    }
+    if let Some(err) = &st.error {
+        ui.add_space(4.0);
+        ui.colored_label(egui::Color32::from_rgb(0xe5, 0x48, 0x4d), err.as_str());
+    }
+    ui.add_space(6.0);
+
+    // Seek bar with the time on either side.
+    let total = st.duration.map_or(0.0, |d| d.as_secs_f32());
+    let mut pos = pb.dragging.unwrap_or(st.position.as_secs_f32()).min(total);
+    ui.horizontal(|ui| {
+        let time = |t: f32| RichText::new(clock(t)).monospace().size(11.0);
+        ui.label(time(pos));
+        let right = ui.fonts_mut(|f| {
+            f.layout_no_wrap(
+                clock(total),
+                egui::FontId::monospace(11.0),
+                egui::Color32::WHITE,
+            )
+            .size()
+            .x
+        });
+        ui.spacing_mut().slider_width = (ui.available_width() - right - 12.0).max(40.0);
+        let resp = ui.add_enabled(
+            total > 0.0,
+            egui::Slider::new(&mut pos, 0.0..=total.max(0.01)).show_value(false),
+        );
+        if resp.dragged() {
+            pb.dragging = Some(pos);
+        } else if resp.drag_stopped() || resp.changed() {
+            player.seek(Duration::from_secs_f32(pos));
+            pb.dragging = None;
+        }
+        ui.label(time(total));
+    });
+
+    // Buttons.
+    ui.horizontal(|ui| {
+        let big = |text: &str| {
+            egui::Button::new(RichText::new(text).size(16.0)).min_size(egui::vec2(34.0, 28.0))
+        };
+        if ui
+            .add(big("⏪"))
+            .on_hover_text(tr("Back 10 seconds"))
+            .clicked()
+        {
+            player.seek(st.position.saturating_sub(Duration::from_secs(10)));
+        }
+        let (icon, hint) = if st.playing {
+            ("⏸", tr("Pause"))
+        } else {
+            ("▶", tr("Play"))
+        };
+        if ui.add(big(icon)).on_hover_text(hint).clicked() {
+            if st.playing {
+                player.pause();
+            } else {
+                player.play();
+            }
+        }
+        if ui
+            .add(big("⏩"))
+            .on_hover_text(tr("Forward 10 seconds"))
+            .clicked()
+        {
+            let to = st.position + Duration::from_secs(10);
+            player.seek(st.duration.map_or(to, |d| to.min(d)));
+        }
+        if ui
+            .add(egui::Button::selectable(
+                state.looping,
+                RichText::new("🔁").size(15.0),
+            ))
+            .on_hover_text(tr("Repeat"))
+            .clicked()
+        {
+            state.looping = !state.looping;
+            player.set_looping(state.looping);
+        }
+        ui.add_space(6.0);
+        let mut v = volume;
+        let icon = if v <= 0.0 { "🔇" } else { "🔊" };
+        ui.label(RichText::new(icon).size(15.0));
+        ui.spacing_mut().slider_width = (ui.available_width() - 8.0).clamp(40.0, 110.0);
+        if ui
+            .add(egui::Slider::new(&mut v, 0.0..=1.0).show_value(false))
+            .on_hover_text(tr("Volume"))
+            .changed()
+        {
+            state.volume = Some(v);
+            player.set_volume(v as f64);
+        }
+    });
+    if st.playing {
+        // The time and seek bar move on.
+        ui.ctx().request_repaint_after(Duration::from_millis(250));
     }
 }

@@ -109,6 +109,10 @@ struct Ctx<'a> {
     favorites: HashSet<PathBuf>,
     destinations: Vec<(String, PathBuf)>,
     can_paste: bool,
+    /// The user's entries of the "New" menu.
+    new_items: Vec<ox_core::settings::NewItem>,
+    /// Developer entries in the menus.
+    dev: bool,
     modifiers: Modifiers,
 }
 
@@ -162,6 +166,8 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         favorites: app.quick.favorites.iter().map(|f| f.path.clone()).collect(),
         destinations: super::quick_destinations(app),
         can_paste: folder.is_some(),
+        new_items: app.settings.new_items.0.clone(),
+        dev: app.settings.developer.context_menus,
         folder,
         modifiers: ui.input(|i| i.modifiers),
     };
@@ -297,7 +303,15 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     if let Some(folder) = &cx.folder {
         let pinned = cx.favorites.contains(folder);
         bg.context_menu(|ui| {
-            super::background_menu(ui, folder, cx.can_paste, pinned, &mut actions)
+            super::background_menu(
+                ui,
+                folder,
+                cx.can_paste,
+                pinned,
+                &cx.new_items,
+                cx.dev,
+                &mut actions,
+            )
         });
         if super::drop_target(&mut actions, &bg, folder) {
             ui.painter().rect_stroke(
@@ -930,6 +944,7 @@ fn item_context_menu(
             can_paste: cx.can_paste || e.is_dir,
             destinations: &cx.destinations,
             shell: ox_core::shell::supported(),
+            dev: cx.dev,
         };
         super::item_menu(ui, &target, actions);
     });

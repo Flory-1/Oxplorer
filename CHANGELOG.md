@@ -6,12 +6,43 @@ The release workflow publishes the section of the tagged version as the release 
 ## [Unreleased]
 
 ### Added
+- **Built-in player** (Windows): audio and video files play in the preview pane's new
+  *Player* tab, with a seek bar, 10 seconds back and forward, repeat and volume. Windows' own
+  media engine plays them, so every format Windows can play works. *▶ Play* in the Info tab
+  plays the file there.
+- **Markdown preview**: Markdown files get a *Markdown* tab that shows them formatted:
+  headings, lists, task lists, quotes, tables, highlighted code blocks and pictures next to
+  the file.
+- **Git graph**: folders in a Git repository get a *Git* tab with the branch, the number of
+  changed files and the newest 500 commits of all branches as a graph, with branches, tags,
+  message, author and date. Click a commit to copy its hash; the branch name and a button for
+  the repository's GitHub/GitLab page are at the top.
+- **Your own entries in ➕ New** (toolbar, right-click menu and command palette): a file type
+  with a label, a file name and content to start with, where `{name}` and `{date}` are filled
+  in (Settings → New menu). Markdown document, Python script, PowerShell script and JSON file
+  are there to start with.
+- **Settings → Developer** and developer features:
+  - *Open in editor* (Ctrl+Shift+E, right-click menus, command palette) for files and
+    folders, with VS Code or any editor command (presets for Cursor, Zed, Sublime Text,
+    Notepad++ and others).
+  - *Copy path as*: with forward slashes, in quotes, relative to the Git repository, as a
+    `file://` URL, or just the name.
+  - *Git* in the right-click menu: open the file or folder on GitHub, GitLab or Bitbucket, or
+    copy the branch name. The Info tab shows the last commit that changed the item.
+  - The Info tab shows the encoding, line endings and indentation of text files, and
+    *Compute checksums* gives the SHA-256 and MD5 of any file.
+  - The developer entries in the menus can be turned off.
 - Settings → **Preview pane**: open the preview as its own window (move and resize it freely)
   instead of a pane on the right, and set the pane's width.
 - Settings → Sidebar: **sidebar width**. Dragging the edge of the sidebar or the preview pane
   updates the setting, and the width is kept between runs.
 
 ### Fixed
+- Text files with a UTF-16 byte order mark (e.g. some files Windows tools write) are shown as
+  text in the preview instead of nothing; a UTF-8 byte order mark is no longer shown as a
+  stray character.
+- The line numbers in the text preview line up with the code again (highlighted code was
+  drawn bigger than the numbers).
 - The window opens where it was closed, with the same size and maximized state, instead of in
   the top left corner. If its monitor is gone, it is moved onto a connected one.
 - The search index is no longer rebuilt at every start: a saved index that is younger than

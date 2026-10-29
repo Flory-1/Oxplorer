@@ -90,6 +90,19 @@ pub fn create_file(dir: &Path, name: &str) -> io::Result<PathBuf> {
     Ok(path)
 }
 
+/// Create a new file with `content` in `dir`, numbering the name if it is
+/// taken (like [`create_file`]).
+pub fn create_file_with(dir: &Path, name: &str, content: &str) -> io::Result<PathBuf> {
+    use std::io::Write;
+    let path = unique_path(dir, name);
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)?;
+    file.write_all(content.as_bytes())?;
+    Ok(path)
+}
+
 /// Characters Windows does not allow in file names.
 pub const INVALID_NAME_CHARS: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 
@@ -256,6 +269,51 @@ pub fn open_terminal(dir: &Path) -> io::Result<()> {
     }
 }
 
+/// The command line that opens `path` in the editor: `{path}` in `template`
+/// is replaced with it (and it is added in quotes if `{path}` is missing).
+pub fn editor_command(template: &str, path: &Path) -> String {
+    let path = path.to_string_lossy();
+    if template.contains("{path}") {
+        template.replace("{path}", &path)
+    } else {
+        format!("{} \"{path}\"", template.trim())
+    }
+}
+
+/// Run the editor command for `path` (through the shell, so `code` finds
+/// `code.cmd` on Windows). The process is returned so the caller can check
+/// whether it failed.
+pub fn open_in_editor(template: &str, path: &Path) -> io::Result<std::process::Child> {
+    let line = editor_command(template, path);
+    let dir = if path.is_dir() {
+        Some(path)
+    } else {
+        path.parent()
+    };
+    #[cfg(windows)]
+    let mut cmd = {
+        use std::os::windows::process::CommandExt;
+        let mut c = Command::new("cmd");
+        // /S: the line in quotes is taken as is.
+        c.raw_arg(format!("/S /C \"{line}\""))
+            .creation_flags_no_window();
+        c
+    };
+    #[cfg(not(windows))]
+    let mut cmd = {
+        let mut c = Command::new("sh");
+        c.arg("-c").arg(&line);
+        c
+    };
+    if let Some(dir) = dir.filter(|d| d.is_dir()) {
+        cmd.current_dir(dir);
+    }
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+}
+
 #[cfg(windows)]
 trait NoWindow {
     fn creation_flags_no_window(&mut self) -> &mut Self;
@@ -316,5 +374,51 @@ mod tests {
         assert!(rename(&folder2, "New folder").is_err());
         delete(&[folder.clone(), folder2.clone()], false).unwrap();
         assert!(!folder.exists() && !folder2.exists());
+    }
+
+    #[test]
+    fn editor_command_lines() {
+        let p = Path::new("/home/me/My Project");
+        assert_eq!(
+            editor_command("code \"{path}\"", p),
+            "code \"/home/me/My Project\""
+        );
+        assert_eq!(editor_command("subl ", p), "subl \"/home/me/My Project\"");
+        #[cfg(not(windows))]
+        {
+            let dir = tempfile::tempdir().unwrap();
+            let out = dir.path().join("out.txt");
+            let template = format!("echo {{path}} > '{}'", out.display());
+            let status = open_in_editor(&template, dir.path())
+                .unwrap()
+                .wait()
+                .unwrap();
+            assert!(status.success());
+            let written = std::fs::read_to_string(&out).unwrap();
+            assert_eq!(written.trim(), dir.path().to_string_lossy());
+        }
+    }
+
+    #[test]
+    fn new_files_from_templates() {
+        let dir = tempfile::tempdir().unwrap();
+        let item = crate::settings::NewItem {
+            label: "Python script".into(),
+            file_name: "tool.py".into(),
+            content: "# {name}\n".into(),
+        };
+        let first =
+            create_file_with(dir.path(), &item.file_name, &item.content_for("tool.py")).unwrap();
+        assert_eq!(fs::read_to_string(&first).unwrap(), "# tool\n");
+        // A taken name gets a number, the content is written all the same.
+        let second = create_file_with(dir.path(), "tool.py", "x").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(fs::read_to_string(&second).unwrap(), "x");
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let dated = crate::settings::NewItem {
+            content: "{date}".into(),
+            ..Default::default()
+        };
+        assert_eq!(dated.content_for("a.txt"), today);
     }
 }

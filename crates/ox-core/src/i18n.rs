@@ -48,6 +48,16 @@ fn t_in(english: &'static str, german: bool) -> &'static str {
     }
 }
 
+/// Like [`t`] for text that isn't fixed in the code (e.g. labels the user
+/// can change): translated if it is a known text, else as it is.
+pub fn t_any(english: &str) -> &str {
+    if is_german() {
+        DE.get(english).copied().unwrap_or(english)
+    } else {
+        english
+    }
+}
+
 /// German translation of `english`, if there is one (for tests and tools).
 pub fn german(english: &str) -> Option<&'static str> {
     DE.get(english).copied()

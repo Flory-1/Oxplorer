@@ -191,19 +191,12 @@ fn parse_branch(status: &mut RepoStatus, head: &str) {
     }
 }
 
-/// Run `git status` for the repository at `root`.
-pub fn status(root: &Path) -> io::Result<RepoStatus> {
+/// Run `git` with `args` in the repository at `root`; its output.
+fn run(root: &Path, args: &[&str]) -> io::Result<Vec<u8>> {
     let mut cmd = Command::new("git");
     cmd.arg("-C")
         .arg(root)
-        .args([
-            "status",
-            "--porcelain=v1",
-            "-z",
-            "-b",
-            "--untracked-files=normal",
-            "--ignored=matching",
-        ])
+        .args(args)
         .env("GIT_OPTIONAL_LOCKS", "0");
     #[cfg(windows)]
     {
@@ -217,7 +210,296 @@ pub fn status(root: &Path) -> io::Result<RepoStatus> {
             String::from_utf8_lossy(&out.stderr).trim().to_owned(),
         ));
     }
-    Ok(parse(root, &out.stdout))
+    Ok(out.stdout)
+}
+
+/// Run `git status` for the repository at `root`.
+pub fn status(root: &Path) -> io::Result<RepoStatus> {
+    let out = run(
+        root,
+        &[
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "-b",
+            "--untracked-files=normal",
+            "--ignored=matching",
+        ],
+    )?;
+    Ok(parse(root, &out))
+}
+
+/// The checked out branch ("main"), or "HEAD" when none is.
+pub fn current_branch(root: &Path) -> io::Result<String> {
+    let out = run(root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    Ok(String::from_utf8_lossy(&out).trim().to_owned())
+}
+
+/// The URL of the repository's `origin` remote (or its first remote).
+pub fn remote_url(root: &Path) -> io::Result<Option<String>> {
+    let name = match run(root, &["remote", "get-url", "origin"]) {
+        Ok(out) => return Ok(Some(String::from_utf8_lossy(&out).trim().to_owned())),
+        Err(_) => {
+            let remotes = run(root, &["remote"])?;
+            match String::from_utf8_lossy(&remotes).lines().next() {
+                Some(n) => n.trim().to_owned(),
+                None => return Ok(None),
+            }
+        }
+    };
+    let out = run(root, &["remote", "get-url", &name])?;
+    Ok(Some(String::from_utf8_lossy(&out).trim().to_owned()))
+}
+
+/// The web page of a remote: `git@github.com:me/repo.git`,
+/// `ssh://git@host:22/me/repo.git` and `https://user@host/me/repo.git` all
+/// become `https://host/me/repo`. Local remotes have none.
+pub fn web_url(remote: &str) -> Option<String> {
+    let remote = remote.trim();
+    let (host, path) = if let Some(rest) = remote
+        .strip_prefix("https://")
+        .or_else(|| remote.strip_prefix("http://"))
+        .or_else(|| remote.strip_prefix("ssh://"))
+        .or_else(|| remote.strip_prefix("git://"))
+    {
+        let (host, path) = rest.split_once('/')?;
+        // Drop "user:password@" and ":port".
+        let host = host.rsplit('@').next()?;
+        let host = host.split(':').next()?;
+        (host.to_owned(), path.to_owned())
+    } else {
+        // scp-like: [user@]host:path
+        let (host, path) = remote.split_once(':')?;
+        if host.contains('/') || host.contains('\\') || host.len() < 2 {
+            return None; // a local path ("C:\repo", "/srv/repo")
+        }
+        (host.rsplit('@').next()?.to_owned(), path.to_owned())
+    };
+    let path = path.trim_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    if host.is_empty() || path.is_empty() {
+        return None;
+    }
+    Some(format!("https://{host}/{path}"))
+}
+
+/// The web page of `path` (a file or folder in the repository at `root`)
+/// on the branch `branch`, in the URL style of GitHub, GitLab or Bitbucket.
+pub fn web_url_of(repo_url: &str, root: &Path, path: &Path, branch: &str, is_dir: bool) -> String {
+    let rel: Vec<String> = path
+        .strip_prefix(root)
+        .map(|r| {
+            r.components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    if rel.is_empty() {
+        return repo_url.to_owned();
+    }
+    let rel = rel.join("/");
+    let kind = if is_dir { "tree" } else { "blob" };
+    if repo_url.contains("gitlab") {
+        format!("{repo_url}/-/{kind}/{branch}/{rel}")
+    } else if repo_url.contains("bitbucket") {
+        format!("{repo_url}/src/{branch}/{rel}")
+    } else {
+        format!("{repo_url}/{kind}/{branch}/{rel}")
+    }
+}
+
+/// The last commit that changed `path` (a file or folder in the repository
+/// at `root`), if any did.
+pub fn last_commit(root: &Path, path: &Path) -> io::Result<Option<Commit>> {
+    let out = run(
+        root,
+        &[
+            "log",
+            "-1",
+            "--format=%H%x1f%P%x1f%an%x1f%ct%x1f%x1f%s%x1e",
+            "--",
+            &path.to_string_lossy(),
+        ],
+    )?;
+    Ok(parse_log(&String::from_utf8_lossy(&out)).into_iter().next())
+}
+
+/// One commit of the history.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Commit {
+    pub hash: String,
+    pub parents: Vec<String>,
+    pub author: String,
+    /// Commit time in seconds since 1970.
+    pub time: i64,
+    /// Branches and tags pointing here.
+    pub refs: Vec<GitRef>,
+    pub subject: String,
+}
+
+/// A branch or tag.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GitRef {
+    /// The checked out branch.
+    Head(String),
+    /// HEAD when no branch is checked out.
+    Detached,
+    Branch(String),
+    /// A remote branch ("origin/main").
+    Remote(String),
+    Tag(String),
+}
+
+impl GitRef {
+    /// One entry of `%D` with `--decorate=full`, e.g.
+    /// "HEAD -> refs/heads/main" or "tag: refs/tags/v1.0".
+    fn parse(r: &str) -> Option<GitRef> {
+        Some(if let Some(head) = r.strip_prefix("HEAD -> ") {
+            GitRef::Head(head.strip_prefix("refs/heads/").unwrap_or(head).to_owned())
+        } else if r == "HEAD" {
+            GitRef::Detached
+        } else if let Some(tag) = r.strip_prefix("tag: ") {
+            GitRef::Tag(tag.strip_prefix("refs/tags/").unwrap_or(tag).to_owned())
+        } else if let Some(b) = r.strip_prefix("refs/heads/") {
+            GitRef::Branch(b.to_owned())
+        } else {
+            // Stashes, notes, … aren't shown.
+            let b = r.strip_prefix("refs/remotes/")?;
+            // "origin/HEAD" only says which branch the remote defaults to.
+            if b.ends_with("/HEAD") {
+                return None;
+            }
+            GitRef::Remote(b.to_owned())
+        })
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            GitRef::Head(n) | GitRef::Branch(n) | GitRef::Remote(n) | GitRef::Tag(n) => n,
+            GitRef::Detached => "HEAD",
+        }
+    }
+}
+
+impl Commit {
+    pub fn short(&self) -> &str {
+        &self.hash[..self.hash.len().min(7)]
+    }
+}
+
+/// Separates the fields of a commit in `git log` output, and the commits.
+const FIELD: char = '\x1f';
+const RECORD: char = '\x1e';
+
+/// Parse `git log --format=%H%x1f%P%x1f%an%x1f%ct%x1f%D%x1f%s%x1e` output.
+pub fn parse_log(out: &str) -> Vec<Commit> {
+    out.split(RECORD)
+        .filter_map(|rec| {
+            let mut f = rec.trim_start_matches('\n').split(FIELD);
+            let hash = f.next().filter(|h| !h.is_empty())?.to_owned();
+            let parents = f.next()?.split_whitespace().map(str::to_owned).collect();
+            let author = f.next()?.to_owned();
+            let time = f.next()?.parse().unwrap_or(0);
+            let refs = f.next()?.split(", ").filter_map(GitRef::parse).collect();
+            let subject = f.next().unwrap_or_default().to_owned();
+            Some(Commit {
+                hash,
+                parents,
+                author,
+                time,
+                refs,
+                subject,
+            })
+        })
+        .collect()
+}
+
+/// The newest `limit` commits of every branch, newest first and children
+/// before their parents (`git log --all --topo-order`).
+pub fn log(root: &Path, limit: usize) -> io::Result<Vec<Commit>> {
+    let out = run(
+        root,
+        &[
+            "log",
+            "--all",
+            "--topo-order",
+            &format!("--max-count={limit}"),
+            "--decorate=full",
+            "--format=%H%x1f%P%x1f%an%x1f%ct%x1f%D%x1f%s%x1e",
+        ],
+    )?;
+    Ok(parse_log(&String::from_utf8_lossy(&out)))
+}
+
+/// How one row of the commit graph is drawn. Columns ("lanes") are counted
+/// from the left; each line keeps the colour of the lane it starts in.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GraphRow {
+    /// The commit's lane.
+    pub lane: usize,
+    /// Lanes passing by from the row above to the row below.
+    pub through: Vec<usize>,
+    /// Lanes coming from the row above into the commit (its children).
+    pub from_above: Vec<usize>,
+    /// Lanes leaving the commit to the row below (its parents).
+    pub to_below: Vec<usize>,
+}
+
+/// Lay out the commit graph of `commits` (children before parents, as
+/// `log` returns them). Also returns the number of lanes used.
+pub fn graph(commits: &[Commit]) -> (Vec<GraphRow>, usize) {
+    // The commit each lane waits for.
+    let mut lanes: Vec<Option<&str>> = Vec::new();
+    let mut rows = Vec::with_capacity(commits.len());
+    let mut width = 0;
+    let free_lane = |lanes: &mut Vec<Option<&str>>| {
+        lanes.iter().position(Option::is_none).unwrap_or_else(|| {
+            lanes.push(None);
+            lanes.len() - 1
+        })
+    };
+    for c in commits {
+        let waiting: Vec<usize> = (0..lanes.len())
+            .filter(|&i| lanes[i] == Some(c.hash.as_str()))
+            .collect();
+        let lane = match waiting.first() {
+            Some(&l) => l,
+            // A branch tip: nothing above leads here.
+            None => free_lane(&mut lanes),
+        };
+        let through = (0..lanes.len())
+            .filter(|&i| lanes[i].is_some() && !waiting.contains(&i))
+            .collect();
+        for &i in &waiting {
+            lanes[i] = None;
+        }
+        let mut to_below = Vec::new();
+        for (n, parent) in c.parents.iter().enumerate() {
+            // The first parent continues the commit's lane (lanes leading to
+            // the same commit meet there); merged ones join a lane already
+            // leading to them, or start a new one.
+            let target = if n == 0 {
+                lane
+            } else if let Some(i) = lanes.iter().position(|l| *l == Some(parent.as_str())) {
+                i
+            } else {
+                free_lane(&mut lanes)
+            };
+            lanes[target] = Some(parent.as_str());
+            to_below.push(target);
+        }
+        while lanes.last() == Some(&None) {
+            lanes.pop();
+        }
+        width = width.max(lanes.len()).max(lane + 1);
+        rows.push(GraphRow {
+            lane,
+            through,
+            from_above: waiting,
+            to_below,
+        });
+    }
+    (rows, width)
 }
 
 #[cfg(test)]
@@ -256,6 +538,117 @@ mod tests {
         assert_eq!(s.branch.as_deref(), Some("detached HEAD"));
     }
 
+    fn commit(hash: &str, parents: &[&str]) -> Commit {
+        Commit {
+            hash: hash.into(),
+            parents: parents.iter().map(|p| p.to_string()).collect(),
+            author: "A".into(),
+            time: 0,
+            refs: Vec::new(),
+            subject: String::new(),
+        }
+    }
+
+    #[test]
+    fn parses_log_output() {
+        let out = "aaa\x1fbbb ccc\x1fAda\x1f1700000000\x1fHEAD -> refs/heads/main, \
+                   refs/remotes/origin/main, refs/remotes/origin/HEAD, refs/heads/dev, \
+                   tag: refs/tags/v1, refs/stash\x1fMerge it\x1e\n\
+                   bbb\x1f\x1fBob\x1f1600000000\x1f\x1fFirst\x1e\n";
+        let log = parse_log(out);
+        assert_eq!(log.len(), 2);
+        assert_eq!(log[0].parents, ["bbb", "ccc"]);
+        assert_eq!(
+            log[0].refs,
+            [
+                GitRef::Head("main".into()),
+                GitRef::Remote("origin/main".into()),
+                GitRef::Branch("dev".into()),
+                GitRef::Tag("v1".into())
+            ]
+        );
+        assert_eq!(log[0].subject, "Merge it");
+        assert_eq!(log[0].time, 1_700_000_000);
+        assert_eq!(log[1].author, "Bob");
+        assert!(log[1].parents.is_empty() && log[1].refs.is_empty());
+    }
+
+    #[test]
+    fn lays_out_branches_and_merges() {
+        // m merges feature (f) into main (b); both started at a.
+        //   m        lane 0
+        //   |\
+        //   f |      lane 1
+        //   | b      lane 0
+        //   |/
+        //   a
+        let commits = [
+            commit("m", &["b", "f"]),
+            commit("f", &["a"]),
+            commit("b", &["a"]),
+            commit("a", &[]),
+        ];
+        let (rows, width) = graph(&commits);
+        assert_eq!(width, 2);
+        let lanes: Vec<usize> = rows.iter().map(|r| r.lane).collect();
+        assert_eq!(lanes, [0, 1, 0, 0]);
+        assert_eq!(rows[0].to_below, [0, 1]);
+        assert!(rows[0].from_above.is_empty());
+        assert_eq!(rows[1].through, [0]);
+        assert_eq!(rows[1].to_below, [1]);
+        assert_eq!(rows[2].through, [1]);
+        assert_eq!(rows[2].to_below, [0]);
+        // Both lanes end in a.
+        assert_eq!(rows[3].from_above, [0, 1]);
+        assert!(rows[3].through.is_empty() && rows[3].to_below.is_empty());
+
+        // A merge of a commit already shown in another lane joins that lane.
+        let commits = [
+            commit("m", &["b", "f"]),
+            commit("x", &["f"]),
+            commit("b", &["f"]),
+            commit("f", &[]),
+        ];
+        let (rows, _) = graph(&commits);
+        assert_eq!(rows[0].to_below, [0, 1]);
+        assert_eq!(rows[1].lane, 2);
+        assert_eq!(rows[3].from_above, [0, 1, 2]);
+    }
+
+    #[test]
+    fn web_pages_of_remotes() {
+        let want = Some("https://github.com/me/repo".to_owned());
+        assert_eq!(web_url("git@github.com:me/repo.git"), want);
+        assert_eq!(web_url("https://github.com/me/repo.git"), want);
+        assert_eq!(web_url("https://me:token@github.com/me/repo"), want);
+        assert_eq!(web_url("ssh://git@github.com:22/me/repo.git/"), want);
+        assert_eq!(
+            web_url("git@gitlab.com:group/sub/repo.git").as_deref(),
+            Some("https://gitlab.com/group/sub/repo")
+        );
+        assert_eq!(web_url("/srv/git/repo.git"), None);
+        assert_eq!(web_url(r"C:\repos\x"), None);
+        assert_eq!(web_url("../other"), None);
+
+        let root = Path::new("/r");
+        let gh = "https://github.com/me/repo";
+        assert_eq!(
+            web_url_of(gh, root, &root.join("src/main.rs"), "main", false),
+            "https://github.com/me/repo/blob/main/src/main.rs"
+        );
+        assert_eq!(web_url_of(gh, root, root, "main", true), gh);
+        assert_eq!(
+            web_url_of(
+                "https://gitlab.com/g/r",
+                root,
+                &root.join("docs"),
+                "dev",
+                true
+            ),
+            "https://gitlab.com/g/r/-/tree/dev/docs"
+        );
+    }
+
     #[test]
     fn runs_git_in_a_real_repository() {
         let tmp = tempfile::tempdir().unwrap();
@@ -286,5 +679,40 @@ mod tests {
         assert_eq!(s.state(&root.join("src")), Some(GitState::Added));
         assert_eq!(s.state(&root.join(".gitignore")), Some(GitState::Untracked));
         assert_eq!(s.state(&root.join("build")), Some(GitState::Ignored));
+
+        let commit = |msg: &str| {
+            git(&[
+                "-c",
+                "user.name=Ada",
+                "-c",
+                "user.email=ada@example.com",
+                "commit",
+                "-q",
+                "-m",
+                msg,
+            ])
+        };
+        assert!(commit("Add a"));
+        std::fs::write(root.join("b.txt"), "b").unwrap();
+        assert!(git(&["add", "b.txt"]));
+        assert!(commit("Add b"));
+        assert_eq!(current_branch(root).unwrap(), "main");
+        let last = last_commit(root, &root.join("src/a.txt")).unwrap().unwrap();
+        assert_eq!(
+            (last.subject.as_str(), last.author.as_str()),
+            ("Add a", "Ada")
+        );
+        let log = log(root, 10).unwrap();
+        assert_eq!(log.len(), 2);
+        assert_eq!(log[0].refs, [GitRef::Head("main".into())]);
+        assert_eq!(remote_url(root).unwrap(), None);
+        assert!(git(&["remote", "add", "origin", "git@github.com:me/r.git"]));
+        assert_eq!(
+            remote_url(root)
+                .unwrap()
+                .and_then(|u| web_url(&u))
+                .as_deref(),
+            Some("https://github.com/me/r")
+        );
     }
 }

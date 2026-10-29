@@ -23,6 +23,7 @@ use ox_core::transfer::TransferKind;
 use crate::app::{Action, OxApp, TabAction};
 use crate::shortcuts::{self, Command};
 use crate::tabs::{Location, TabId};
+use ox_core::settings::NewItem;
 
 /// Drag payload: files/folders being dragged inside the app.
 #[derive(Clone)]
@@ -89,6 +90,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
 
     let preview_shown =
         app.settings.browsing.show_preview && app.tabs.active().location().shows_files();
+    if !preview_shown {
+        // Nothing plays where it can't be seen (or stopped).
+        app.preview.stop_playback();
+    }
     if preview_shown && !app.settings.preview.as_window {
         let salt = app.ui.preview_width.salt(ui, app.settings.preview.width);
         let resp = egui::Panel::right(("preview", salt))
@@ -544,6 +549,8 @@ pub struct MenuTarget<'a> {
     pub destinations: &'a [(String, PathBuf)],
     /// The Windows Shell is available ("Open with", "Show more options").
     pub shell: bool,
+    /// Show the developer entries (Settings → Developer).
+    pub dev: bool,
 }
 
 /// Folders offered in "Copy to" / "Move to": favorites and other open tabs.
@@ -796,6 +803,10 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     if sel.len() == 1 && ui.button(tr("🗔 Show in Windows Explorer")).clicked() {
         actions.push(Action::Reveal(sel[0].clone()));
     }
+    if t.dev {
+        ui.separator();
+        dev_menu(ui, &sel, actions);
+    }
     ui.separator();
     if ui
         .add(
@@ -823,22 +834,76 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     }
 }
 
+/// Developer entries (Settings → Developer): open in the editor, copy the
+/// path in other forms and, in Git repositories, Git actions.
+fn dev_menu(ui: &mut Ui, paths: &[PathBuf], actions: &mut Vec<Action>) {
+    use ox_core::pathfmt::PathFormat;
+    if ui
+        .add(
+            egui::Button::new(tr("📝 Open in editor"))
+                .shortcut_text(shortcuts::label(Command::OpenInEditor)),
+        )
+        .clicked()
+    {
+        actions.push(Action::OpenInEditor(paths.to_vec()));
+    }
+    let repo = paths.first().and_then(|p| ox_core::git::repo_root(p));
+    ui.menu_button(tr("🔗 Copy path as"), |ui| {
+        for fmt in PathFormat::ALL {
+            if fmt == PathFormat::GitRelative && repo.is_none() {
+                continue;
+            }
+            if ui.button(fmt.label()).clicked() {
+                actions.push(Action::CopyPathAs(paths.to_vec(), fmt));
+            }
+        }
+    });
+    if let (Some(root), [path]) = (repo, paths) {
+        ui.menu_button(tr("🌿 Git"), |ui| {
+            if ui.button(tr("🌐 Open on GitHub / GitLab")).clicked() {
+                actions.push(Action::OpenGitRemote(path.clone()));
+            }
+            if ui.button(tr("📋 Copy branch name")).clicked() {
+                actions.push(Action::CopyGitBranch(root.clone()));
+            }
+        });
+    }
+}
+
+/// The entries of the "New" menus: Folder, Text document and the user's own
+/// (Settings → New menu).
+pub fn new_menu(ui: &mut Ui, folder: &Path, new_items: &[NewItem], actions: &mut Vec<Action>) {
+    if ui
+        .add(egui::Button::new(tr("📁 Folder")).shortcut_text(shortcuts::label(Command::NewFolder)))
+        .clicked()
+    {
+        actions.push(Action::NewFolder(folder.to_path_buf()));
+    }
+    if ui.button(tr("📄 Text document")).clicked() {
+        actions.push(Action::NewFile(folder.to_path_buf()));
+    }
+    if !new_items.is_empty() {
+        ui.separator();
+    }
+    for (i, item) in new_items.iter().enumerate() {
+        let text = format!("📄 {}", ox_core::i18n::t_any(&item.label));
+        if ui.button(text).on_hover_text(&item.file_name).clicked() {
+            actions.push(Action::NewFromItem(folder.to_path_buf(), i));
+        }
+    }
+}
+
 /// Context menu for the empty area of a folder.
 pub fn background_menu(
     ui: &mut Ui,
     folder: &Path,
     can_paste: bool,
     pinned: bool,
+    new_items: &[NewItem],
+    dev: bool,
     actions: &mut Vec<Action>,
 ) {
-    ui.menu_button(tr("➕ New"), |ui| {
-        if ui.button(tr("📁 Folder")).clicked() {
-            actions.push(Action::NewFolder(folder.to_path_buf()));
-        }
-        if ui.button(tr("📄 Text document")).clicked() {
-            actions.push(Action::NewFile(folder.to_path_buf()));
-        }
-    });
+    ui.menu_button(tr("➕ New"), |ui| new_menu(ui, folder, new_items, actions));
     if ui
         .add_enabled(
             can_paste,
@@ -877,6 +942,11 @@ pub fn background_menu(
     if ui.button(tr("🗔 Open in Windows Explorer")).clicked() {
         actions.push(Action::Reveal(folder.to_path_buf()));
     }
+    if dev {
+        ui.separator();
+        dev_menu(ui, &[folder.to_path_buf()], actions);
+    }
+    ui.separator();
     if ui.button(tr("ℹ Properties")).clicked() {
         actions.push(Action::Properties(vec![folder.to_path_buf()]));
     }

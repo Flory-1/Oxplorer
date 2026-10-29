@@ -36,6 +36,7 @@ pub enum Command {
     Properties,
     ShellMenu,
     ToggleTerminal,
+    OpenInEditor,
 }
 
 pub struct CommandInfo {
@@ -144,6 +145,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         "terminal",
         "Terminal panel",
         &["Ctrl+Backtick"],
+    ),
+    info(
+        Command::OpenInEditor,
+        "open_in_editor",
+        "Open in editor",
+        &["Ctrl+Shift+E"],
     ),
 ];
 

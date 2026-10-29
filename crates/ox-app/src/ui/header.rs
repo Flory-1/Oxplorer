@@ -810,18 +810,7 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
         ui.add_enabled_ui(folder.is_some(), |ui| {
             ui.menu_button(RichText::new(tr("➕ New")).size(13.5), |ui| {
                 if let Some(f) = &folder {
-                    if ui
-                        .add(
-                            egui::Button::new(tr("📁 Folder"))
-                                .shortcut_text(shortcuts::label(Command::NewFolder)),
-                        )
-                        .clicked()
-                    {
-                        actions.push(Action::NewFolder(f.clone()));
-                    }
-                    if ui.button(tr("📄 Text document")).clicked() {
-                        actions.push(Action::NewFile(f.clone()));
-                    }
+                    super::new_menu(ui, f, &app.settings.new_items.0, &mut actions);
                 }
             });
         });

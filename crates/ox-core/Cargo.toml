@@ -22,6 +22,8 @@ tar = "0.4"
 flate2 = "1"
 sys-locale = "0.3"
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["bzip2", "deflate"] }
+sha2 = "0.10"
+md-5 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
 clipboard-win = { version = "5", features = ["std"] }
@@ -29,10 +31,16 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 windows = { version = "0.62", features = [
     "Data_Pdf",
     "Foundation",
+    "Graphics_DirectX_Direct3D11",
+    "Media_Core",
+    "Media_Playback",
     "Storage",
     "Storage_Streams",
     "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
     "Win32_Graphics_Dwm",
+    "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
     "Win32_NetworkManagement_WNet",
     "Win32_Storage_FileSystem",
@@ -40,6 +48,7 @@ windows = { version = "0.62", features = [
     "Win32_System_LibraryLoader",
     "Win32_System_Ole",
     "Win32_System_Registry",
+    "Win32_System_WinRT_Direct3D11",
     "Win32_UI_Controls",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
@@ -49,3 +58,5 @@ windows = { version = "0.62", features = [
 [dev-dependencies]
 tempfile = "3"
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["compress"] }
+sha2 = "0.10"
+md-5 = "0.10"

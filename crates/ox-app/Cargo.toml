@@ -22,7 +22,9 @@ eframe = { version = "0.37", features = ["persistence"] }
 egui = "0.37"
 arboard = "3"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp", "ico", "tiff"] }
-egui_extras = { version = "0.37", default-features = false, features = ["syntect"] }
+egui_extras = { version = "0.37", default-features = false, features = ["syntect", "image", "file"] }
+# Markdown preview (with local images and highlighted code blocks).
+egui_commonmark = { version = "0.26", default-features = false, features = ["pulldown_cmark", "load-images", "better_syntax_highlighting"] }
 lofty = "0.25"
 ttf-parser = "0.25"
 raw-window-handle = "0.6"
