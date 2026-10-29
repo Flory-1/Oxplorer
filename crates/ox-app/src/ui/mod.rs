@@ -137,8 +137,7 @@ fn terminal_panel(app: &mut OxApp, ui: &mut Ui) {
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui
-                .small_button("✖")
+            if close_button(ui)
                 .on_hover_text(shortcuts::hint(tr("Close"), Command::ToggleTerminal))
                 .clicked()
             {
@@ -147,15 +146,6 @@ fn terminal_panel(app: &mut OxApp, ui: &mut Ui) {
             let exited = app.terminal.as_ref().is_none_or(|t| t.exited);
             if exited && ui.small_button(tr("⟲ Restart")).clicked() {
                 actions.push(Action::RestartTerminal);
-            }
-            if let Some(folder) = app.current_folder().filter(|_| !exited) {
-                if ui
-                    .small_button(tr("📂 cd here"))
-                    .on_hover_text(folder.display().to_string())
-                    .clicked()
-                {
-                    actions.push(Action::TerminalCd(folder));
-                }
             }
         });
     });
@@ -178,6 +168,23 @@ fn terminal_panel(app: &mut OxApp, ui: &mut Ui) {
         }
     }
     app.actions.extend(actions);
+}
+
+/// A small "✖" without a background (highlighted on hover), like on tabs.
+fn close_button(ui: &mut Ui) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::click());
+    if resp.hovered() {
+        ui.painter()
+            .rect_filled(rect, 4.0, ui.visuals().widgets.hovered.bg_fill);
+    }
+    ui.painter().text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        "✖",
+        FontId::proportional(11.0),
+        ui.visuals().text_color(),
+    );
+    resp
 }
 
 /// The page of the active tab.
