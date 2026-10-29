@@ -274,6 +274,10 @@ pub struct Search {
     pub index_refresh_minutes: u32,
     /// Apply file changes to the index as they happen.
     pub index_live: bool,
+    /// Read NTFS drives through the Oxplorer index service (Windows; it must
+    /// be installed by the installer). Off by default: the service shows the
+    /// names of all files on the drives.
+    pub index_service: bool,
     /// Show results while typing (needs the index).
     pub search_as_you_type: bool,
     /// Remember the searches that were run and suggest them again.
@@ -340,6 +344,7 @@ impl Default for Search {
             .to_vec(),
             index_refresh_minutes: 30,
             index_live: true,
+            index_service: false,
             search_as_you_type: true,
             remember_searches: true,
         }

@@ -13,6 +13,8 @@ impl OxApp {
         let settings = instance.settings.load().unwrap_or_default();
         // Before anything is named (e.g. the default favorites on first start).
         ox_core::i18n::set_language(settings.appearance.language);
+        // Before the saved index loads: it catches up through the service.
+        ox_core::index::helper::set_enabled(cfg!(windows) && settings.search.index_service);
         let quick = instance.quick.load().unwrap_or_default();
 
         let engine = TransferEngine::new(settings.transfer.engine_config());

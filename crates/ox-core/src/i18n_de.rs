@@ -893,6 +893,7 @@ mod help_search;
 mod help_tools;
 mod help_views;
 mod index_live;
+mod index_service;
 mod libraries;
 mod operations;
 mod picture_tools;
@@ -937,4 +938,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(git_ops::TABLE)
         .chain(remote::TABLE)
         .chain(help_tools::TABLE)
+        .chain(index_service::TABLE)
 }

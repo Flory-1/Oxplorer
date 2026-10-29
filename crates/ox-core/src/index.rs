@@ -7,11 +7,21 @@
 //! after startup while a fresh index is built in the background.
 //!
 //! Building uses a portable parallel directory walk. On Windows, whole NTFS
-//! drives are read from the master file table instead when Oxplorer runs as
-//! administrator (`mft`), which is many times faster. Between builds, file
-//! changes are applied as they happen (`live`, `patch`): from the NTFS change
-//! journal where the volume can be opened, otherwise from a file watcher.
+//! drives are read from the master file table instead (`mft`), which is many
+//! times faster: through the index service (`helper`) when it is installed
+//! and turned on, or directly when Oxplorer runs as administrator (`volume`).
+//! Between builds, file changes are applied as they happen (`live`,
+//! `patch`): from the NTFS change journal where it can be read (`journal`),
+//! otherwise from a file watcher. The journal positions are saved with the
+//! index (`checkpoint`), so the next start catches up on what changed while
+//! Oxplorer was closed instead of rebuilding (`catchup`).
 
+#[cfg_attr(not(windows), allow(dead_code))]
+mod catchup;
+mod checkpoint;
+pub mod helper;
+#[cfg(windows)]
+mod journal;
 mod live;
 #[cfg(windows)]
 mod mft;
@@ -24,6 +34,8 @@ mod service;
 mod tree;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod usn;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod volume;
 
 pub use live::LiveInfo;
 pub use service::{default_cache_path, IndexService, IndexState};

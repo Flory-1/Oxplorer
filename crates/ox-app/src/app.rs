@@ -484,6 +484,7 @@ impl OxApp {
     /// the index settings change; drop it when indexing is turned off.
     fn manage_index(&mut self) {
         let s = &self.settings.search;
+        ox_core::index::helper::set_enabled(cfg!(windows) && s.index_service);
         if !s.index_enabled {
             self.index.set_live(None);
             if self.index.index().is_some() || self.index.is_building() {

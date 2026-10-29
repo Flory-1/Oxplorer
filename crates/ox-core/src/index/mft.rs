@@ -1,7 +1,9 @@
-//! Windows only: building the index from the NTFS master file table, and
-//! following the NTFS change journal for live updates. Both need a handle to
-//! the volume (`\\.\C:`), which only administrators get; without one, the
-//! callers fall back to the directory walk and a file watcher.
+//! Windows only: reading an NTFS volume directly, for building the index
+//! from the master file table and following the change journal (see
+//! `journal`). That needs a handle to the volume (`\\.\C:`), which only
+//! administrators get, or the index service (`helper`), which opens it for
+//! the app; without either, the callers fall back to the directory walk and
+//! a file watcher.
 //!
 //! Names and folders come from `FSCTL_ENUM_USN_DATA` (file reference →
 //! parent reference, see `tree`). That listing has no sizes or dates, so the
@@ -10,79 +12,78 @@
 //! result is compared with the files on disk; if it doesn't match, the drive
 //! is walked instead.
 
-use std::collections::HashMap;
 use std::ffi::c_void;
 use std::os::windows::ffi::OsStrExt;
-use std::path::{Component, Path, PathBuf, Prefix};
+use std::path::{Component, Path, Prefix};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use crossbeam_channel::Sender;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, GetLastError, ERROR_HANDLE_EOF, ERROR_JOURNAL_DELETE_IN_PROGRESS,
-    ERROR_JOURNAL_ENTRY_DELETED, ERROR_JOURNAL_NOT_ACTIVE, GENERIC_READ, HANDLE,
-    INVALID_HANDLE_VALUE,
+    CloseHandle, GetLastError, ERROR_HANDLE_EOF, GENERIC_READ, HANDLE, INVALID_HANDLE_VALUE,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FileIdType, GetFileInformationByHandle, GetFinalPathNameByHandleW,
-    GetVolumeInformationW, GetVolumePathNameW, OpenFileById, ReadFile, SetFilePointerEx,
-    BY_HANDLE_FILE_INFORMATION, FILE_BEGIN, FILE_FLAG_BACKUP_SEMANTICS, FILE_ID_DESCRIPTOR,
-    FILE_ID_DESCRIPTOR_0, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    CreateFileW, GetDriveTypeW, GetFileInformationByHandle, GetLogicalDrives,
+    GetVolumeInformationW, GetVolumePathNameW, ReadFile, SetFilePointerEx,
+    BY_HANDLE_FILE_INFORMATION, FILE_BEGIN, FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 use windows_sys::Win32::System::Ioctl::{
-    FSCTL_ENUM_USN_DATA, FSCTL_GET_NTFS_VOLUME_DATA, FSCTL_QUERY_USN_JOURNAL,
-    FSCTL_READ_USN_JOURNAL, MFT_ENUM_DATA_V0, NTFS_VOLUME_DATA_BUFFER, READ_USN_JOURNAL_DATA_V0,
-    USN_JOURNAL_DATA_V0,
+    FSCTL_ENUM_USN_DATA, FSCTL_GET_NTFS_VOLUME_DATA, MFT_ENUM_DATA_V0, NTFS_VOLUME_DATA_BUFFER,
 };
 use windows_sys::Win32::System::IO::DeviceIoControl;
 
 use super::ntfs::{apply_fixup, data_runs, filetime_to_unix, parse_file_record};
-use super::patch::Signal;
-use super::tree::{record_number, RawTree, ATTR_DIRECTORY};
-use super::usn::{next_value, parse_records, REASON_RENAME_NEW_NAME, REASON_RENAME_OLD_NAME};
+use super::tree::{record_number, RawTree};
+use super::usn::{next_value, parse_records, UsnRecord};
+use super::volume::VolumeTree;
 use super::{path_in, to_secs, Builder, F_DIR};
 
-const SHARE_ALL: u32 = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
-const REASON_FILE_DELETE: u32 = 0x0000_0200;
+pub(super) const SHARE_ALL: u32 = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+const DRIVE_FIXED: u32 = 3;
 
-struct Handle(HANDLE);
+pub(super) struct Handle(pub(super) HANDLE);
 
 impl Drop for Handle {
     fn drop(&mut self) {
+        // SAFETY: the handle was opened by us and is closed exactly once.
         unsafe { CloseHandle(self.0) };
     }
 }
 
-// The handle is only used by one thread at a time.
+// SAFETY: the handle is only used by one thread at a time.
 unsafe impl Send for Handle {}
 
-fn wide(s: impl AsRef<std::ffi::OsStr>) -> Vec<u16> {
+pub(super) fn wide(s: impl AsRef<std::ffi::OsStr>) -> Vec<u16> {
     s.as_ref().encode_wide().chain(Some(0)).collect()
 }
 
 /// A zeroed buffer starting at a 4096-byte boundary (volume reads want
 /// sector-aligned memory, the ioctls 8-byte aligned records).
-struct Buf {
+pub(super) struct Buf {
     raw: Vec<u8>,
     start: usize,
     len: usize,
 }
 
 impl Buf {
-    fn new(len: usize) -> Self {
+    pub(super) fn new(len: usize) -> Self {
         let raw = vec![0u8; len + 4096];
         let start = raw.as_ptr().align_offset(4096);
         Buf { raw, start, len }
     }
 
-    fn get(&mut self) -> &mut [u8] {
+    pub(super) fn get(&mut self) -> &mut [u8] {
         &mut self.raw[self.start..self.start + self.len]
     }
 }
 
 /// `DeviceIoControl` with an optional input struct: the bytes written, or the error code.
-fn ioctl<I>(h: &Handle, code: u32, input: Option<&I>, out: &mut [u8]) -> Result<usize, u32> {
+pub(super) fn ioctl<I>(
+    h: &Handle,
+    code: u32,
+    input: Option<&I>,
+    out: &mut [u8],
+) -> Result<usize, u32> {
     let (ip, il) = match input {
         Some(i) => (i as *const I as *const c_void, size_of::<I>() as u32),
         None => (std::ptr::null(), 0),
@@ -108,7 +109,7 @@ fn ioctl<I>(h: &Handle, code: u32, input: Option<&I>, out: &mut [u8]) -> Result<
 }
 
 /// The drive letter of a local path like `C:\…`.
-fn drive_letter(path: &Path) -> Option<char> {
+pub(super) fn drive_letter(path: &Path) -> Option<char> {
     match path.components().next()? {
         Component::Prefix(p) => match p.kind() {
             Prefix::Disk(d) | Prefix::VerbatimDisk(d) => Some((d as char).to_ascii_uppercase()),
@@ -124,14 +125,14 @@ fn is_drive_root(path: &Path) -> bool {
 }
 
 /// Is `path` on its drive letter's volume (and not on a volume mounted in a folder)?
-fn on_drive_volume(path: &Path, letter: char) -> bool {
+pub(super) fn on_drive_volume(path: &Path, letter: char) -> bool {
     let mut buf = [0u16; 512];
     let ok = unsafe { GetVolumePathNameW(wide(path).as_ptr(), buf.as_mut_ptr(), buf.len() as u32) };
     let len = buf.iter().position(|&c| c == 0).unwrap_or(0);
     ok != 0 && String::from_utf16_lossy(&buf[..len]).eq_ignore_ascii_case(&format!("{letter}:\\"))
 }
 
-fn is_ntfs(letter: char) -> bool {
+pub(super) fn is_ntfs(letter: char) -> bool {
     let mut fs = [0u16; 32];
     let ok = unsafe {
         GetVolumeInformationW(
@@ -150,7 +151,7 @@ fn is_ntfs(letter: char) -> bool {
 }
 
 /// The NTFS volume behind a drive letter, if Oxplorer may read it directly.
-fn open_volume(letter: char) -> Option<Handle> {
+pub(super) fn open_volume(letter: char) -> Option<Handle> {
     if !is_ntfs(letter) {
         return None;
     }
@@ -169,7 +170,7 @@ fn open_volume(letter: char) -> Option<Handle> {
 }
 
 /// The file reference number of a file or folder.
-fn file_id(path: &Path) -> Option<u64> {
+pub(super) fn file_id(path: &Path) -> Option<u64> {
     let h = unsafe {
         CreateFileW(
             wide(path).as_ptr(),
@@ -190,37 +191,83 @@ fn file_id(path: &Path) -> Option<u64> {
     (ok != 0).then_some((info.nFileIndexHigh as u64) << 32 | info.nFileIndexLow as u64)
 }
 
-/// Every file and folder on the volume (names and parents only).
-fn enumerate(vol: &Handle, cancel: &AtomicBool, progress: &AtomicU64) -> Option<RawTree> {
+/// The fixed NTFS drives (the only ones the index service reads).
+pub(super) fn fixed_ntfs_drives() -> Vec<u8> {
+    // SAFETY: no arguments; returns a bit mask of drive letters.
+    let mask = unsafe { GetLogicalDrives() };
+    (0..26u8)
+        .filter(|i| mask & (1 << i) != 0)
+        .map(|i| b'A' + i)
+        .filter(|&d| {
+            let root = wide(format!("{}:\\", d as char));
+            // SAFETY: `root` is a NUL-terminated wide string.
+            let kind = unsafe { GetDriveTypeW(root.as_ptr()) };
+            kind == DRIVE_FIXED && is_ntfs(d as char)
+        })
+        .collect()
+}
+
+/// Every file and folder on the volume (names and parents only), handed to
+/// `each` one buffer at a time. False if the listing failed, was cancelled
+/// or `each` said stop.
+pub(super) fn enumerate_with(
+    vol: &Handle,
+    cancel: &AtomicBool,
+    mut each: impl FnMut(Vec<UsnRecord>) -> bool,
+) -> bool {
     let mut input = MFT_ENUM_DATA_V0 {
         StartFileReferenceNumber: 0,
         LowUsn: 0,
         HighUsn: i64::MAX,
     };
     let mut buf = Buf::new(1 << 20);
-    let mut tree = RawTree::default();
     loop {
         if cancel.load(Ordering::Relaxed) {
-            return None;
+            return false;
         }
         let out = buf.get();
         match ioctl(vol, FSCTL_ENUM_USN_DATA, Some(&input), out) {
             Ok(n) if n > 8 => {
-                let before = tree.len();
-                for r in parse_records(&out[8..n]) {
-                    tree.add(r.frn, r.parent, &r.name, r.attrs);
+                if !each(parse_records(&out[8..n])) {
+                    return false;
                 }
-                progress.fetch_add((tree.len() - before) as u64, Ordering::Relaxed);
-                input.StartFileReferenceNumber = next_value(out)?;
+                let Some(next) = next_value(out) else {
+                    return false;
+                };
+                input.StartFileReferenceNumber = next;
             }
-            Ok(_) | Err(ERROR_HANDLE_EOF) => break,
+            Ok(_) | Err(ERROR_HANDLE_EOF) => return true,
             Err(e) => {
                 log::info!("index: can't list the master file table (error {e})");
-                return None;
+                return false;
             }
         }
     }
-    Some(tree)
+}
+
+/// The volume's tree and each record's size and date (by record number),
+/// read directly from the volume.
+pub(super) fn read_tree_direct(
+    vol: &Handle,
+    cancel: &AtomicBool,
+    progress: &AtomicU64,
+) -> Option<VolumeTree> {
+    let mut tree = RawTree::default();
+    let listed = enumerate_with(vol, cancel, |records| {
+        for r in &records {
+            tree.add(r.frn, r.parent, &r.name, r.attrs);
+        }
+        progress.fetch_add(records.len() as u64, Ordering::Relaxed);
+        true
+    });
+    if !listed {
+        return None;
+    }
+    let meta = read_metadata(vol, cancel);
+    if meta.is_none() {
+        log::info!("index: can't read the master file table");
+    }
+    Some((tree, meta?))
 }
 
 fn read_at(vol: &Handle, offset: u64, buf: &mut [u8]) -> Option<()> {
@@ -250,7 +297,7 @@ fn read_at(vol: &Handle, offset: u64, buf: &mut [u8]) -> Option<()> {
 
 /// Size and last write time (seconds since 1970) of every file record, by
 /// record number. `None` if the `$MFT` can't be read completely.
-fn read_metadata(vol: &Handle, cancel: &AtomicBool) -> Option<Vec<(u64, u32)>> {
+pub(super) fn read_metadata(vol: &Handle, cancel: &AtomicBool) -> Option<Vec<(u64, u32)>> {
     let mut vd = Buf::new(512);
     let n = ioctl::<()>(vol, FSCTL_GET_NTFS_VOLUME_DATA, None, vd.get()).ok()?;
     if n < size_of::<NTFS_VOLUME_DATA_BUFFER>() {
@@ -358,24 +405,17 @@ pub(super) fn index_volume(
     if !is_drive_root(root) {
         return false;
     }
-    let Some(vol) = drive_letter(root).and_then(open_volume) else {
+    let Some(letter) = drive_letter(root) else {
         return false;
     };
     let Some(root_frn) = file_id(root) else {
         return false;
     };
     let started = Instant::now();
-    let Some(tree) = enumerate(&vol, cancel, progress) else {
+    let Some(((tree, meta), route)) = super::volume::read_tree(letter, cancel, progress) else {
         return false;
     };
     progress.fetch_sub(tree.len() as u64, Ordering::Relaxed);
-    let Some(meta) = read_metadata(&vol, cancel) else {
-        log::info!(
-            "index: can't read the master file table of {}",
-            root.display()
-        );
-        return false;
-    };
     let mark = (b.entries.len(), b.names.len());
     let lookup = |frn: u64| {
         meta.get(record_number(frn) as usize)
@@ -394,242 +434,19 @@ pub(super) fn index_volume(
         return false;
     }
     log::info!(
-        "index: read {n} items of {} from the master file table in {:.1?}",
+        "index: read {n} items of {} from the master file table ({route:?}) in {:.1?}",
         root.display(),
         started.elapsed()
     );
     true
 }
 
-// ---- change journal --------------------------------------------------------
-
-/// The journal's id and the next USN to read.
-fn query_journal(vol: &Handle) -> Option<(u64, i64)> {
-    let mut buf = Buf::new(256);
-    let n = ioctl::<()>(vol, FSCTL_QUERY_USN_JOURNAL, None, buf.get()).ok()?;
-    if n < size_of::<USN_JOURNAL_DATA_V0>() {
-        return None;
-    }
-    let j: USN_JOURNAL_DATA_V0 = unsafe { std::ptr::read_unaligned(buf.get().as_ptr().cast()) };
-    Some((j.UsnJournalID, j.NextUsn))
-}
-
-/// The current path of a file reference.
-fn path_of_id(vol: &Handle, frn: u64) -> Option<PathBuf> {
-    let desc = FILE_ID_DESCRIPTOR {
-        dwSize: size_of::<FILE_ID_DESCRIPTOR>() as u32,
-        Type: FileIdType,
-        Anonymous: FILE_ID_DESCRIPTOR_0 { FileId: frn as i64 },
-    };
-    let h = unsafe {
-        OpenFileById(
-            vol.0,
-            &desc,
-            0,
-            SHARE_ALL,
-            std::ptr::null(),
-            FILE_FLAG_BACKUP_SEMANTICS,
-        )
-    };
-    if h == INVALID_HANDLE_VALUE {
-        return None;
-    }
-    let h = Handle(h);
-    let mut buf = vec![0u16; 1024];
-    loop {
-        let n = unsafe { GetFinalPathNameByHandleW(h.0, buf.as_mut_ptr(), buf.len() as u32, 0) }
-            as usize;
-        if n == 0 {
-            return None;
-        }
-        if n < buf.len() {
-            let s = String::from_utf16_lossy(&buf[..n]);
-            let s = s.strip_prefix(r"\\?\").unwrap_or(&s);
-            return (!s.starts_with(r"UNC\")).then(|| PathBuf::from(s));
-        }
-        buf.resize(n + 1, 0);
-    }
-}
-
-/// Follow the change journals of the drives holding `roots`, sending what
-/// changes to `tx` until `stop` is set. Returns how many drives are followed
-/// and the roots that need a file watcher instead.
-pub(super) fn follow_journals(
-    roots: &[PathBuf],
-    tx: &Sender<Signal>,
-    stop: &Arc<AtomicBool>,
-) -> (usize, Vec<PathBuf>) {
-    let mut by_drive: Vec<(char, Vec<PathBuf>)> = Vec::new();
-    let mut rest = Vec::new();
-    for root in roots {
-        match drive_letter(root).filter(|&l| on_drive_volume(root, l)) {
-            Some(l) => match by_drive.iter_mut().find(|(d, _)| *d == l) {
-                Some((_, v)) => v.push(root.clone()),
-                None => by_drive.push((l, vec![root.clone()])),
-            },
-            None => rest.push(root.clone()),
-        }
-    }
-    let mut followed = 0;
-    for (letter, roots) in by_drive {
-        let journal = open_volume(letter).and_then(|v| query_journal(&v).map(|j| (v, j)));
-        let Some((vol, (id, next))) = journal else {
-            rest.extend(roots);
-            continue;
-        };
-        let (tx, stop) = (tx.clone(), stop.clone());
-        let spawned = std::thread::Builder::new()
-            .name("index-journal".into())
-            .spawn(move || read_journal(vol, id, next, &roots, &tx, &stop));
-        if spawned.is_ok() {
-            followed += 1;
-        }
-    }
-    (followed, rest)
-}
-
-fn read_journal(
-    vol: Handle,
-    mut id: u64,
-    mut start: i64,
-    roots: &[PathBuf],
-    tx: &Sender<Signal>,
-    stop: &AtomicBool,
-) {
-    // The journal reports long paths; roots may be written differently (short
-    // 8.3 names, other case), so changes are mapped back onto the root as given.
-    let prefixes: Vec<(String, &PathBuf)> = roots
-        .iter()
-        .map(|r| {
-            let long = std::fs::canonicalize(r).unwrap_or_else(|_| r.clone());
-            let long = long.to_string_lossy();
-            let mut s = long.strip_prefix(r"\\?\").unwrap_or(&long).to_owned();
-            if !s.ends_with('\\') {
-                s.push('\\');
-            }
-            (s, r)
-        })
-        .collect();
-    let mut buf = Buf::new(64 * 1024);
-    // Folder paths by file reference, so busy folders are looked up once.
-    let mut dirs: HashMap<u64, Option<PathBuf>> = HashMap::new();
-    while !stop.load(Ordering::Relaxed) {
-        let input = READ_USN_JOURNAL_DATA_V0 {
-            StartUsn: start,
-            ReasonMask: u32::MAX,
-            ReturnOnlyOnClose: 0,
-            Timeout: 0,
-            BytesToWaitFor: 0,
-            UsnJournalID: id,
-        };
-        let out = buf.get();
-        let n = match ioctl(&vol, FSCTL_READ_USN_JOURNAL, Some(&input), out) {
-            Ok(n) if n >= 8 => n,
-            Ok(_) => 0,
-            Err(
-                ERROR_JOURNAL_ENTRY_DELETED
-                | ERROR_JOURNAL_DELETE_IN_PROGRESS
-                | ERROR_JOURNAL_NOT_ACTIVE,
-            ) => {
-                // Changes were lost (the journal wrapped or was recreated).
-                if tx.send(Signal::Rescan).is_err() {
-                    return;
-                }
-                match query_journal(&vol) {
-                    Some((i, next)) => (id, start) = (i, next),
-                    None => return,
-                }
-                dirs.clear();
-                0
-            }
-            Err(_) => 0,
-        };
-        let records = if n >= 8 {
-            parse_records(&out[8..n])
-        } else {
-            Vec::new()
-        };
-        if n >= 8 {
-            start = next_value(out).map_or(start, |v| v as i64);
-        }
-        if dirs.len() > 10_000 {
-            dirs.clear();
-        }
-        for r in &records {
-            let dir = match dirs.get(&r.parent) {
-                Some(d) => d.clone(),
-                None => {
-                    let d = path_of_id(&vol, r.parent);
-                    dirs.insert(r.parent, d.clone());
-                    d
-                }
-            };
-            if r.attrs & ATTR_DIRECTORY != 0
-                && r.reason & (REASON_RENAME_OLD_NAME | REASON_RENAME_NEW_NAME | REASON_FILE_DELETE)
-                    != 0
-            {
-                dirs.clear(); // paths below it changed
-            }
-            // Gone before we looked: its folder's own record covers it.
-            let Some(dir) = dir else { continue };
-            let Some(path) = map_to_root(&dir.join(&r.name), &prefixes) else {
-                continue;
-            };
-            let signal = if r.reason & REASON_RENAME_OLD_NAME != 0 {
-                Signal::RenamedFrom(path)
-            } else if r.reason & REASON_RENAME_NEW_NAME != 0 {
-                Signal::RenamedTo(path)
-            } else {
-                Signal::Changed(path)
-            };
-            if tx.send(signal).is_err() {
-                return;
-            }
-        }
-        // A full buffer means more is waiting.
-        if n < out.len() / 2 {
-            std::thread::sleep(Duration::from_millis(500));
-        }
-    }
-}
-
-/// `path` below one of the roots, written the way that root is.
-fn map_to_root(path: &Path, prefixes: &[(String, &PathBuf)]) -> Option<PathBuf> {
-    let s = path.to_string_lossy();
-    prefixes.iter().find_map(|(long, root)| {
-        let n = long.len();
-        (s.len() > n && s.is_char_boundary(n) && s[..n].eq_ignore_ascii_case(long))
-            .then(|| root.join(&s[n..]))
-    })
-}
-
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use crate::index::{FileIndex, IndexConfig};
-
-    #[test]
-    fn maps_journal_paths_onto_roots() {
-        let short = PathBuf::from(r"C:\Users\RUNNER~1\Temp");
-        let drive = PathBuf::from(r"D:\");
-        let prefixes = [
-            (r"C:\Users\runneradmin\Temp\".to_owned(), &short),
-            (r"D:\".to_owned(), &drive),
-        ];
-        assert_eq!(
-            map_to_root(Path::new(r"c:\users\RunnerAdmin\Temp\a\b.txt"), &prefixes),
-            Some(PathBuf::from(r"C:\Users\RUNNER~1\Temp\a\b.txt"))
-        );
-        assert_eq!(
-            map_to_root(Path::new(r"D:\x.txt"), &prefixes),
-            Some(PathBuf::from(r"D:\x.txt"))
-        );
-        assert_eq!(map_to_root(Path::new(r"C:\Windows\x"), &prefixes), None);
-        assert_eq!(
-            map_to_root(Path::new(r"C:\Users\runneradmin\Temp"), &prefixes),
-            None
-        );
-    }
 
     #[test]
     fn recognises_drive_roots() {

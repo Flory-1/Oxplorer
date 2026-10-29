@@ -27,7 +27,7 @@ jobs:
       - name: Test
         run: cargo test --workspace --no-fail-fast
       - name: Build
-        run: cargo build --release -p ox-app
+        run: cargo build --release -p ox-app -p ox-indexer
       - name: Package portable zip
         shell: pwsh
         run: |

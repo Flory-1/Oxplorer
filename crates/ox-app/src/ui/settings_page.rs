@@ -6,6 +6,7 @@ use ox_core::i18n::t as tr;
 use ox_core::settings::{Backdrop, Settings, StartPage, Theme, ViewMode};
 
 mod commands;
+mod index_service;
 mod keys;
 mod search;
 mod theme;

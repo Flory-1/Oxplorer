@@ -45,7 +45,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build --release -p ox-app
+        run: cargo build --release -p ox-app -p ox-indexer
       - name: Build installer
         shell: pwsh
         run: installer/build.ps1 -Tag "v0.0.0-ci" -Repository "${{ github.repository }}"
@@ -54,4 +54,5 @@ jobs:
           name: oxplorer-windows-x64
           path: |
             target/release/oxplorer.exe
+            target/release/oxplorer-indexer.exe
             dist/oxplorer-*-setup-x64.exe
