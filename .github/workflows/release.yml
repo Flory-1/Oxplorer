@@ -33,7 +33,7 @@ jobs:
         run: |
           $name = "oxplorer-${{ github.ref_name }}-windows-x64"
           New-Item -ItemType Directory -Path $name | Out-Null
-          Copy-Item target/release/oxplorer.exe, README.md, CHANGELOG.md, LICENSE, ROADMAP.md -Destination $name
+          Copy-Item target/release/oxplorer.exe, README.md, CHANGELOG.md, LICENSE -Destination $name
           Compress-Archive -Path $name -DestinationPath "$name.zip"
           (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" | Out-File -Encoding ascii "$name.zip.sha256"
       - name: Build installer and winget manifests

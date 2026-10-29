@@ -22,7 +22,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Undo {what}", "{what} rückgängig machen"),
     ("Redo {what}", "{what} wiederholen"),
     ("Undo and redo", "Rückgängig machen und wiederholen"),
-    ("Ctrl+Z undoes the last file operation, Ctrl+Y (or Ctrl+Shift+Z) redoes it. The last 50 operations are remembered until Oxplorer closes.", "Strg+Z macht den letzten Dateivorgang rückgängig, Strg+Y (oder Strg+Umschalt+Z) wiederholt ihn. Die letzten 50 Vorgänge werden gemerkt, bis Oxplorer geschlossen wird."),
+    ("Ctrl+Z undoes the last file operation, Ctrl+Y (or Ctrl+Shift+Z) redoes it. The last 100 operations are remembered, also after a restart (Settings → Browsing → Keep undo history after restart).", "Strg+Z macht den letzten Dateivorgang rückgängig, Strg+Y (oder Strg+Umschalt+Z) wiederholt ihn. Die letzten 100 Vorgänge werden gemerkt, auch nach einem Neustart (Einstellungen → Durchsuchen → Rückgängig-Verlauf nach Neustart behalten)."),
     ("Rename and bulk rename: the old names come back.", "Umbenennen und Mehrfach-Umbenennen: Die alten Namen kommen zurück."),
     ("Move: the items are moved back.", "Verschieben: Die Elemente werden zurückverschoben."),
     ("Copy, new file: the copies go to the Recycle Bin. New folder: it is removed while it's still empty.", "Kopieren, neue Datei: Die Kopien kommen in den Papierkorb. Neuer Ordner: Er wird entfernt, solange er noch leer ist."),
