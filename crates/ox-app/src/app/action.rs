@@ -1,0 +1,123 @@
+//! The [`Action`] and [`TabAction`] commands that UI code pushes and `process` handles.
+
+use std::path::PathBuf;
+
+use ox_core::recycle::TrashItem;
+use ox_core::tags::TagColor;
+use ox_core::transfer::TransferKind;
+
+use crate::tabs::{GroupId, Location, TabId};
+
+pub enum Action {
+    Navigate(Location),
+    OpenInNewTab(Location, bool),
+    Back,
+    Forward,
+    Up,
+    Refresh,
+    /// Windows' "Map network drive" (`true`) or "Disconnect" (`false`) dialog.
+    NetworkDriveDialog(bool),
+    /// Open folders in Oxplorer instead of Explorer (or stop doing so).
+    SetDefaultFolderHandler(bool),
+    /// Open a folder (navigate) or file (default app).
+    Open(PathBuf),
+    CopyItems(Vec<PathBuf>),
+    CutItems(Vec<PathBuf>),
+    Paste(PathBuf),
+    Transfer(TransferKind, Vec<PathBuf>, PathBuf),
+    /// Items dropped onto a folder; the kind is decided from modifiers and drives.
+    Drop(Vec<PathBuf>, PathBuf),
+    Delete(Vec<PathBuf>, bool),
+    DeleteConfirmed(Vec<PathBuf>, bool),
+    Rename(PathBuf),
+    /// Rename several items at once with a pattern.
+    BulkRename(Vec<PathBuf>),
+    /// Add the tag to all items, or remove it if all have it.
+    ToggleTag(Vec<PathBuf>, TagColor),
+    ClearTags(Vec<PathBuf>),
+    /// Extract a whole archive next to it: into a new folder named after it,
+    /// or straight into the archive's folder.
+    ExtractArchive {
+        archive: PathBuf,
+        own_folder: bool,
+    },
+    /// Put these items into a new zip file next to them.
+    Compress(Vec<PathBuf>),
+    /// Copy a theme file into the themes folder and use it.
+    InstallTheme(PathBuf),
+    /// Show or hide the terminal panel (starting the shell the first time).
+    ToggleTerminal,
+    RestartTerminal,
+    /// Items were renamed or moved (old path, new path): tags go along.
+    PathsMoved(Vec<(PathBuf, PathBuf)>),
+    /// Give a tag colour a custom name (empty = default).
+    RenameTag(TagColor, String),
+    NewFolder(PathBuf),
+    NewFile(PathBuf),
+    /// Create a file from the user's "New" entry with this index.
+    NewFromItem(PathBuf, usize),
+    Pin(PathBuf),
+    Unpin(PathBuf),
+    MoveFavorite(PathBuf, isize),
+    CopyPathText(Vec<PathBuf>),
+    /// "Copy path as": the paths in another form.
+    CopyPathAs(Vec<PathBuf>, ox_core::pathfmt::PathFormat),
+    /// Open files or folders with the editor from Settings → Developer.
+    OpenInEditor(Vec<PathBuf>),
+    /// Open the page of a file or folder on GitHub, GitLab, … (its repository's remote).
+    OpenGitRemote(PathBuf),
+    /// Copy the checked out branch of the repository a path is in.
+    CopyGitBranch(PathBuf),
+    OpenTerminal(PathBuf),
+    Reveal(PathBuf),
+    Properties(Vec<PathBuf>),
+    /// Make items read-only or not, hidden or not (`None` leaves it).
+    SetAttributes(Vec<PathBuf>, Option<bool>, Option<bool>),
+    Search(Option<PathBuf>, String),
+    /// Search while typing: updates the current search tab instead of adding history.
+    SearchLive(Option<PathBuf>, String),
+    SaveSearch(Option<PathBuf>, String),
+    RemoveSavedSearch(usize),
+    RebuildIndex,
+    SelectAll,
+    ForgetRecent(PathBuf),
+    ClearRecent,
+    SettingsChanged,
+    Tab(TabAction),
+    Toast(String),
+    /// Windows: show the Explorer context menu ("Show more options").
+    ShellMenu(Vec<PathBuf>),
+    /// Windows: "Open with…" dialog.
+    OpenWith(PathBuf),
+    /// Recycle Bin: put entries (by their bin path) back where they came from.
+    RestoreFromBin(Vec<PathBuf>),
+    /// Recycle Bin: delete entries for good (asks first).
+    PurgeFromBin(Vec<PathBuf>),
+    EmptyBin,
+    PurgeConfirmed(Vec<TrashItem>, bool),
+    /// Move items to the Recycle Bin without asking (e.g. dropped onto it).
+    MoveToBin(Vec<PathBuf>),
+}
+
+pub enum TabAction {
+    New,
+    Close(TabId),
+    Activate(TabId),
+    Duplicate(TabId),
+    CloseOthers(TabId),
+    NewGroup(TabId),
+    AddToGroup(TabId, GroupId),
+    RemoveFromGroup(TabId),
+    ToggleGroup(GroupId),
+    CloseGroup(GroupId),
+    Ungroup(GroupId),
+    RenameGroup(GroupId),
+    SetGroupColor(GroupId, usize),
+    NewTabInGroup(GroupId),
+    Move(TabId, usize),
+    Cycle(isize),
+    /// Turn the split view (two panes) on or off.
+    ToggleSplit,
+    /// Focus the other pane.
+    SwitchPane,
+}
