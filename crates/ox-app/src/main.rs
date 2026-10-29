@@ -16,6 +16,7 @@ mod ui;
 use std::path::PathBuf;
 
 fn main() -> eframe::Result {
+    let crashed = ox_core::logfile::init().is_some();
     // Used by the installer and uninstaller: set or undo "open folders in
     // Oxplorer" without opening a window.
     match std::env::args().nth(1).as_deref() {
@@ -71,7 +72,13 @@ fn main() -> eframe::Result {
     eframe::run_native(
         ox_core::APP_NAME,
         options,
-        Box::new(move |cc| Ok(Box::new(app::OxApp::new(cc, open, backdrop)))),
+        Box::new(move |cc| {
+            let mut app = app::OxApp::new(cc, open, backdrop);
+            if crashed {
+                ui::help_page::crash_note(&mut app);
+            }
+            Ok(Box::new(app))
+        }),
     )
 }
 

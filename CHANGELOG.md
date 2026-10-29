@@ -9,6 +9,9 @@ The release workflow publishes the section of the tagged version as the release 
 - **Properties dialog of its own** instead of Windows': type, the program that opens it, size
   and size on disk, place, dates (also last opened and, for photos, taken), Read-only and Hidden
   to change, a program's version, a photo's camera details, and the Git state and last commit.
+- **Log file and crash reports**: problems and crashes are written to the `logs` folder in the
+  config folder, with the version, Windows version and where it happened. *Open log folder* on
+  the Help page opens it, to attach to a bug report; after a crash, the next start says so.
 - **More on the Info tab**: the same details as in Properties, and the item's Git state, so an
   item that was never committed says *Untracked* instead of showing no commit.
 

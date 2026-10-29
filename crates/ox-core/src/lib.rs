@@ -17,6 +17,7 @@ pub mod git;
 pub mod i18n;
 mod i18n_de;
 pub mod index;
+pub mod logfile;
 pub mod natural;
 pub mod network;
 pub mod pathfmt;

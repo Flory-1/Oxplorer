@@ -181,7 +181,8 @@ Copying and moving never opens the Windows copy dialog. Oxplorer's own engine
   choose. Everything is translated, including Help, messages and key names (*Strg+C*).
 - **Help page** (F1): getting started, every feature, the search syntax, your current
   shortcuts and common questions, with a filter
-- Settings are saved as TOML in `%APPDATA%\Oxplorer\`
+- Settings are saved as TOML in `%APPDATA%\Oxplorer\`; problems and crashes are written to a
+  log there (Help → *Open log folder*), to attach to a bug report
 
 ## Screenshots
 
@@ -314,6 +315,7 @@ crates/
     entry.rs          directory listing, file kinds, sorting
     places.rs         favorites, recent items, known folders, drives
     settings.rs       settings (TOML)
+    logfile.rs        log file and crash reports
     i18n.rs           translations (English text as key); i18n_de.rs: German
     fsops.rs          create / rename / delete, terminal and editor helpers
     watcher.rs        auto-refresh when a folder changes

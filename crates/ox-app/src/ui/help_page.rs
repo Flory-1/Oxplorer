@@ -4,8 +4,9 @@
 use egui::{vec2, RichText, Ui};
 use ox_core::i18n::t as tr;
 
-use crate::app::OxApp;
+use crate::app::{Action, OxApp, Toast};
 use crate::shortcuts::{self, COMMANDS};
+use crate::tabs::Location;
 
 const SECTIONS: [&str; 5] = [
     "🚀 Getting started",
@@ -333,7 +334,8 @@ const TOPICS: &[Topic] = &[
         blocks: &[Text(
             "In %APPDATA%\\Oxplorer: settings.toml (settings and shortcuts), \
              quick_access.toml (favorites, recent items, saved searches), tags.toml, the \
-             transfer history and the search index. Settings → About shows the folder.",
+             transfer history, the search index and, in logs, the log and crash reports. \
+             Settings → About shows the folder.",
         )],
     },
     Topic {
@@ -357,7 +359,9 @@ const TOPICS: &[Topic] = &[
         section: 4,
         title: "Something doesn't work",
         blocks: &[Text(
-            "Please report it on GitHub (link below) with what you did and what happened.",
+            "Please report it on GitHub (link below) with what you did and what happened. \
+             Open log folder (below) has Oxplorer's log and, if it crashed, a crash report: \
+             attach them to the report.",
         )],
     },
 ];
@@ -367,6 +371,18 @@ const TOPICS: &[Topic] = &[
 pub struct HelpState {
     pub section: usize,
     pub filter: String,
+}
+
+/// Shown on the first start after Oxplorer closed because of a crash.
+pub fn crash_note(app: &mut OxApp) {
+    app.toasts.push(Toast {
+        text: tr(
+            "Oxplorer closed unexpectedly last time. The crash report is in the log \
+                  folder: Help → Open log folder.",
+        )
+        .into(),
+        until: std::time::Instant::now() + std::time::Duration::from_secs(15),
+    });
 }
 
 pub fn show(app: &mut OxApp, ui: &mut Ui) {
@@ -412,6 +428,19 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                             "github.com/Flory-1/Oxplorer",
                             "https://github.com/Flory-1/Oxplorer/issues",
                         );
+                        ui.add_space(12.0);
+                        if ui
+                            .button(tr("📂 Open log folder"))
+                            .on_hover_text(tr(
+                                "The log and crash reports, to attach to a bug report",
+                            ))
+                            .clicked()
+                        {
+                            app.actions.push(Action::OpenInNewTab(
+                                Location::Folder(ox_core::logfile::dir()),
+                                true,
+                            ));
+                        }
                     });
                 });
         });

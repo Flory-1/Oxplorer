@@ -753,7 +753,7 @@ impl OxApp {
                 continue;
             }
             if let Err(e) = ox_core::transfer::history::append(&job) {
-                eprintln!("could not write transfer log: {e}");
+                log::warn!("could not write transfer log: {e}");
             }
             self.mark_changed(Some(&job.destination));
             if job.kind == TransferKind::Move && !self.tags.is_empty() {
@@ -1954,13 +1954,13 @@ impl OxApp {
 
     pub fn save_quick(&mut self) {
         if let Err(e) = self.quick.save() {
-            eprintln!("could not save quick access: {e}");
+            log::warn!("could not save quick access: {e}");
         }
     }
 
     fn save_session(&self) {
         if let Err(e) = self.tabs.to_session().save() {
-            eprintln!("could not save session: {e}");
+            log::warn!("could not save session: {e}");
         }
     }
 

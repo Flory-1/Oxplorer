@@ -26,7 +26,7 @@ impl FileClipboard {
         self.system_seq = None;
         if system {
             if let Err(e) = imp::write(&items, mode) {
-                eprintln!("could not write system clipboard: {e}");
+                log::warn!("could not write system clipboard: {e}");
             }
             self.system_seq = imp::sequence();
         }
