@@ -3073,6 +3073,7 @@ dependencies = [
  "dirs",
  "flate2",
  "ignore",
+ "image",
  "kamadak-exif",
  "log",
  "md-5",

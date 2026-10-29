@@ -399,3 +399,83 @@ fn folders_and_subjects() {
     assert_eq!(op.folders(), vec![PathBuf::from("/a"), PathBuf::from("/b")]);
     assert_eq!(Entry::new(Kind::Move, op).describe(), "Move (x)");
 }
+
+/// Replace `original` like the picture tools do: the new file is written
+/// under another name, the original goes to the bin, the new file takes its
+/// place at `new`.
+fn replace(bin: &FakeBin, original: &Path, new: &Path, content: &str) -> Op {
+    let since = now();
+    let tmp = original.with_extension("tmp");
+    fs::write(&tmp, content).unwrap();
+    bin.delete(&[original.to_path_buf()]).unwrap();
+    fs::rename(&tmp, new).unwrap();
+    Op::Replaced {
+        items: vec![Replacement {
+            original: original.to_path_buf(),
+            new: Placed::now(new.to_path_buf()).unwrap(),
+        }],
+        since,
+    }
+}
+
+#[test]
+fn replaced_file_comes_back_and_goes_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = FakeBin::new(tmp.path());
+    let photo = tmp.path().join("photo.jpg");
+    fs::write(&photo, "original").unwrap();
+    let mut h = History::default();
+    h.record(Entry::new(
+        Kind::Rotate,
+        replace(&bin, &photo, &photo, "rotated"),
+    ));
+    assert_eq!(
+        h.peek(false).unwrap().describe(),
+        "Rotate pictures (photo.jpg)"
+    );
+
+    undo_redo(&mut h, false, &bin).unwrap();
+    assert_eq!(fs::read_to_string(&photo).unwrap(), "original");
+    // The rotated one is in the bin, under another name.
+    assert!(!tmp.path().join("photo (edited).jpg").exists());
+    assert_eq!(bin.len(), 1);
+
+    undo_redo(&mut h, true, &bin).unwrap();
+    assert_eq!(fs::read_to_string(&photo).unwrap(), "rotated");
+    assert!(!tmp.path().join("photo (edited).jpg").exists());
+    undo_redo(&mut h, false, &bin).unwrap();
+    assert_eq!(fs::read_to_string(&photo).unwrap(), "original");
+}
+
+#[test]
+fn replacement_with_another_name_is_undone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = FakeBin::new(tmp.path());
+    let png = tmp.path().join("pic.png");
+    let jpg = tmp.path().join("pic.jpg");
+    fs::write(&png, "png").unwrap();
+    let mut h = History::default();
+    h.record(Entry::new(Kind::Convert, replace(&bin, &png, &jpg, "jpg")));
+    undo_redo(&mut h, false, &bin).unwrap();
+    assert_eq!(fs::read_to_string(&png).unwrap(), "png");
+    assert!(!jpg.exists());
+    undo_redo(&mut h, true, &bin).unwrap();
+    assert!(!png.exists());
+    assert_eq!(fs::read_to_string(&jpg).unwrap(), "jpg");
+}
+
+#[test]
+fn changed_replacement_is_not_undone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = FakeBin::new(tmp.path());
+    let photo = tmp.path().join("photo.jpg");
+    fs::write(&photo, "original").unwrap();
+    let op = replace(&bin, &photo, &photo, "rotated");
+    fs::write(&photo, "edited since, and longer").unwrap();
+    assert!(reverse(&op, &bin).is_err());
+    assert_eq!(
+        fs::read_to_string(&photo).unwrap(),
+        "edited since, and longer"
+    );
+    assert_eq!(bin.len(), 1);
+}
