@@ -884,6 +884,7 @@ pub const TABLE: &[(&str, &str)] = &[
 mod cloud;
 mod flat_links;
 mod help_views;
+mod index_live;
 mod libraries;
 mod operations;
 mod tabs;
@@ -903,4 +904,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(cloud::TABLE)
         .chain(libraries::TABLE)
         .chain(help_views::TABLE)
+        .chain(index_live::TABLE)
 }
