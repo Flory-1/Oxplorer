@@ -65,8 +65,9 @@ const TOPICS: &[Topic] = &[
         section: 0,
         title: "Moving around",
         blocks: &[List(&[
-            "The Home page shows your favorites, drives and recently used folders and files.",
-            "The sidebar has Home, Favorites, This PC, Recent, Tags and Saved searches. \
+            "The first tab is always Home: your favorites, drives and recently used folders \
+             and files. What you open from it opens in a new tab, so Home stays one click away.",
+            "The sidebar has Favorites, This PC, Network, Recent, Tags and Saved searches. \
              Recycle Bin, Settings and Help are at the bottom.",
             "Click a folder name in the address bar to go there, or the › next to it to pick \
              a sub-folder. Click the empty part of the bar to type a path; %USERPROFILE% and ~ \

@@ -73,21 +73,6 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         .auto_shrink([false, false])
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 1.0;
-            let home = item(
-                ui,
-                Icon::Glyph(icons::HOME),
-                tr("Home"),
-                None,
-                current == Location::Home,
-                accent,
-            );
-            if home.clicked() {
-                actions.push(Action::Navigate(Location::Home));
-            }
-            if home.middle_clicked() {
-                actions.push(Action::OpenInNewTab(Location::Home, false));
-            }
-
             if app.settings.sidebar.show_favorites {
                 section(ui, tr("Favorites"));
                 if app.quick.favorites.is_empty() {

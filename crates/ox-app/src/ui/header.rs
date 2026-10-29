@@ -18,6 +18,8 @@ use crate::tabs::{Location, TabGroup, GROUP_COLORS};
 const TAB_HEIGHT: f32 = 32.0;
 /// Caption buttons (minimize, maximize, close), as wide as Windows 11's.
 const CAPTION_W: f32 = 46.0;
+/// The fixed Home tab shows only its icon.
+const HOME_TAB_W: f32 = 40.0;
 /// Free space after the tabs to grab the window by.
 const DRAG_GAP: f32 = 40.0;
 
@@ -51,6 +53,7 @@ fn tab_strip(app: &mut OxApp, ui: &mut Ui) {
         .tabs
         .tabs
         .iter()
+        .skip(1) // the Home tab has its own width
         .filter(|t| {
             t.group
                 .and_then(|g| app.tabs.group(g))
@@ -59,8 +62,9 @@ fn tab_strip(app: &mut OxApp, ui: &mut Ui) {
         .count()
         .max(1);
     let chips = app.tabs.groups.len() as f32 * 70.0;
-    let tab_w =
-        ((ui.available_width() - 48.0 - chips - reserve) / visible_tabs as f32).clamp(110.0, 230.0);
+    let tab_w = ((ui.available_width() - 48.0 - chips - reserve - HOME_TAB_W)
+        / visible_tabs as f32)
+        .clamp(110.0, 230.0);
 
     let row = ui.horizontal(|ui| {
         egui::ScrollArea::horizontal()
@@ -343,15 +347,25 @@ fn tab_widget(
 ) -> Rect {
     let tab = &app.tabs.tabs[idx];
     let id = tab.id;
+    // The fixed Home tab: only its icon, no close button, stays first.
+    let home = app.tabs.is_home(id);
+    let width = if home { HOME_TAB_W } else { width };
     let is_active = id == active;
     // In split view the other pane's tab looks open too, but without the accent.
     let is_partner = app.tabs.split_partner() == Some(id);
-    let (rect, resp) = ui.allocate_exact_size(vec2(width, TAB_HEIGHT), Sense::click_and_drag());
+    let sense = if home {
+        Sense::click()
+    } else {
+        Sense::click_and_drag()
+    };
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, TAB_HEIGHT), sense);
     let hit = resp.interact_rect;
     let visuals = ui.visuals().clone();
 
     // Reordering and dropping files onto tabs.
-    resp.dnd_set_drag_payload(DragTab(id));
+    if !home {
+        resp.dnd_set_drag_payload(DragTab(id));
+    }
     let tab_hover = resp
         .dnd_hover_payload::<DragTab>()
         .is_some_and(|d| d.0 != id);
@@ -437,6 +451,31 @@ fn tab_widget(
         _ => tab.title(),
     };
     let accent = crate::theme::accent(&app.settings);
+    if home {
+        crate::icons::paint_icon(
+            ui.painter(),
+            crate::icons::icon_rect(body.center().x - 7.5, body.center().y, 15.0),
+            icon,
+            text_color,
+            accent,
+        );
+        let resp = resp.on_hover_text(tr("Home"));
+        if resp.clicked() {
+            actions.push(Action::Tab(TabAction::Activate(id)));
+        }
+        resp.context_menu(|ui| {
+            if ui
+                .add(
+                    egui::Button::new(tr("➕ New tab"))
+                        .shortcut_text(shortcuts::label(Command::NewTab)),
+                )
+                .clicked()
+            {
+                actions.push(Action::Tab(TabAction::New));
+            }
+        });
+        return hit;
+    }
     crate::icons::paint_icon(
         &painter,
         crate::icons::icon_rect(body.left() + 10.0, body.center().y, 15.0),

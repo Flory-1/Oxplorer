@@ -65,7 +65,8 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 - Chrome-style **tab groups** with names and colours; click a group's chip to collapse it
 - **Split view** (Ctrl+\\): two folders side by side. F6 or a click switches the pane, and
   you can drag files between the panes.
-- **Home page** with favorites, drives with usage bars, and recent folders and files
+- **Home tab**, always the first tab: favorites, drives with usage bars, and recent folders and
+  files. What you open from it opens in a new tab.
 - **Sidebar** with Favorites, This PC, Network, Recent, Tags and Saved searches
 - **Command palette** (Ctrl+Shift+P): type a few letters to run any command or jump to a
   favorite, drive, recent folder, tag or saved search

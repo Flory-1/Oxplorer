@@ -263,6 +263,11 @@ pub struct Tab {
 
 impl Tab {
     pub fn new(id: TabId, location: Location, settings: &Settings) -> Self {
+        // The search box shows the query of a search tab.
+        let filter = match &location {
+            Location::Search { query, .. } => query.clone(),
+            _ => String::new(),
+        };
         Self {
             id,
             group: None,
@@ -270,7 +275,7 @@ impl Tab {
             pos: 0,
             view: FolderView::default(),
             search: None,
-            filter: String::new(),
+            filter,
             view_mode: settings.browsing.default_view,
             sort_key: settings.browsing.default_sort,
             sort_order: settings.browsing.default_order,
@@ -429,6 +434,8 @@ pub struct TabGroup {
     pub collapsed: bool,
 }
 
+/// The tabs. The first one is always the Home tab: it can't be closed,
+/// moved or grouped, and what is opened from it opens in a new tab.
 pub struct Tabs {
     pub tabs: Vec<Tab>,
     pub groups: Vec<TabGroup>,
@@ -442,16 +449,30 @@ pub struct Tabs {
 }
 
 impl Tabs {
+    /// The Home tab, and `first` in a tab of its own unless it's Home.
     pub fn new(first: Location, settings: &Settings) -> Self {
-        let tab = Tab::new(1, first, settings);
-        Self {
-            active: tab.id,
-            tabs: vec![tab],
+        let home = Tab::new(1, Location::Home, settings);
+        let mut tabs = Self {
+            active: home.id,
+            tabs: vec![home],
             groups: Vec::new(),
             panes: None,
             focus: 0,
             next_id: 2,
+        };
+        if first != Location::Home {
+            tabs.open(first, None, true, settings);
         }
+        tabs
+    }
+
+    /// The fixed Home tab (always the first).
+    pub fn home(&self) -> TabId {
+        self.tabs[0].id
+    }
+
+    pub fn is_home(&self, id: TabId) -> bool {
+        self.home() == id
     }
 
     fn alloc_id(&mut self) -> u64 {
@@ -496,6 +517,7 @@ impl Tabs {
         let id = self.alloc_id();
         let mut tab = Tab::new(id, loc, settings);
         let idx = match after.and_then(|a| self.index_of(a)) {
+            // Nothing goes before the Home tab.
             Some(i) => {
                 // New tabs opened from a grouped tab join that group.
                 tab.group = self.tabs[i].group;
@@ -521,16 +543,11 @@ impl Tabs {
         }
     }
 
-    /// Close a tab. The last tab is replaced by a Home tab instead.
-    pub fn close(&mut self, id: TabId, settings: &Settings) {
-        let Some(idx) = self.index_of(id) else { return };
-        if self.tabs.len() == 1 {
-            let new_id = self.alloc_id();
-            self.tabs[0] = Tab::new(new_id, Location::Home, settings);
-            self.active = new_id;
-            self.groups.clear();
+    /// Close a tab (not the Home tab).
+    pub fn close(&mut self, id: TabId) {
+        let Some(idx) = self.index_of(id).filter(|&i| i > 0) else {
             return;
-        }
+        };
         self.tabs.remove(idx);
         if self.active == id {
             let next = idx.min(self.tabs.len() - 1);
@@ -600,8 +617,10 @@ impl Tabs {
         self.panes = (p[0] != p[1]).then_some(p);
     }
 
+    /// Close every tab but `keep` (and the Home tab).
     pub fn close_others(&mut self, keep: TabId) {
-        self.tabs.retain(|t| t.id == keep);
+        let home = self.home();
+        self.tabs.retain(|t| t.id == keep || t.id == home);
         self.active = keep;
         self.drop_empty_groups();
     }
@@ -610,6 +629,9 @@ impl Tabs {
         let Some(src) = self.tabs.iter().find(|t| t.id == id) else {
             return;
         };
+        if self.is_home(id) {
+            return;
+        }
         let (loc, mode, key, order) = (
             src.location().clone(),
             src.view_mode,
@@ -635,11 +657,12 @@ impl Tabs {
 
     /// Move tab `id` so that it sits at `target` index.
     pub fn move_tab(&mut self, id: TabId, target: usize) {
-        let Some(from) = self.index_of(id) else {
+        let Some(from) = self.index_of(id).filter(|&i| i > 0) else {
             return;
         };
         let tab = self.tabs.remove(from);
-        let target = target.min(self.tabs.len());
+        // The Home tab stays first.
+        let target = target.clamp(1, self.tabs.len());
         // Dropping a tab between tabs of a group makes it join that group.
         let neighbour_group = self
             .tabs
@@ -663,12 +686,14 @@ impl Tabs {
             collapsed: false,
         });
         self.add_to_group(tab, gid);
+        // (The Home tab can't join one.)
+        self.drop_empty_groups();
         gid
     }
 
     /// Add a tab to a group, moving it next to the group's other tabs.
     pub fn add_to_group(&mut self, tab: TabId, gid: GroupId) {
-        let Some(from) = self.index_of(tab) else {
+        let Some(from) = self.index_of(tab).filter(|&i| i > 0) else {
             return;
         };
         let mut t = self.tabs.remove(from);
@@ -678,7 +703,8 @@ impl Tabs {
             .iter()
             .rposition(|x| x.group == Some(gid))
             .map(|i| i + 1)
-            .unwrap_or(from.min(self.tabs.len()));
+            .unwrap_or(from.min(self.tabs.len()))
+            .max(1);
         self.tabs.insert(insert_at, t);
         self.drop_empty_groups();
     }
@@ -712,7 +738,7 @@ impl Tabs {
         self.groups.retain(|g| g.id != gid);
     }
 
-    pub fn close_group(&mut self, gid: GroupId, settings: &Settings) {
+    pub fn close_group(&mut self, gid: GroupId) {
         let ids: Vec<TabId> = self
             .tabs
             .iter()
@@ -720,7 +746,7 @@ impl Tabs {
             .map(|t| t.id)
             .collect();
         for id in ids {
-            self.close(id, settings);
+            self.close(id);
         }
         self.groups.retain(|g| g.id != gid);
     }
@@ -791,6 +817,22 @@ impl Tabs {
     pub fn from_session(session: Session, settings: &Settings) -> Option<Self> {
         if session.tabs.is_empty() {
             return None;
+        }
+        // Sessions from before the Home tab was fixed may not start with it.
+        let mut session = session;
+        let starts_home = session
+            .tabs
+            .first()
+            .is_some_and(|t| t.location == Location::Home && t.group.is_none());
+        if !starts_home {
+            session.tabs.insert(
+                0,
+                SessionTab {
+                    location: Location::Home,
+                    group: None,
+                },
+            );
+            session.active += 1;
         }
         let mut tabs = Tabs {
             tabs: Vec::new(),
@@ -881,7 +923,7 @@ mod tests {
         assert_eq!(t.panes, Some([2, 4]));
 
         // Closing a pane's tab ends the split; toggling twice turns it off.
-        t.close(2, &s);
+        t.close(2);
         t.fix_panes();
         assert_eq!(t.panes, None);
         t.toggle_split(&s);
@@ -898,18 +940,18 @@ mod tests {
         let (mut t, _) = tabs();
         assert_eq!(order(&t), vec![1, 2, 3, 4]);
         let g = t.new_group(4);
-        t.add_to_group(1, g);
-        // Tab 1 moved next to tab 4.
-        assert_eq!(order(&t), vec![2, 3, 4, 1]);
+        t.add_to_group(2, g);
+        // Tab 2 moved next to tab 4.
+        assert_eq!(order(&t), vec![1, 3, 4, 2]);
         t.remove_from_group(4);
-        assert_eq!(order(&t), vec![2, 3, 1, 4]);
-        t.remove_from_group(1);
+        assert_eq!(order(&t), vec![1, 3, 2, 4]);
+        t.remove_from_group(2);
         assert!(t.groups.is_empty(), "empty group is removed");
     }
 
     #[test]
     fn closing_and_collapsing() {
-        let (mut t, s) = tabs();
+        let (mut t, _) = tabs();
         t.activate(3);
         let g = t.new_group(3);
         t.toggle_group(g);
@@ -919,13 +961,39 @@ mod tests {
             !t.group(g).unwrap().collapsed,
             "activating expands the group"
         );
-        t.close_group(g, &s);
+        t.close_group(g);
         assert_eq!(order(&t), vec![1, 2, 4]);
         for id in [1, 2, 4] {
-            t.close(id, &s);
+            t.close(id);
         }
-        assert_eq!(t.tabs.len(), 1, "last tab is replaced, not removed");
+        assert_eq!(order(&t), vec![1], "the Home tab stays");
         assert_eq!(*t.active().location(), Location::Home);
+    }
+
+    #[test]
+    fn the_home_tab_stays_first() {
+        let (mut t, s) = tabs();
+        assert_eq!(t.home(), 1);
+        // It can't be moved, grouped, duplicated or closed, and nothing
+        // moves in front of it.
+        t.move_tab(1, 3);
+        t.move_tab(4, 0);
+        assert_eq!(order(&t), vec![1, 4, 2, 3]);
+        let g = t.new_group(1);
+        assert!(t.group(g).is_none() && t.tabs[0].group.is_none());
+        t.duplicate(1, &s);
+        t.close(1);
+        assert_eq!(t.tabs.len(), 4);
+        // Tabs opened from it go after it; "close others" keeps it.
+        let id = t.open(Location::Folder("/d".into()), Some(1), true, &s);
+        assert_eq!(t.index_of(id), Some(1));
+        t.close_others(id);
+        assert_eq!(order(&t), vec![1, id]);
+        // Starting in a folder gives the Home tab and the folder's tab.
+        let t = Tabs::new(Location::Folder("/x".into()), &s);
+        assert_eq!(t.tabs.len(), 2);
+        assert_eq!(*t.tabs[0].location(), Location::Home);
+        assert_eq!(t.active, t.tabs[1].id);
     }
 
     #[test]
@@ -957,5 +1025,18 @@ mod tests {
             restored.tabs.iter().filter(|t| t.group.is_some()).count(),
             1
         );
+
+        // An older session without the Home tab in front gets one.
+        let old = Session {
+            tabs: vec![SessionTab {
+                location: Location::Help,
+                group: None,
+            }],
+            groups: Vec::new(),
+            active: 0,
+        };
+        let restored = Tabs::from_session(old, &s).unwrap();
+        assert_eq!(*restored.tabs[0].location(), Location::Home);
+        assert_eq!(*restored.active().location(), Location::Help);
     }
 }

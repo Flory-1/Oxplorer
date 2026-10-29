@@ -1593,11 +1593,17 @@ impl OxApp {
                 self.navigate(Location::Search { root, query });
             }
             Action::SearchLive(root, query) => {
+                let home = self.tabs.home();
                 let tab = self.tabs.active_mut();
                 let in_search = matches!(tab.location(), Location::Search { .. });
                 if query.trim().is_empty() {
-                    if in_search {
+                    if in_search && tab.can_go_back() {
                         tab.back();
+                    } else if in_search {
+                        // A search tab opened from the Home tab: back to Home.
+                        let id = tab.id;
+                        self.tabs.close(id);
+                        self.tabs.activate(home);
                     }
                 } else if in_search {
                     tab.replace(Location::Search { root, query });
@@ -1683,7 +1689,7 @@ impl OxApp {
             TabAction::New => {
                 self.tabs.open(Location::Home, None, true, s);
             }
-            TabAction::Close(id) => self.tabs.close(id, s),
+            TabAction::Close(id) => self.tabs.close(id),
             TabAction::Activate(id) => self.tabs.activate(id),
             TabAction::ToggleSplit => self.tabs.toggle_split(s),
             TabAction::SwitchPane => self.tabs.switch_pane(),
@@ -1700,7 +1706,7 @@ impl OxApp {
             TabAction::AddToGroup(id, g) => self.tabs.add_to_group(id, g),
             TabAction::RemoveFromGroup(id) => self.tabs.remove_from_group(id),
             TabAction::ToggleGroup(g) => self.tabs.toggle_group(g),
-            TabAction::CloseGroup(g) => self.tabs.close_group(g, s),
+            TabAction::CloseGroup(g) => self.tabs.close_group(g),
             TabAction::Ungroup(g) => self.tabs.ungroup(g),
             TabAction::RenameGroup(g) => {
                 let text = self
@@ -1734,7 +1740,14 @@ impl OxApp {
         }
     }
 
+    /// Go to `loc` in the active tab. Home is the Home tab; what is opened
+    /// from the Home tab opens in a new tab, so it stays Home.
     pub fn navigate(&mut self, loc: Location) {
+        self.ui.address_editing = false;
+        if loc == Location::Home {
+            self.tabs.activate(self.tabs.home());
+            return;
+        }
         if let Location::Folder(p) = &loc {
             if !ox_core::network::is_dir(p) {
                 self.toast(ox_core::trf!(
@@ -1746,8 +1759,13 @@ impl OxApp {
             self.quick.visit_folder(p);
             self.save_quick();
         }
-        self.ui.address_editing = false;
-        self.tabs.active_mut().navigate(loc);
+        if self.tabs.is_home(self.tabs.active) {
+            // The text typed into its search box went with the search.
+            self.tabs.active_mut().filter.clear();
+            self.tabs.open(loc, None, true, &self.settings);
+        } else {
+            self.tabs.active_mut().navigate(loc);
+        }
     }
 
     fn start_transfer(&mut self, kind: TransferKind, sources: Vec<PathBuf>, dest: PathBuf) {
