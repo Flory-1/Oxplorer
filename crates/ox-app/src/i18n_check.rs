@@ -25,6 +25,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("app/compare.rs"),
     app!("app/flat.rs"),
     app!("app/input.rs"),
+    app!("app/links.rs"),
     app!("app/poll.rs"),
     app!("app/process.rs"),
     app!("app/properties.rs"),
@@ -51,6 +52,8 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("ui/header/tab_strip.rs"),
     app!("ui/help_page.rs"),
     app!("ui/home.rs"),
+    app!("ui/link_dialog.rs"),
+    app!("ui/links.rs"),
     app!("ui/menus.rs"),
     app!("ui/mod.rs"),
     app!("ui/palette.rs"),
@@ -72,6 +75,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     core!("details.rs"),
     core!("entry.rs"),
     core!("fsops.rs"),
+    core!("links.rs"),
     core!("pathfmt.rs"),
     core!("places.rs"),
     core!("player.rs"),
@@ -233,6 +237,23 @@ fn texts_translated_where_they_are_shown_have_german_too() {
     texts.extend(crate::tabs::GROUP_COLORS.map(|(name, _)| name));
     texts.extend(ConflictPolicy::ALL.map(ConflictPolicy::label));
     texts.extend([TransferKind::Copy.verb(), TransferKind::Move.verb()]);
+    {
+        use ox_core::links::LinkKind;
+        use ox_core::undo::Kind;
+        texts.extend([LinkKind::Symbolic, LinkKind::Junction, LinkKind::Hard].map(LinkKind::label));
+        texts.extend(
+            [
+                Kind::Rename,
+                Kind::Move,
+                Kind::Copy,
+                Kind::NewFolder,
+                Kind::NewFile,
+                Kind::NewLink,
+                Kind::Delete,
+            ]
+            .map(Kind::label),
+        );
+    }
     let new_items = ox_core::settings::NewItems::default();
     texts.extend(new_items.0.iter().map(|i| i.label.as_str()));
     for text in texts {

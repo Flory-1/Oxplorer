@@ -97,6 +97,7 @@ fn count_in(n: u64, noun: &str, german: bool) -> String {
         "item" => ("Element", "Elemente"),
         "file" => ("Datei", "Dateien"),
         "folder" => ("Ordner", "Ordner"),
+        "link" => ("Verknüpfung", "Verknüpfungen"),
         "result" => ("Ergebnis", "Ergebnisse"),
         "change" => ("Änderung", "Änderungen"),
         "character" => ("Zeichen", "Zeichen"),

@@ -112,6 +112,11 @@ impl OxApp {
                     return;
                 }
                 let m = self.ctx.input(|i| i.modifiers);
+                if (m.ctrl || m.command) && m.shift {
+                    // Ctrl+Shift links, like in Explorer.
+                    self.link_dropped(sources, dest);
+                    return;
+                }
                 let kind = if m.ctrl || m.command {
                     TransferKind::Copy
                 } else if m.shift
@@ -484,6 +489,8 @@ impl OxApp {
             Action::Compare(a) => self.process_compare(a),
             Action::ToggleFlatView => self.toggle_flat_view(),
             Action::ShowInFolder(path) => self.show_in_folder(path),
+            Action::NewLink(dir, kind) => self.new_link_dialog(dir, kind),
+            Action::ShowLinkTarget(link) => self.show_link_target(link),
             Action::Toast(t) => self.toast(t),
             Action::RestoreFromBin(paths) => {
                 let items = self.tabs.active().view.bin.select(&paths);

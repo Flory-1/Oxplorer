@@ -6,7 +6,7 @@ mod grid;
 mod item;
 use details::details;
 use grid::grid;
-use item::{item_context_menu, item_interact};
+use item::{item_context_menu, item_interact, item_tooltip};
 use ox_core::i18n::t as tr;
 use std::collections::HashSet;
 use std::path::PathBuf;

@@ -105,6 +105,10 @@ pub enum Action {
     ToggleFlatView,
     /// Go to the folder an item is in and select it there.
     ShowInFolder(PathBuf),
+    /// Open the dialog for a new symbolic link, junction or hard link in this folder.
+    NewLink(PathBuf, ox_core::links::LinkKind),
+    /// Go to where a link points (its target's folder, with the target selected).
+    ShowLinkTarget(PathBuf),
 }
 
 pub enum TabAction {

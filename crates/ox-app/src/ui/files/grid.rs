@@ -49,15 +49,8 @@ pub(super) fn grid(
                     let drop_hover = item_interact(view, i, &entry, &resp, cx, actions);
                     paint_tile(ui, rect, &entry, selected, drop_hover, &resp, cx);
                     item_context_menu(&resp, view, &entry, cx, actions);
-                    if cx.is_search || cx.flat {
-                        // There's no Folder column here.
-                        resp.on_hover_text(format!(
-                            "{}
-{}",
-                            entry.name,
-                            super::details::folder_text(&entry, cx)
-                        ));
-                    }
+                    // There's no Folder column here.
+                    item_tooltip(ui, resp, &entry, cx, cx.is_search || cx.flat);
                 }
             });
         }
@@ -137,6 +130,9 @@ fn paint_tile(
                 FontId::proportional(8.0),
                 Color32::WHITE,
             );
+        }
+        if e.is_symlink {
+            icons::paint_link_badge(ui.painter(), r.right_bottom() + vec2(-8.0, -8.0), 7.0);
         }
     } else {
         let texture = cx

@@ -107,6 +107,13 @@ pub(super) fn item_context_menu(
         if (cx.is_search || cx.flat) && ui.button(tr("📁 Open file location")).clicked() {
             actions.push(Action::ShowInFolder(e.path.clone()));
         }
+        if e.is_symlink
+            && selection.len() == 1
+            && !cx.read_only
+            && ui.button(tr("🔗 Open link target location")).clicked()
+        {
+            actions.push(Action::ShowLinkTarget(e.path.clone()));
+        }
         let target = MenuTarget {
             selection: &selection,
             read_only: cx.read_only,
@@ -120,4 +127,27 @@ pub(super) fn item_context_menu(
         };
         super::super::item_menu(ui, &target, actions);
     });
+}
+
+/// The tooltip of an item: its folder (`with_folder`, where there's no
+/// Folder column) and where it points, if it's a link.
+pub(super) fn item_tooltip(
+    ui: &Ui,
+    resp: Response,
+    e: &FileEntry,
+    cx: &Ctx<'_>,
+    with_folder: bool,
+) {
+    if !resp.hovered() || (!with_folder && !e.is_symlink) || cx.is_bin || cx.read_only {
+        return;
+    }
+    let mut lines = Vec::new();
+    if with_folder {
+        lines.push(e.name.clone());
+        lines.push(super::details::folder_text(e, cx));
+    }
+    lines.extend(super::super::links::describe(ui.ctx(), e));
+    if !lines.is_empty() {
+        resp.on_hover_text(lines.join("\n"));
+    }
 }
