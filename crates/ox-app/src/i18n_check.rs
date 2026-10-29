@@ -27,6 +27,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("app/compare.rs"),
     app!("app/disk_usage.rs"),
     app!("app/flat.rs"),
+    app!("app/git.rs"),
     app!("app/input.rs"),
     app!("app/links.rs"),
     app!("app/instances.rs"),
@@ -93,7 +94,11 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("ui/preview/document.rs"),
     app!("ui/preview/data.rs"),
     app!("ui/preview/font.rs"),
+    app!("ui/preview/git_branches.rs"),
+    app!("ui/preview/git_changes.rs"),
+    app!("ui/preview/git_diff.rs"),
     app!("ui/preview/git_graph.rs"),
+    app!("ui/preview/git_panel.rs"),
     app!("ui/preview/hex.rs"),
     app!("ui/preview/info.rs"),
     app!("ui/preview/animation.rs"),
@@ -128,6 +133,8 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     core!("entry.rs"),
     core!("exif_info.rs"),
     core!("folder_views.rs"),
+    core!("git/cmd.rs"),
+    core!("git/ops.rs"),
     core!("fsops.rs"),
     core!("links.rs"),
     core!("grouping.rs"),
@@ -295,6 +302,7 @@ fn texts_translated_where_they_are_shown_have_german_too() {
         .map(FileKind::label),
     );
     texts.extend(ox_core::tags::TagColor::ALL.map(|c| c.name()));
+    texts.extend(ox_core::git::Group::ALL.map(|g| g.label()));
     texts.extend(ox_core::columns::ColumnId::ALL.map(|c| c.label()));
     texts.extend(ox_core::entry::SortKey::ALL.map(|k| k.label()));
     texts.extend(ox_core::grouping::GroupBy::ALL.map(|g| g.label()));

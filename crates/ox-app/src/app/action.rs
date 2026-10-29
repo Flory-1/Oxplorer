@@ -70,6 +70,8 @@ pub enum Action {
     OpenGitRemote(PathBuf),
     /// Copy the checked out branch of the repository a path is in.
     CopyGitBranch(PathBuf),
+    /// What the Git tab asks of the app.
+    Git(super::GitAction),
     OpenTerminal(PathBuf),
     Reveal(PathBuf),
     Properties(Vec<PathBuf>),

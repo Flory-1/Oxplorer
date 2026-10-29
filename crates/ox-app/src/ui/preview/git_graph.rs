@@ -18,11 +18,21 @@ pub(super) struct GitInfo {
     pub(super) web: Option<String>,
 }
 
+static CACHE: Mutex<Option<(Instant, Arc<GitInfo>)>> = Mutex::new(None);
+
+/// The history of the repository `dir` is in, read again (after a commit
+/// or a switch of branches).
+pub(super) fn fresh_git_info(dir: &Path) -> Option<Arc<GitInfo>> {
+    if let Ok(mut cache) = CACHE.lock() {
+        *cache = None;
+    }
+    git_info(dir)
+}
+
 /// The history of the repository `dir` is in. Kept for a few seconds, so
 /// going through the folders of one repository doesn't run `git log` for
 /// each of them.
 pub(super) fn git_info(dir: &Path) -> Option<Arc<GitInfo>> {
-    static CACHE: Mutex<Option<(Instant, Arc<GitInfo>)>> = Mutex::new(None);
     const KEEP: Duration = Duration::from_secs(10);
     let root = ox_core::git::repo_root(dir)?;
     if let Some((at, info)) = CACHE.lock().ok()?.as_ref() {
@@ -30,8 +40,13 @@ pub(super) fn git_info(dir: &Path) -> Option<Arc<GitInfo>> {
             return Some(info.clone());
         }
     }
-    let commits = ox_core::git::log(&root, MAX_COMMITS).ok()?;
     let status = ox_core::git::status(&root).ok();
+    // Before the first commit there's no history, but there is a status.
+    let commits = match ox_core::git::log(&root, MAX_COMMITS) {
+        Ok(commits) => commits,
+        Err(_) if status.is_some() => Vec::new(),
+        Err(_) => return None,
+    };
     let (rows, lanes) = ox_core::git::graph(&commits);
     let web = ox_core::git::remote_url(&root)
         .ok()
@@ -68,16 +83,14 @@ pub(super) fn lane_color(lane: usize) -> egui::Color32 {
     LANE_COLORS[lane % LANE_COLORS.len()]
 }
 
-/// The repository's branch and history as a commit graph: one row per
-/// commit with its branches and tags, message, author and date. Clicking a
-/// commit copies its hash.
-pub(super) fn git_graph(ui: &mut Ui, git: &GitInfo, date_fmt: &str, actions: &mut Vec<Action>) {
-    use egui::{epaint::CubicBezierShape, pos2, vec2, Sense, Stroke};
-    const LANE_W: f32 = 14.0;
-    const ROW_H: f32 = 38.0;
-    /// More lanes than this are cut off at the right.
-    const MAX_LANES: usize = 8;
-
+/// The repository's name, its branch (`branch`, e.g. "main ↑2 ↓1") and
+/// its web page.
+pub(super) fn git_header(
+    ui: &mut Ui,
+    git: &GitInfo,
+    branch: Option<&str>,
+    actions: &mut Vec<Action>,
+) {
     let name = git
         .root
         .file_name()
@@ -85,7 +98,7 @@ pub(super) fn git_graph(ui: &mut Ui, git: &GitInfo, date_fmt: &str, actions: &mu
         .unwrap_or_else(|| git.root.display().to_string());
     ui.horizontal_wrapped(|ui| {
         ui.label(RichText::new(format!("📦 {name}")).strong());
-        if let Some(branch) = &git.branch {
+        if let Some(branch) = branch {
             let chip =
                 egui::Button::new(RichText::new(format!("🌿 {branch}")).color(lane_color(0)))
                     .frame(false);
@@ -108,15 +121,18 @@ pub(super) fn git_graph(ui: &mut Ui, git: &GitInfo, date_fmt: &str, actions: &mu
             }
         }
     });
-    let changes = if git.changed == 0 {
-        tr("No changes").to_owned()
-    } else {
-        ox_core::trf!(
-            "{v1} changed",
-            v1 = ox_core::i18n::count(git.changed as u64, "file")
-        )
-    };
-    ui.label(RichText::new(changes).weak().small());
+}
+
+/// The repository's branches and history as a commit graph: one row per
+/// commit with its branches and tags, message, author and date. Clicking a
+/// commit copies its hash.
+pub(super) fn git_graph(ui: &mut Ui, git: &GitInfo, date_fmt: &str, actions: &mut Vec<Action>) {
+    use egui::{epaint::CubicBezierShape, pos2, vec2, Sense, Stroke};
+    const LANE_W: f32 = 14.0;
+    const ROW_H: f32 = 38.0;
+    /// More lanes than this are cut off at the right.
+    const MAX_LANES: usize = 8;
+
     if git.commits.is_empty() {
         ui.add_space(8.0);
         ui.label(RichText::new(tr("No commits yet.")).weak());
