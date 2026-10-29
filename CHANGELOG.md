@@ -6,6 +6,48 @@ The release workflow publishes the section of the tagged version as the release 
 ## [Unreleased]
 
 ### Added
+- **Column chooser**: right-click the details header (or View → Columns) to show or hide
+  columns, drag a header to move it and an edge to resize it. New columns: date created,
+  dimensions, length, date taken, authors, file version, attributes and, in OneDrive or Dropbox
+  folders, Status. They're read in the background, and files that are only in the cloud aren't
+  downloaded for them.
+- **Remember the view per folder**: each folder keeps its view, sort order, columns and grouping
+  (e.g. *Downloads* by date, *Pictures* as a grid). *Reset view of this folder* and *Use this
+  view for all folders* are in the View menu; Settings → Browsing → *Remember the view of each
+  folder* turns it off.
+- **Group by** type, date modified, size or tag (Sort → Group by), with collapsible groups in the
+  details and grid views; keyboard navigation and Select all go over the open groups.
+- **Grid zoom**: Ctrl+mouse wheel over the grid makes the icons smaller or larger, from small
+  icons to large thumbnails (zoom out past the smallest to get the details view), or use the size
+  slider in the status bar. Thumbnails and large Windows icons load in a matching size.
+- **Select by pattern** (`*.jpg; *.png`) and deselect by pattern (Ctrl+Shift+A), **Invert
+  selection** (Ctrl+Shift+I) and **Select all of the same type**, in the right-click menu's
+  Select submenu and the command palette.
+- **Quick Look**: Space shows a large preview of the selected file over the window (pictures,
+  text and code, Markdown, PDF, audio and video, and the contents of folders and archives); the
+  arrow keys go to the previous or next item, Space or Esc closes it.
+- **Flat view** (View menu, toolbar or Ctrl+Shift+F): every file in a folder and all its
+  sub-folders in one list, with a Folder column. It lists in the background up to 200 000 files,
+  skips hidden and unreadable folders and doesn't follow junctions or links to folders.
+- **Pinned tabs**: pin a tab from its menu or the command palette. It shrinks to its icon, stays
+  at the front, and survives *Close other tabs* and restarts.
+- **Named sessions**: save the open tabs and groups under a name (right-click the + button or use
+  the command palette) and open them again later, instead of the open tabs or next to them.
+  Sessions can be renamed and deleted.
+- **More windows**: Ctrl+N opens a new window on the current folder, and *Move to new window* or
+  dragging a tab out of the window gives it a window of its own. Only the first window restores
+  and saves the tabs, and windows don't overwrite each other's settings, favorites and tags.
+- **Links**: create symbolic links, junctions and hard links from the New menu, or drag with
+  Ctrl+Shift to link items into a folder (folders get a junction, files a symbolic link or,
+  without Developer Mode, a hard link). Links show an arrow, their target in the tooltip and
+  status bar, and *Open link target location*; Ctrl+Z removes a new link (never its target).
+- **Cloud files**: the OneDrive / Dropbox status of files and folders (online only, on this
+  device, always kept, sync pending, sync problem) as a badge on the icon, a Status column and in
+  the Info tab, plus *Always keep on this device* and *Free up space* in the right-click menu.
+- **Libraries and Gallery** in the sidebar: a Windows library (Documents, Music, Pictures, Videos
+  or your own) shows the items of all its folders together, and files dropped or pasted into it
+  go to its save location. The Gallery shows every picture and video of the Pictures library,
+  newest first, as a grid. Settings → Sidebar turns the section off.
 - **Undo and redo**: Ctrl+Z undoes the last file operation and Ctrl+Y (or Ctrl+Shift+Z) redoes
   it: renames and bulk renames, moves, copies, new folders and files, and deletes to the
   Recycle Bin. The last 50 are remembered. Undone copies and new files go to the Recycle Bin,
@@ -53,6 +95,12 @@ The release workflow publishes the section of the tagged version as the release 
   item that was never committed says *Untracked* instead of showing no commit.
 
 ### Changed
+- With *Remember the view of each folder* on, a folder without a view of its own opens with the
+  default view instead of keeping the sort order of the folder before.
+- *Open file location* (search results, flat view, libraries) goes to the folder and selects the
+  item there.
+- Browsing no longer downloads online-only cloud files: thumbnails come from the Windows cache
+  only, the preview and content searches skip them, and their icons are the generic ones.
 - The sidebar and the preview pane have **fixed widths** that line up with the toolbar: the
   sidebar ends under the separator after the edit buttons, the preview starts between the
   address bar and the search box. The width settings are gone.
@@ -60,6 +108,7 @@ The release workflow publishes the section of the tagged version as the release 
 - Settings, Help and the Recycle Bin **open only once**: opening one again switches to its tab.
 
 ### Fixed
+- Copying a OneDrive folder skipped its sub-folders, because cloud folders were taken for links.
 - The window could flash when switching back to it from another window.
 - The status bar jumped in height between Settings and folders.
 - The close button on tabs wasn't centred.

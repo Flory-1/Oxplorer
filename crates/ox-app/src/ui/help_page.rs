@@ -295,6 +295,63 @@ const TOPICS: &[Topic] = &[
     },
     Topic {
         section: 1,
+        title: "Columns, grouping and icon size",
+        blocks: &[List(&[
+            "Right-click the column header (or View → Columns) to show or hide columns: date \
+             created, dimensions, length, date taken, authors, file version, attributes and, \
+             in OneDrive or Dropbox folders, Status. Drag a header to move it, its edge to \
+             resize it.",
+            "Each folder remembers its view, sort order, columns and grouping. View → Reset \
+             view of this folder forgets it; Use this view for all folders makes it the \
+             default. Settings → Browsing turns it off.",
+            "Sort → Group by puts items into groups by type, date modified, size or tag. Click \
+             a group's header to fold it away.",
+            "In the grid, Ctrl+mouse wheel or the slider in the status bar makes the icons \
+             smaller or larger.",
+        ])],
+    },
+    Topic {
+        section: 1,
+        title: "Quick Look, selecting and the flat view",
+        blocks: &[List(&[
+            "Space shows the selected file large over the window. The arrow keys go to the \
+             next or previous one; Space or Esc closes it.",
+            "Ctrl+Shift+A selects by pattern (*.jpg; *.png), Ctrl+Shift+I inverts the \
+             selection. Right-click → Select also selects all items of the same type.",
+            "Ctrl+Shift+F (the flat view) lists every file of the folder and its sub-folders \
+             in one list, with the folder each is in.",
+        ])],
+    },
+    Topic {
+        section: 1,
+        title: "Pinned tabs, sessions and windows",
+        blocks: &[List(&[
+            "Right-click a tab → Pin tab: it shrinks to its icon, stays in front and isn't \
+             closed by Close other tabs.",
+            "Right-click the + button → Save tabs as session… keeps the open tabs and groups \
+             under a name, to open again later instead of or next to the open ones.",
+            "Ctrl+N opens a new window. Drag a tab out of the window, or right-click it → Move \
+             to new window, to give it a window of its own. The first window keeps the tabs \
+             for the next start.",
+        ])],
+    },
+    Topic {
+        section: 1,
+        title: "Links, cloud files and libraries",
+        blocks: &[List(&[
+            "New → Symbolic link, Junction or Hard link, or drag items with Ctrl+Shift onto a \
+             folder, links them there. Links show an arrow, and right-click → Open link target \
+             location goes to what they point to.",
+            "In OneDrive or Dropbox folders, a badge shows whether a file is online only, on \
+             this device or always kept. Right-click → Always keep on this device or Free up \
+             space changes it. Online-only files aren't downloaded just for a preview.",
+            "The sidebar's Libraries section shows Windows' libraries (all their folders in one \
+             view) and the Gallery: every picture and video of the Pictures library, newest \
+             first.",
+        ])],
+    },
+    Topic {
+        section: 1,
         title: "Windows integration",
         blocks: &[List(&[
             "Files have the same icons as in Explorer.",

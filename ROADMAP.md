@@ -26,6 +26,10 @@ Windows machine yet.
     edge, Mica without a second set of caption buttons)
   - Explorer clipboard interop, hidden/system attributes, junctions, long paths, high DPI and
     moving the window between monitors with different scaling
+  - OneDrive / Dropbox status, *Always keep on this device* and *Free up space* with a real
+    sync root, and libraries with folders on other drives
+  - several windows: Ctrl+N, dragging a tab out (also onto another monitor), and which window
+    keeps the session
 - ⏳ **Copy engine benchmarks** against Explorer, robocopy and TeraCopy (many small files, one
   huge file, SSD → USB stick, network share), with the numbers in the README. The
   `copy_bench` example measures the engine, robocopy and xcopy; Explorer and TeraCopy by hand
@@ -40,24 +44,11 @@ Windows machine yet.
 
 ## Phase 9 — Views and browsing
 
-- ⏳ **Remember the view per folder**: sort order, view mode and columns (e.g. *Downloads* by
-  date, *Pictures* as a grid)
-- ⏳ **Column chooser**: show, hide, reorder and resize columns, with extra ones such as
-  dimensions, length, author, version, attributes and *date taken*
-- ⏳ **Grid zoom** with Ctrl+mouse wheel and a size slider, from small icons to large thumbnails
-- ⏳ **Group by** type, date, size or tag, with collapsible groups
-- ⏳ **Select by pattern** (`*.jpg`), invert selection, select all of the same type
-- ⏳ **Quick Look**: Space opens a large preview of the selected file over the window; arrow
-  keys go to the next file
-- ⏳ **Flat view**: every file in a folder and its sub-folders in one list
-- ⏳ **Pinned tabs** (small, always first, not closed by *Close other tabs*) and **named
-  sessions/workspaces** (save a set of tabs and groups, open it again later)
-- ⏳ **More windows**: open a new window (Ctrl+N), drag a tab out of the window into its own
-- ⏳ **Cloud files**: OneDrive / Dropbox status (online only, on this device, syncing) as an
-  icon overlay and a column, plus *Always keep on this device* / *Free up space*
-- ⏳ **Links**: create symbolic links, junctions and hard links from the New menu or by
-  dragging with Ctrl+Shift, and show where a link points
-- 💡 Libraries and the Windows Gallery as places in the sidebar
+- 💡 Sort by the columns read from the files (dimensions, length, date taken, authors, version)
+- 💡 Libraries: refresh by themselves when files change outside Oxplorer, and search inside a
+  library from the search box
+- 💡 The Gallery grouped by month
+- 💡 A *Browse* button and path completion in the *New link* dialog
 
 ## Phase 10 — Search and disk usage
 
