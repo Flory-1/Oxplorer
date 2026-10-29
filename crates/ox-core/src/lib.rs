@@ -4,6 +4,7 @@
 //! tested (and reused by a future CLI or alternative front-end).
 
 pub mod archive;
+pub mod cleanup;
 pub mod clipboard;
 pub mod cloud;
 pub mod columns;

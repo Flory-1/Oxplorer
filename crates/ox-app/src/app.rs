@@ -5,6 +5,7 @@
 //! borrow checker happy and makes every user command go through one place.
 
 mod action;
+mod cleanup;
 mod cloud;
 mod compare;
 mod flat;
@@ -23,6 +24,7 @@ mod undo;
 mod view;
 mod window;
 pub use action::{Action, TabAction};
+pub use cleanup::{CleanupAction, CleanupView, ConfirmCleanup};
 pub use compare::{CompareAction, CompareState};
 pub use instances::Start;
 pub use properties::Properties;
@@ -231,6 +233,8 @@ pub struct OxApp {
     libraries_at: Option<Instant>,
     /// Running Gallery walks: the tab and the flag that stops it.
     gallery_walks: Vec<(TabId, Arc<AtomicBool>)>,
+    /// Find duplicates / empty folders: the pages' scans and ticks.
+    pub cleanups: cleanup::Cleanups,
 }
 
 /// What background work started by an action reports back.
@@ -379,6 +383,7 @@ impl OxApp {
             libraries_rx: None,
             libraries_at: None,
             gallery_walks: Vec::new(),
+            cleanups: Default::default(),
         }
     }
 
@@ -447,6 +452,7 @@ impl OxApp {
         }
         self.poll_tabs();
         self.poll_compare();
+        self.poll_cleanups();
         self.poll_folder_sizes();
         self.poll_git();
         self.poll_cloud();
@@ -592,6 +598,9 @@ impl OxApp {
                     !same
                 });
                 self.gallery_walks.push((tab.id, cancel));
+            }
+            Location::Cleanup { root, mode } => {
+                self.cleanups.start(tab.id, root, mode, show_hidden, ctx);
             }
             Location::Home | Location::Settings | Location::Help => {}
         }

@@ -160,6 +160,22 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) -> Rect 
                     }
                     archive_crumbs(ui, archive, inner, actions);
                 }
+                Location::Cleanup { root, mode } => {
+                    let icon = Location::cleanup_icon(*mode);
+                    let place = root.display();
+                    ui.label(match mode {
+                        ox_core::cleanup::CleanupMode::Duplicates => ox_core::trf!(
+                            "{icon}  Duplicates in {place}",
+                            icon = icon,
+                            place = place
+                        ),
+                        ox_core::cleanup::CleanupMode::EmptyFolders => ox_core::trf!(
+                            "{icon}  Empty folders in {place}",
+                            icon = icon,
+                            place = place
+                        ),
+                    });
+                }
                 Location::Search { root, query } => {
                     let place = root
                         .as_deref()
