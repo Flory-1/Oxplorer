@@ -1,37 +1,12 @@
-//! Fast search across folders and drives.
-//!
-//! Two back ends share one query language: a multi-threaded directory walk
-//! (the `ignore` crate's parallel walker, the same one ripgrep uses) that
-//! streams results while it runs, and the persistent file index in
-//! [`crate::index`] that answers name queries over whole drives instantly.
-//!
-//! # Query syntax
-//!
-//! | Example              | Meaning                                               |
-//! |----------------------|-------------------------------------------------------|
-//! | `report`             | name contains "report" (case-insensitive)             |
-//! | `"annual report"`    | name contains the exact phrase                        |
-//! | `*.rs` / `img_??`    | wildcard match on the whole name                      |
-//! | `/^IMG_\d+\.jpe?g$/` | regular expression on the name (also `regex:…`)       |
-//! | `-tmp`               | name must *not* contain "tmp"                         |
-//! | `ext:pdf,docx`       | extension is one of the list                          |
-//! | `type:folder`        | only folders (`type:file` for files)                  |
-//! | `kind:image,video`   | by file kind (image, video, audio, document, archive, code, app) |
-//! | `size:>10mb`         | size filter (`<`, `>`, units b/kb/mb/gb)              |
-//! | `modified:7d`        | modified in the last 7 days (`today`, `24h`, `2w`)    |
-//! | `content:"TODO"`     | file contents contain the text (≤ 32 MB, text files)  |
+//! Parsing a query string and matching names and metadata against it.
 
 use std::cell::RefCell;
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::path::Path;
+use std::time::{Duration, SystemTime};
 
-use crossbeam_channel::{Receiver, Sender};
-
-use crate::entry::{FileEntry, FileKind};
+use crate::entry::FileKind;
 
 #[derive(Debug, Clone)]
 enum Term {
@@ -274,7 +249,7 @@ impl Query {
             && (self.kinds.is_empty() || self.kinds.contains(&FileKind::from_extension(&ext)))
     }
 
-    fn needs_meta(&self) -> bool {
+    pub(super) fn needs_meta(&self) -> bool {
         self.min_size.is_some() || self.max_size.is_some() || self.modified_within.is_some()
     }
 
@@ -304,7 +279,7 @@ impl Query {
         }
     }
 
-    fn matches(
+    pub(super) fn matches(
         &self,
         name: &str,
         is_dir: bool,
@@ -327,7 +302,7 @@ impl Query {
     }
 }
 
-fn tokenize(input: &str) -> Vec<String> {
+pub(super) fn tokenize(input: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut cur = String::new();
     let mut quoted = false;
@@ -505,289 +480,6 @@ fn file_contains(path: &Path, pattern: &regex::bytes::Regex) -> bool {
     })
 }
 
-#[derive(Debug, Clone)]
-pub struct SearchOptions {
-    pub include_hidden: bool,
-    pub case_sensitive: bool,
-    pub max_results: usize,
-    /// 0 = number of CPU cores.
-    pub threads: usize,
-}
-
-impl Default for SearchOptions {
-    fn default() -> Self {
-        Self {
-            include_hidden: false,
-            case_sensitive: false,
-            max_results: 50_000,
-            threads: 0,
-        }
-    }
-}
-
-pub enum SearchEvent {
-    Results(Vec<FileEntry>),
-    Done {
-        elapsed: Duration,
-        scanned: u64,
-        truncated: bool,
-        /// Answered from the file index instead of walking the disk.
-        from_index: bool,
-    },
-}
-
-/// A running search. Dropping it cancels the search.
-pub struct SearchHandle {
-    pub events: Receiver<SearchEvent>,
-    cancel: Arc<AtomicBool>,
-    scanned: Arc<AtomicU64>,
-}
-
-impl SearchHandle {
-    pub fn cancel(&self) {
-        self.cancel.store(true, Ordering::Relaxed);
-    }
-
-    /// Number of files and folders looked at so far.
-    pub fn scanned(&self) -> u64 {
-        self.scanned.load(Ordering::Relaxed)
-    }
-}
-
-impl Drop for SearchHandle {
-    fn drop(&mut self) {
-        self.cancel();
-    }
-}
-
-/// Add or remove a filter token in a query string (used by the filter chips).
-/// Tokens in the same `group` (e.g. `kind:` / `type:`) replace each other.
-pub fn toggle_filter(query: &str, token: &str, group: &[&str]) -> String {
-    let had = tokenize(query)
-        .iter()
-        .any(|t| t.eq_ignore_ascii_case(token));
-    let mut parts: Vec<String> = tokenize(query)
-        .into_iter()
-        .filter(|t| {
-            let lower = t.to_ascii_lowercase();
-            !group.iter().any(|g| lower.starts_with(g))
-        })
-        .collect();
-    if !had {
-        parts.push(token.to_owned());
-    }
-    parts.join(" ")
-}
-
-/// Is `token` part of the query string?
-pub fn has_filter(query: &str, token: &str) -> bool {
-    tokenize(query)
-        .iter()
-        .any(|t| t.eq_ignore_ascii_case(token))
-}
-
-/// Answer a query from the file index in the background (results arrive in
-/// one batch, usually within milliseconds). `within` limits it to a folder.
-pub fn start_indexed(
-    index: Arc<crate::index::FileIndex>,
-    within: Option<PathBuf>,
-    query: Query,
-    opts: SearchOptions,
-    notify: impl Fn() + Send + Sync + 'static,
-) -> SearchHandle {
-    let (tx, rx) = crossbeam_channel::unbounded();
-    let cancel = Arc::new(AtomicBool::new(false));
-    let handle = SearchHandle {
-        events: rx,
-        cancel: cancel.clone(),
-        scanned: Arc::new(AtomicU64::new(index.len() as u64)),
-    };
-    std::thread::Builder::new()
-        .name("search-index".into())
-        .spawn(move || {
-            let started = Instant::now();
-            let (ids, truncated) = index.search(
-                &query,
-                &crate::index::IndexQuery {
-                    include_hidden: opts.include_hidden,
-                    max_results: opts.max_results,
-                    within,
-                    cancel: Some(cancel.clone()),
-                },
-            );
-            if cancel.load(Ordering::Relaxed) {
-                return; // superseded by a newer search
-            }
-            let entries: Vec<FileEntry> = ids.into_iter().map(|i| index.file_entry(i)).collect();
-            if !entries.is_empty() {
-                let _ = tx.send(SearchEvent::Results(entries));
-            }
-            let _ = tx.send(SearchEvent::Done {
-                elapsed: started.elapsed(),
-                scanned: index.len() as u64,
-                truncated,
-                from_index: true,
-            });
-            notify();
-        })
-        .expect("failed to spawn search thread");
-    handle
-}
-
-/// Start searching `roots` in the background. `notify` is called whenever new
-/// results are available (e.g. to repaint the UI).
-pub fn start(
-    roots: Vec<PathBuf>,
-    query: Query,
-    opts: SearchOptions,
-    notify: impl Fn() + Send + Sync + 'static,
-) -> SearchHandle {
-    let (tx, rx) = crossbeam_channel::unbounded();
-    let cancel = Arc::new(AtomicBool::new(false));
-    let scanned = Arc::new(AtomicU64::new(0));
-    let handle = SearchHandle {
-        events: rx,
-        cancel: cancel.clone(),
-        scanned: scanned.clone(),
-    };
-    std::thread::Builder::new()
-        .name("search".into())
-        .spawn(move || run(roots, query, opts, tx, cancel, scanned, Arc::new(notify)))
-        .expect("failed to spawn search thread");
-    handle
-}
-
-fn run(
-    roots: Vec<PathBuf>,
-    query: Query,
-    opts: SearchOptions,
-    tx: Sender<SearchEvent>,
-    cancel: Arc<AtomicBool>,
-    scanned: Arc<AtomicU64>,
-    notify: Arc<dyn Fn() + Send + Sync>,
-) {
-    let started = Instant::now();
-    let found = Arc::new(AtomicU64::new(0));
-    let truncated = Arc::new(AtomicBool::new(false));
-    let Some((first, rest)) = roots.split_first() else {
-        let _ = tx.send(SearchEvent::Done {
-            elapsed: started.elapsed(),
-            scanned: 0,
-            truncated: false,
-            from_index: false,
-        });
-        notify();
-        return;
-    };
-
-    let mut builder = ignore::WalkBuilder::new(first);
-    for r in rest {
-        builder.add(r);
-    }
-    builder
-        .standard_filters(false)
-        .hidden(!opts.include_hidden)
-        .follow_links(false)
-        .threads(opts.threads);
-
-    let query = Arc::new(query);
-    let max = opts.max_results as u64;
-    builder.build_parallel().run(|| {
-        let mut batch = Batch {
-            items: Vec::new(),
-            tx: tx.clone(),
-            notify: notify.clone(),
-            last_flush: Instant::now(),
-            scanned: scanned.clone(),
-            local_scanned: 0,
-        };
-        let query = query.clone();
-        let cancel = cancel.clone();
-        let found = found.clone();
-        let truncated = truncated.clone();
-        Box::new(move |result| {
-            if cancel.load(Ordering::Relaxed) {
-                return ignore::WalkState::Quit;
-            }
-            let Ok(entry) = result else {
-                return ignore::WalkState::Continue;
-            };
-            if entry.depth() == 0 {
-                return ignore::WalkState::Continue;
-            }
-            batch.local_scanned += 1;
-            if batch.local_scanned >= 512 {
-                batch.flush_scanned();
-            }
-            let name = entry.file_name().to_string_lossy();
-            let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
-            if query.matches(&name, is_dir, || entry.metadata().ok(), entry.path()) {
-                if found.fetch_add(1, Ordering::Relaxed) >= max {
-                    truncated.store(true, Ordering::Relaxed);
-                    cancel.store(true, Ordering::Relaxed);
-                    return ignore::WalkState::Quit;
-                }
-                if let Ok(meta) = entry.metadata() {
-                    batch
-                        .items
-                        .push(FileEntry::from_metadata(entry.path().to_path_buf(), &meta));
-                    batch.maybe_flush();
-                }
-            }
-            ignore::WalkState::Continue
-        })
-    });
-
-    let _ = tx.send(SearchEvent::Done {
-        elapsed: started.elapsed(),
-        scanned: scanned.load(Ordering::Relaxed),
-        truncated: truncated.load(Ordering::Relaxed),
-        from_index: false,
-    });
-    notify();
-}
-
-/// Per-thread result buffer that is flushed periodically and on drop.
-struct Batch {
-    items: Vec<FileEntry>,
-    tx: Sender<SearchEvent>,
-    notify: Arc<dyn Fn() + Send + Sync>,
-    last_flush: Instant,
-    scanned: Arc<AtomicU64>,
-    local_scanned: u64,
-}
-
-impl Batch {
-    fn flush_scanned(&mut self) {
-        self.scanned
-            .fetch_add(self.local_scanned, Ordering::Relaxed);
-        self.local_scanned = 0;
-    }
-
-    fn maybe_flush(&mut self) {
-        if self.items.len() >= 256 || self.last_flush.elapsed() > Duration::from_millis(100) {
-            self.flush();
-        }
-    }
-
-    fn flush(&mut self) {
-        if !self.items.is_empty() {
-            let _ = self
-                .tx
-                .send(SearchEvent::Results(std::mem::take(&mut self.items)));
-            (self.notify)();
-        }
-        self.last_flush = Instant::now();
-    }
-}
-
-impl Drop for Batch {
-    fn drop(&mut self) {
-        self.flush_scanned();
-        self.flush();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -851,105 +543,6 @@ mod tests {
         assert_eq!(parse_size("abc"), None);
         assert_eq!(parse_age("24h"), Some(Duration::from_secs(86400)));
         assert_eq!(parse_age("2w"), Some(Duration::from_secs(14 * 86400)));
-    }
-
-    #[test]
-    fn search_tree() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-        fs::create_dir_all(root.join("a/b/c")).unwrap();
-        fs::write(root.join("a/notes.txt"), "remember the TODO").unwrap();
-        fs::write(root.join("a/b/c/notes.md"), "nothing").unwrap();
-        fs::write(root.join("a/b/image.png"), [0u8, 1, 2]).unwrap();
-
-        let collect = |q: &str| {
-            let h = start(
-                vec![root.to_path_buf()],
-                Query::parse(q, false),
-                SearchOptions::default(),
-                || {},
-            );
-            let mut names = Vec::new();
-            for ev in h.events.iter() {
-                match ev {
-                    SearchEvent::Results(r) => names.extend(r.into_iter().map(|e| e.name)),
-                    SearchEvent::Done { scanned, .. } => {
-                        assert_eq!(scanned, 6, "3 folders + 3 files");
-                        break;
-                    }
-                }
-            }
-            names.sort();
-            names
-        };
-        assert_eq!(collect("notes"), vec!["notes.md", "notes.txt"]);
-        assert_eq!(collect("ext:png"), vec!["image.png"]);
-        assert_eq!(collect("type:folder"), vec!["a", "b", "c"]);
-        assert_eq!(collect("content:todo"), vec!["notes.txt"]);
-        assert_eq!(collect("kind:image"), vec!["image.png"]);
-        assert_eq!(
-            collect(r"/^notes\.(md|txt)$/"),
-            vec!["notes.md", "notes.txt"]
-        );
-    }
-
-    #[test]
-    fn indexed_search_reports_results() {
-        use crate::index::{FileIndex, IndexConfig};
-        let dir = tempfile::tempdir().unwrap();
-        fs::create_dir_all(dir.path().join("a/b")).unwrap();
-        fs::write(dir.path().join("a/b/report.pdf"), "x").unwrap();
-        fs::write(dir.path().join("a/other.pdf"), "x").unwrap();
-        let cfg = IndexConfig {
-            roots: vec![dir.path().to_path_buf()],
-            exclude: vec![],
-            threads: 2,
-        };
-        let idx = Arc::new(FileIndex::build(
-            &cfg,
-            &AtomicBool::new(false),
-            &AtomicU64::new(0),
-        ));
-        let h = start_indexed(
-            idx,
-            Some(dir.path().join("a/b")),
-            Query::parse("ext:pdf", false),
-            SearchOptions::default(),
-            || {},
-        );
-        let mut names = Vec::new();
-        for ev in h.events.iter() {
-            match ev {
-                SearchEvent::Results(r) => names.extend(r.into_iter().map(|e| e.path)),
-                SearchEvent::Done { from_index, .. } => {
-                    assert!(from_index);
-                    break;
-                }
-            }
-        }
-        assert_eq!(names, vec![dir.path().join("a/b/report.pdf")]);
-    }
-
-    #[test]
-    fn filter_chips_toggle_tokens() {
-        let kind = &["kind:", "type:"];
-        assert_eq!(
-            toggle_filter("report", "kind:image", kind),
-            "report kind:image"
-        );
-        assert_eq!(
-            toggle_filter("report kind:image", "kind:video", kind),
-            "report kind:video"
-        );
-        assert_eq!(
-            toggle_filter("report kind:image", "kind:image", kind),
-            "report"
-        );
-        assert_eq!(
-            toggle_filter("\"big file\" type:folder", "kind:image", kind),
-            "\"big file\" kind:image"
-        );
-        assert!(has_filter("a SIZE:>10mb", "size:>10mb"));
     }
 
     #[test]
