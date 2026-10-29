@@ -33,7 +33,7 @@ pub fn is_german() -> bool {
 }
 
 static DE: LazyLock<HashMap<&'static str, &'static str>> =
-    LazyLock::new(|| crate::i18n_de::TABLE.iter().copied().collect());
+    LazyLock::new(|| crate::i18n_de::entries().copied().collect());
 
 /// The text in the current language.
 pub fn t(english: &'static str) -> &'static str {
@@ -134,7 +134,7 @@ mod tests {
     #[test]
     fn table_has_no_duplicates_or_blanks() {
         let mut seen = std::collections::HashSet::new();
-        for (en, de) in crate::i18n_de::TABLE {
+        for (en, de) in crate::i18n_de::entries() {
             assert!(seen.insert(en), "duplicate: {en}");
             assert!(!de.trim().is_empty(), "empty translation for {en}");
         }
