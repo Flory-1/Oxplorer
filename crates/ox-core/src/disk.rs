@@ -9,6 +9,10 @@ use std::path::{Path, PathBuf};
 /// Stable identifier of the volume holding `path` (e.g. `c:` or a device id).
 /// Works for paths that don't exist yet by looking at the nearest existing parent.
 pub fn volume_id(path: &Path) -> Option<String> {
+    // `\\wsl$\X` and `\\wsl.localhost\X` are the same distribution.
+    if let Some(distro) = crate::wsl::distro_of(path) {
+        return Some(format!("wsl:{}", distro.to_lowercase()));
+    }
     imp::volume_id(path)
 }
 
@@ -145,6 +149,13 @@ mod tests {
         let a = volume_id(dir.path()).expect("temp dir has a volume");
         // A path that doesn't exist yet resolves to its parent's volume.
         assert_eq!(volume_id(&dir.path().join("not/created/yet")), Some(a));
+    }
+
+    #[test]
+    fn wsl_distributions_are_volumes() {
+        let a = volume_id(Path::new(r"\\wsl$\Ubuntu\home\a"));
+        assert_eq!(a.as_deref(), Some("wsl:ubuntu"));
+        assert_eq!(volume_id(Path::new(r"\\wsl.localhost\ubuntu\tmp")), a);
     }
 
     #[test]

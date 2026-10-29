@@ -883,11 +883,14 @@ pub const TABLE: &[(&str, &str)] = &[
 
 mod cleanup;
 mod cloud;
+mod commands;
 mod data_view;
 mod disk_usage;
 mod flat_links;
+mod git_ops;
 mod help_preview;
 mod help_search;
+mod help_tools;
 mod help_views;
 mod index_live;
 mod libraries;
@@ -896,10 +899,12 @@ mod picture_tools;
 mod pictures;
 mod player_more;
 mod preview_docs;
+mod remote;
 mod search_history;
 mod search_tags;
 mod tabs;
 mod views;
+mod wsl;
 mod zoom_select;
 
 /// Every entry: [`TABLE`] and the tables of the submodules (split for the
@@ -927,4 +932,9 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(preview_docs::TABLE)
         .chain(data_view::TABLE)
         .chain(help_preview::TABLE)
+        .chain(wsl::TABLE)
+        .chain(commands::TABLE)
+        .chain(git_ops::TABLE)
+        .chain(remote::TABLE)
+        .chain(help_tools::TABLE)
 }

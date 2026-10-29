@@ -1,6 +1,8 @@
 //! Left sidebar: Home, Favorites, Libraries, Drives and Recent folders.
 
 mod libraries;
+mod remote;
+mod wsl;
 
 use ox_core::i18n::t as tr;
 use std::path::Path;
@@ -86,7 +88,8 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 }
                 for fav in app.quick.favorites.clone() {
                     let selected = current.folder() == Some(fav.path.as_path());
-                    let missing = !fav.path.exists();
+                    // Not asked inside WSL: that would start it.
+                    let missing = !ox_core::wsl::is_wsl_path(&fav.path) && !fav.path.exists();
                     let icon = if fav.path.parent().is_none() {
                         Icon::Drive
                     } else {
@@ -161,7 +164,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                         network_drive_menu(ui, &mut actions);
                     });
                 }
+                wsl::show(app, ui, &current, accent, &mut actions);
             }
+
+            remote::show(app, ui, &current, accent, &mut actions);
 
             let servers = network_servers(app);
             if app.settings.sidebar.show_drives && !servers.is_empty() {

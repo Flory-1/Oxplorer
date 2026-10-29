@@ -42,6 +42,8 @@ pub enum Location {
     },
     /// What takes up the space in a folder or drive (a treemap).
     DiskUsage(PathBuf),
+    /// A folder on an SFTP, FTP or WebDAV server (see `app/remote.rs`).
+    Remote(ox_core::remote::RemoteAddr),
 }
 
 impl Location {
@@ -72,6 +74,7 @@ impl Location {
             Location::DiskUsage(p) => {
                 ox_core::trf!("Disk usage: {name}", name = entry::display_name(p))
             }
+            Location::Remote(addr) => addr.title(),
         }
     }
 
@@ -90,6 +93,8 @@ impl Location {
             Location::Gallery => "🎞",
             Location::Cleanup { mode, .. } => Self::cleanup_icon(*mode),
             Location::DiskUsage(_) => "🖴",
+            Location::Remote(addr) if addr.parent().is_none() => "🌐",
+            Location::Remote(_) => "📁",
         }
     }
 
@@ -119,6 +124,7 @@ impl Location {
                 | Location::Archive { .. }
                 | Location::Library { .. }
                 | Location::Gallery
+                | Location::Remote(_)
         )
     }
 
@@ -139,6 +145,19 @@ impl Location {
             self,
             Location::Settings | Location::Help | Location::RecycleBin
         )
+    }
+
+    /// A folder on a server.
+    pub fn is_remote(&self) -> bool {
+        matches!(self, Location::Remote(_))
+    }
+
+    /// The folder above a remote folder (for "Up"; `None` elsewhere).
+    pub fn remote_up(&self) -> Option<Location> {
+        match self {
+            Location::Remote(addr) => addr.parent().map(Location::Remote),
+            _ => None,
+        }
     }
 
     /// Items here can't be changed (inside an archive).
@@ -201,6 +220,14 @@ impl Listing {
             entries: ox_core::archive::list(archive, inner)?,
             bin: BinListing::default(),
         })
+    }
+
+    /// Entries listed on a server.
+    pub fn remote(entries: Vec<FileEntry>) -> Self {
+        Self {
+            entries,
+            bin: BinListing::default(),
+        }
     }
 
     pub fn recycle_bin() -> Result<Self, String> {

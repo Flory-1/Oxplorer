@@ -70,7 +70,11 @@ pub enum Action {
     OpenGitRemote(PathBuf),
     /// Copy the checked out branch of the repository a path is in.
     CopyGitBranch(PathBuf),
+    /// What the Git tab asks of the app.
+    Git(super::GitAction),
     OpenTerminal(PathBuf),
+    /// A shell of the WSL distribution the folder is in, in that folder.
+    OpenWslTerminal(PathBuf),
     Reveal(PathBuf),
     Properties(Vec<PathBuf>),
     /// Cloud files: *Always keep on this device*, *Free up space*, or neither.
@@ -113,6 +117,8 @@ pub enum Action {
     Cleanup(super::CleanupAction),
     /// Picture tools: rotate, flip, convert and resize pictures.
     Pictures(super::PictureAction),
+    /// Custom commands (Settings → Custom commands).
+    Command(super::CommandAction),
     /// Turn the flat view (all files of the sub-folders in one list) on or off.
     ToggleFlatView,
     /// Go to the folder an item is in and select it there.
@@ -129,6 +135,8 @@ pub enum Action {
     DiskUsage(super::DiskUsageAction),
     /// The built-in player: play, next, play all, playlists, ...
     Player(super::PlayerAction),
+    /// Remote locations: connect, open, add/edit/remove places.
+    Remote(super::RemoteAction),
 }
 
 pub enum TabAction {

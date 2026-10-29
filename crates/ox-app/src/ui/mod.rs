@@ -2,6 +2,7 @@
 
 mod cleanup;
 pub mod cloud;
+pub(crate) mod commands;
 mod compare;
 mod dialogs;
 mod disk_usage;
@@ -17,11 +18,13 @@ pub(crate) mod palette;
 pub(crate) mod picture_tools;
 pub(crate) mod preview;
 pub(crate) mod quick_look;
+pub(crate) mod remote;
 mod select_pattern;
 mod sessions;
 mod settings_page;
 mod sidebar;
 mod transfers;
+mod wsl;
 
 pub use menus::*;
 use ox_core::i18n::t as tr;
@@ -140,10 +143,12 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     }
     quick_look::show(app, ui.ctx());
     dialogs::show(app, ui.ctx());
+    remote::show(app, ui.ctx());
     palette::show(app, ui.ctx());
     toasts(app, ui.ctx());
     transfers::countdown(app, ui.ctx());
     picture_tools::progress(app, ui.ctx());
+    commands::show(app, ui.ctx());
     drag_preview(ui.ctx());
 }
 
@@ -261,7 +266,8 @@ fn content(app: &mut OxApp, ui: &mut Ui) {
         | Location::Tagged(_)
         | Location::Archive { .. }
         | Location::Library { .. }
-        | Location::Gallery => files::show(app, ui),
+        | Location::Gallery
+        | Location::Remote(_) => files::show(app, ui),
     }
 }
 

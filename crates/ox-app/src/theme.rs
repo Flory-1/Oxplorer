@@ -22,6 +22,33 @@ pub fn row_height(settings: &Settings) -> f32 {
     }
 }
 
+/// Colours of diffs: the background of added and removed lines, and the
+/// stronger one of what changed within a line.
+pub struct DiffColors {
+    pub added: Color32,
+    pub removed: Color32,
+    pub added_word: Color32,
+    pub removed_word: Color32,
+    /// The sign and line numbers of added and removed lines.
+    pub added_text: Color32,
+    pub removed_text: Color32,
+}
+
+pub fn diff_colors(dark: bool) -> DiffColors {
+    // The green and red of the Git column.
+    let (green, red) = ([0x3b, 0xb2, 0x73], [0xe5, 0x48, 0x4d]);
+    let tint = |[r, g, b]: [u8; 3], alpha: u8| Color32::from_rgba_unmultiplied(r, g, b, alpha);
+    let (line, word) = if dark { (40, 90) } else { (34, 80) };
+    DiffColors {
+        added: tint(green, line),
+        removed: tint(red, line),
+        added_word: tint(green, word),
+        removed_word: tint(red, word),
+        added_text: tint(green, 255),
+        removed_text: tint(red, 255),
+    }
+}
+
 fn color(c: Rgb) -> Color32 {
     let [r, g, b] = c.0;
     Color32::from_rgb(r, g, b)

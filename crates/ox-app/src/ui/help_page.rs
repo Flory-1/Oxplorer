@@ -297,6 +297,27 @@ const TOPICS: &[Topic] = &[
              changed the selected item.",
             "➕ New can create your own file types with a name and content to start with, \
              such as a Python script (Settings → New menu).",
+            "The preview's Git tab stages and unstages files, commits, and switches or creates \
+             branches; the Diff tab shows what changed in a file. Discarding changes asks \
+             first, as it can't be undone.",
+            "Settings → Custom commands adds your own command lines to the right-click menu \
+             and the command palette. {path}, {paths}, {name}, {stem}, {ext}, {parent}, \
+             {folder} and {n} are filled in with the selected items.",
+        ])],
+    },
+    Topic {
+        section: 1,
+        title: "Remote locations and WSL",
+        blocks: &[List(&[
+            "Sidebar → Remote locations → Add… connects to an SFTP, FTP or WebDAV server, or \
+             type an address like sftp://user@server in the address bar. Copy, move, rename \
+             and delete there like in a folder; deleted files don't go to the Recycle Bin.",
+            "The first time Oxplorer connects to an SFTP server it shows the server's key to \
+             check. If the key changes later, it warns and doesn't connect until you confirm.",
+            "Passwords are kept in the Windows Credential Manager only when you tick Remember \
+             the password, never in the settings.",
+            "Your WSL Linux distributions are under This PC. Right-click a folder in one → \
+             Open in WSL terminal; Copy path as → As Linux path gives its Linux path.",
         ])],
     },
     Topic {

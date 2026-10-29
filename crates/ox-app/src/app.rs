@@ -7,9 +7,11 @@
 mod action;
 mod cleanup;
 mod cloud;
+mod commands;
 mod compare;
 mod disk_usage;
 mod flat;
+mod git;
 mod input;
 mod instances;
 mod library;
@@ -20,6 +22,7 @@ mod poll;
 mod process;
 mod properties;
 mod quick_look;
+mod remote;
 mod search_history;
 mod select;
 mod sessions;
@@ -27,14 +30,18 @@ mod transfer_watch;
 mod undo;
 mod view;
 mod window;
+mod wsl;
 pub use action::{Action, TabAction};
 pub use cleanup::{CleanupAction, CleanupView, ConfirmCleanup};
+pub use commands::{shortcut_of, CommandAction, CustomCommands};
 pub use compare::{CompareAction, CompareState};
 pub use disk_usage::{DiskUsageAction, DiskUsageScans};
+pub use git::GitAction;
 pub use instances::Start;
 pub use picture_tools::{doing as doing_pictures, PictureAction, PictureTools};
 pub use player::{PlayerAction, Session as PlayerSession, RATES};
 pub use properties::Properties;
+pub use remote::{RemoteAction, RemoteDialog, RemotePreview, RemoteState};
 pub use search_history::{HistoryAction, RecentSearches};
 pub use select::SelectAction;
 pub use sessions::{SavedSessions, SessionAction};
@@ -253,6 +260,12 @@ pub struct OxApp {
     pub cleanups: cleanup::Cleanups,
     /// Picture tools: the running job (rotate, convert, …).
     pub pictures: PictureTools,
+    /// The WSL distributions (for the sidebar and the Home page).
+    pub wsl: wsl::Wsl,
+    /// Custom commands: the question before one runs, output windows.
+    pub commands: CustomCommands,
+    /// SFTP/FTP/WebDAV connections and their dialogs.
+    pub remote: RemoteState,
 }
 
 /// What background work started by an action reports back.
@@ -406,6 +419,9 @@ impl OxApp {
             gallery_walks: Vec::new(),
             cleanups: Default::default(),
             pictures: Default::default(),
+            wsl: Default::default(),
+            commands: Default::default(),
+            remote: Default::default(),
         }
     }
 
@@ -430,6 +446,15 @@ impl OxApp {
         location.folder().map(Path::to_path_buf)
     }
 
+    /// Where pasted, new and dropped items go: [`Self::current_folder`], or
+    /// the remote folder shown.
+    pub fn target_folder(&self) -> Option<PathBuf> {
+        match self.tabs.active().location() {
+            Location::Remote(addr) => Some(addr.to_path()),
+            _ => self.current_folder(),
+        }
+    }
+
     pub fn drives(&mut self) -> &[Drive] {
         if self.drives_at.elapsed() > Duration::from_secs(5) {
             self.drives = places::drives();
@@ -452,6 +477,7 @@ impl OxApp {
             );
             self.keymap = crate::shortcuts::Keymap::new(&self.settings.shortcuts);
             crate::shortcuts::set_current(&self.keymap);
+            crate::ui::commands::set_current(&self.settings.commands.0);
             self.engine
                 .set_config(self.settings.transfer.engine_config());
             self.applied_settings = Some(self.settings.clone());
@@ -480,6 +506,7 @@ impl OxApp {
         self.poll_git();
         self.poll_cloud();
         self.poll_libraries();
+        self.poll_wsl();
         self.poll_player(ctx);
         self.poll_watcher();
         self.poll_jobs();
@@ -488,6 +515,7 @@ impl OxApp {
         self.poll_transfer_watch(ctx);
         self.poll_background();
         self.poll_notices();
+        self.poll_remote();
         self.poll_dropped_files(ctx);
         self.follow_folder_in_terminal();
         self.sync_groups();
@@ -507,6 +535,7 @@ impl OxApp {
             && !ctx.text_edit_focused()
             // Not while a new shortcut is being recorded in the settings.
             && self.ui.recording.is_none()
+            && !self.commands.takes_keys()
         {
             self.handle_shortcuts(ctx);
         }
@@ -525,7 +554,7 @@ impl OxApp {
             max_results: self.settings.search.max_results,
             threads: self.settings.search.threads,
         };
-        let drives: Vec<PathBuf> = self.drives.iter().map(|d| d.mount.clone()).collect();
+        let drives = self.index_drives();
         let index = self
             .settings
             .search
@@ -631,6 +660,10 @@ impl OxApp {
             Location::Cleanup { root, mode } => {
                 self.cleanups.start(tab.id, root, mode, show_hidden, ctx);
             }
+            Location::Remote(addr) => {
+                let opts = ox_core::remote::ConnectOptions::for_addr(&self.settings.remote, &addr);
+                tab.view.loading = Some(self.remote.list(addr, opts, show_hidden, &ctx));
+            }
             // Disk usage views get their scan in `poll_disk_usage`.
             Location::Home | Location::Settings | Location::Help | Location::DiskUsage(_) => {}
         }
@@ -679,6 +712,9 @@ impl OxApp {
     }
 
     fn start_transfer(&mut self, kind: TransferKind, sources: Vec<PathBuf>, dest: PathBuf) {
+        let Some(sources) = self.remote_transfer(kind, sources, &dest) else {
+            return;
+        };
         // Items inside archives are extracted instead (archives are read-only,
         // so a move is an extraction too).
         let mut from_archives: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
@@ -730,7 +766,7 @@ impl OxApp {
             }
             self.index_settings = Some(wanted);
         }
-        let drives: Vec<PathBuf> = self.drives.iter().map(|d| d.mount.clone()).collect();
+        let drives = self.index_drives();
         let config = self.settings.search.index_config(&drives);
         // Live updates follow the same folders (and restart when they change).
         let live = self.settings.search.live_config(&config, &self.drives);

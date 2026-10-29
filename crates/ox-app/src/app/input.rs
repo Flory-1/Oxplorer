@@ -56,7 +56,7 @@ impl OxApp {
     pub(super) fn handle_shortcuts(&mut self, ctx: &Context) {
         use crate::shortcuts::Command as C;
         use egui::PointerButton;
-        let folder = self.current_folder();
+        let folder = self.target_folder();
         let selection = self.tabs.active().view.selected_paths();
         let shows_files = self.tabs.active().location().shows_files();
         let in_bin = self.tabs.active().location().is_bin();
@@ -92,6 +92,7 @@ impl OxApp {
             C::PlayerPlayPause | C::PlayerNext | C::PlayerPrevious => playing,
             _ => true,
         };
+        self.command_shortcuts(ctx);
         let (pressed, back, forward) = ctx.input_mut(|i| {
             (
                 self.keymap.pressed(i, available),

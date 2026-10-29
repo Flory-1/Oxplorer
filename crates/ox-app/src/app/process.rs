@@ -11,6 +11,9 @@ impl OxApp {
     }
 
     pub(super) fn process(&mut self, action: Action) {
+        let Some(action) = self.remote_filter(action) else {
+            return;
+        };
         let system_clip = self.settings.transfer.use_system_clipboard;
         match action {
             Action::Navigate(loc) => self.navigate(loc),
@@ -421,9 +424,15 @@ impl OxApp {
                     }
                 })
             }
+            Action::Git(a) => self.git_action(a),
             Action::OpenTerminal(dir) => {
                 if let Err(e) = fsops::open_terminal(&dir) {
                     self.toast(ox_core::trf!("Couldn't open a terminal: {e}", e = e));
+                }
+            }
+            Action::OpenWslTerminal(dir) => {
+                if let Err(e) = ox_core::wsl::open_terminal(&dir) {
+                    self.toast(ox_core::trf!("Couldn't open a WSL terminal: {e}", e = e));
                 }
             }
             Action::Reveal(p) => {
@@ -503,10 +512,12 @@ impl OxApp {
             Action::Compare(a) => self.process_compare(a),
             Action::Cleanup(a) => self.process_cleanup(a),
             Action::Pictures(a) => self.process_pictures(a),
+            Action::Command(a) => self.command_action(a),
             Action::ToggleFlatView => self.toggle_flat_view(),
             Action::ShowInFolder(path) => self.show_in_folder(path),
             Action::DiskUsage(a) => self.disk_usage_action(a),
             Action::Player(a) => self.player_action(a),
+            Action::Remote(a) => self.remote_action(a),
             Action::NewLink(dir, kind) => self.new_link_dialog(dir, kind),
             Action::ShowLinkTarget(link) => self.show_link_target(link),
             Action::Session(a) => self.process_session(a),

@@ -15,15 +15,19 @@ pub enum PathFormat {
     FileUrl,
     /// `file.txt`
     Name,
+    /// `/home/me/file.txt` for `\\wsl.localhost\Ubuntu\home\me\file.txt`
+    /// (`/mnt/c/…` for `C:\…`), see [`crate::wsl::to_linux`].
+    Linux,
 }
 
 impl PathFormat {
-    pub const ALL: [PathFormat; 5] = [
+    pub const ALL: [PathFormat; 6] = [
         PathFormat::ForwardSlashes,
         PathFormat::Quoted,
         PathFormat::GitRelative,
         PathFormat::FileUrl,
         PathFormat::Name,
+        PathFormat::Linux,
     ];
 
     pub fn label(self) -> &'static str {
@@ -33,6 +37,7 @@ impl PathFormat {
             PathFormat::GitRelative => crate::i18n::t("Relative to the Git repository"),
             PathFormat::FileUrl => crate::i18n::t("As file:// URL"),
             PathFormat::Name => crate::i18n::t("Name only"),
+            PathFormat::Linux => crate::i18n::t("As Linux path"),
         }
     }
 }
@@ -53,6 +58,7 @@ pub fn format(path: &Path, fmt: PathFormat, git_root: Option<&Path>) -> String {
         PathFormat::Name => path
             .file_name()
             .map_or_else(|| full.clone().into_owned(), |n| n.to_string_lossy().into()),
+        PathFormat::Linux => crate::wsl::to_linux(path).unwrap_or_else(|| full.into_owned()),
     }
 }
 
@@ -118,5 +124,14 @@ mod tests {
             "file:///C:/a%20b/%C3%84%231.txt"
         );
         assert_eq!(file_url(r"\\nas\share\x"), "file://nas/share/x");
+    }
+
+    #[test]
+    fn linux_paths() {
+        let f = |p: &str| format(Path::new(p), PathFormat::Linux, None);
+        assert_eq!(f(r"\\wsl.localhost\Ubuntu\home\me\a.txt"), "/home/me/a.txt");
+        assert_eq!(f(r"C:\Users\me"), "/mnt/c/Users/me");
+        // No Linux form: the path as it is.
+        assert_eq!(f(r"\\nas\share"), r"\\nas\share");
     }
 }

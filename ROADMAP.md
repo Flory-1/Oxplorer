@@ -37,6 +37,11 @@ Windows machine yet.
     menus and Quick Look, keyboard focus, and files kept open while it shows them
   - HEIC from an iPhone (that it isn't turned twice), AVIF and camera RAW with the Store codecs,
     animated GIF/WebP, the hex view and data tables, the mini player, subtitles and picture tools
+  - remote locations against real servers: WebDAV (Nextcloud, SharePoint), plain FTP, uploads,
+    SSH agent / Pageant and key files, and a server whose key changed
+  - WSL: browsing a distribution, dotfiles, links, copying in and out, *Open in WSL terminal*
+  - the Git tab's changes, branches and diff views, and pull/push with the credential manager
+  - custom commands: the settings page, shortcuts, console and output windows
 - ⏳ **Copy engine benchmarks** against Explorer, robocopy and TeraCopy (many small files, one
   huge file, SSD → USB stick, network share), with the numbers in the README. The
   `copy_bench` example measures the engine, robocopy and xcopy; Explorer and TeraCopy by hand
@@ -75,14 +80,11 @@ Windows machine yet.
 
 ## Phase 12 — Your own tools
 
-- ⏳ **Custom commands** in the right-click menu and the command palette: a command line with
-  placeholders (`{path}`, `{folder}`, `{name}`, `{selection}`), for files of certain types,
-  optionally with a shortcut
-- ⏳ **Remote locations**: SFTP, FTP and WebDAV as places in the sidebar, browsed and copied
-  like local folders through the copy engine
-- ⏳ **WSL**: Linux distributions under *This PC* (`\\wsl$`)
-- ⏳ **More Git**: stage, commit and switch branches from the Git tab, and the diff of a changed file
 - ⏳ **Portable mode**: settings next to `oxplorer.exe` when a `portable` file is there
 - ⏳ **Export and import all settings** (incl. favorites, tags, themes and shortcuts) as one file
 - ⏳ **Tray icon and global hotkey** to open a window quickly (optional)
+- 💡 Remote locations: resume and verify for server transfers, copying between two servers,
+  uploading a file again after it was edited, and thumbnails
+- 💡 Git: a list of stashes to apply, and live progress while pulling and pushing
+- 💡 Custom commands in Settings → Shortcuts, next to the built-in ones
 - 💡 Plugins or scripts (e.g. Rhai or Lua) for previews, columns and commands

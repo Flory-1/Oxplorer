@@ -117,6 +117,12 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         archive_item_menu(ui, t, actions);
         return;
     }
+    if t.selection
+        .first()
+        .is_some_and(|p| ox_core::remote::is_remote_path(p))
+    {
+        return super::remote::item_menu(ui, t, actions);
+    }
     let sel = t.selection.to_vec();
     if let Some(dir) = t.single_dir {
         if ui.button(tr("📂 Open")).clicked() {
@@ -253,6 +259,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         actions.push(Action::Compress(sel.clone()));
     }
     super::picture_tools::menu(ui, &sel, actions);
+    super::commands::item_menu(ui, &sel, actions);
     let theme_file = sel.len() == 1
         && sel[0]
             .extension()
@@ -272,6 +279,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         if ui.button(tr("🖳 Open in Terminal")).clicked() {
             actions.push(Action::OpenTerminal(dir.to_path_buf()));
         }
+        super::wsl::terminal_button(ui, dir, actions);
         super::cleanup::menu(ui, dir, actions);
         disk_usage_button(ui, dir, actions);
     }
@@ -341,6 +349,9 @@ fn dev_menu(ui: &mut Ui, paths: &[PathBuf], actions: &mut Vec<Action>) {
             if fmt == PathFormat::GitRelative && repo.is_none() {
                 continue;
             }
+            if fmt == PathFormat::Linux && !paths.iter().all(|p| ox_core::wsl::is_wsl_path(p)) {
+                continue;
+            }
             if ui.button(fmt.label()).clicked() {
                 actions.push(Action::CopyPathAs(paths.to_vec(), fmt));
             }
@@ -403,6 +414,9 @@ pub fn background_menu(
     dev: bool,
     actions: &mut Vec<Action>,
 ) {
+    if ox_core::remote::is_remote_path(folder) {
+        return super::remote::background_menu(ui, folder, can_paste, actions);
+    }
     ui.menu_button(tr("➕ New"), |ui| new_menu(ui, folder, new_items, actions));
     if ui
         .add_enabled(
@@ -452,11 +466,13 @@ pub fn background_menu(
     if ui.button(tr("🖳 Open in Terminal")).clicked() {
         actions.push(Action::OpenTerminal(folder.to_path_buf()));
     }
+    super::wsl::terminal_button(ui, folder, actions);
     disk_usage_button(ui, folder, actions);
     if ui.button(tr("🖥 Open in Windows Explorer")).clicked() {
         actions.push(Action::Reveal(folder.to_path_buf()));
     }
     super::cleanup::menu(ui, folder, actions);
+    super::commands::background_menu(ui, folder, actions);
     if dev {
         ui.separator();
         dev_menu(ui, &[folder.to_path_buf()], actions);
@@ -534,6 +550,7 @@ pub fn folder_link_menu(ui: &mut Ui, path: &Path, pinned: bool, actions: &mut Ve
     if ui.button(tr("🖳 Open in Terminal")).clicked() {
         actions.push(Action::OpenTerminal(path.to_path_buf()));
     }
+    super::wsl::terminal_button(ui, path, actions);
     disk_usage_button(ui, path, actions);
     if ui.button(tr("🔗 Copy path")).clicked() {
         actions.push(Action::CopyPathText(vec![path.to_path_buf()]));

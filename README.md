@@ -188,6 +188,10 @@ Copying and moving never opens the Windows copy dialog. Oxplorer's own engine
   downloaded just to show a thumbnail or preview.
 - **Network locations**: type `\\server` to see its shares, browse them like any folder, mapped
   drives under *This PC*, and *Map network drive…*
+- **Remote locations**: SFTP, FTP/FTPS and WebDAV servers in the sidebar, browsed like folders
+  and copied to and from with the copy engine. Server keys are checked and passwords stay in the
+  Windows Credential Manager.
+- **WSL**: Linux distributions under *This PC*, with *Open in WSL terminal* and Linux paths
 - **Mica or Acrylic** window backdrop on Windows 11, rounded corners, dark or light title bar
 - **Open folders in Oxplorer** instead of Explorer: folders and drives opened from the desktop
   or other programs, and Win+E. Turning it off gives them back to Explorer.
@@ -210,6 +214,10 @@ Copying and moving never opens the Windows copy dialog. Oxplorer's own engine
   them) and the branch with ahead/behind in the status bar (needs Git installed)
 - Right-click → **Git**: open a file or folder on GitHub, GitLab or Bitbucket, copy the branch
   name. The Info tab shows the last commit that changed the item.
+- **Git tab**: stage, unstage and discard changes, commit, switch and create branches, fetch,
+  pull and push, and a **diff** of every changed file (also side by side)
+- **Custom commands** in the right-click menu and the command palette: your own command lines
+  with placeholders such as `{path}`, `{paths}` and `{folder}`, optionally with a shortcut
 - Text files show their **encoding**, **line endings** and **indentation**; **SHA-256 and MD5
   checksums** of any file on request
 - **Bulk rename** (F2 on several items): names from a pattern (`{name}`, `{ext}`, `{n:3}`,

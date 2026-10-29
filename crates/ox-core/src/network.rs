@@ -20,15 +20,18 @@ pub fn server_name(path: &Path) -> Option<&str> {
     (!rest.is_empty() && !rest.contains(['\\', '/'])).then_some(rest)
 }
 
-/// `\\server` for a path on one of its shares (`\\server\share\…`).
+/// `\\server` for a path on one of its shares (`\\server\share\…`). WSL
+/// distributions (`\\wsl$\Ubuntu`) are roots of their own, like drives.
 pub fn server_of(path: &Path) -> Option<PathBuf> {
     let rest = path.to_str()?.strip_prefix(r"\\")?;
     if rest.starts_with(['?', '.']) {
         return None;
     }
     let (server, share) = rest.split_once(['\\', '/'])?;
-    (!server.is_empty() && !share.trim_matches(['\\', '/']).is_empty())
-        .then(|| PathBuf::from(format!(r"\\{server}")))
+    (!server.is_empty()
+        && !crate::wsl::is_wsl_host(server)
+        && !share.trim_matches(['\\', '/']).is_empty())
+    .then(|| PathBuf::from(format!(r"\\{server}")))
 }
 
 /// Whether `path` can be opened as a folder (a server counts as one).
@@ -285,6 +288,10 @@ mod tests {
 
         assert!(is_dir(Path::new(r"\\nas")));
         assert_eq!(parent(Path::new(r"\\nas")), None);
+
+        // A WSL distribution is a root, not a share of `\\wsl$`.
+        assert_eq!(server_of(Path::new(r"\\wsl.localhost\Ubuntu\home")), None);
+        assert_eq!(parent(Path::new(r"\\wsl$\Ubuntu\")), None);
     }
 
     #[test]

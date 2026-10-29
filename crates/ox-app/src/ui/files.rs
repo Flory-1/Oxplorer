@@ -35,7 +35,7 @@ use crate::icons;
 use crate::shortcuts::{self, Command};
 use crate::tabs::{FolderView, Location};
 
-fn git_color(state: ox_core::git::GitState, v: &egui::Visuals) -> Color32 {
+pub(crate) fn git_color(state: ox_core::git::GitState, v: &egui::Visuals) -> Color32 {
     use ox_core::git::GitState::*;
     match state {
         Conflicted | Deleted => Color32::from_rgb(0xe5, 0x48, 0x4d),
@@ -98,7 +98,7 @@ struct Ctx<'a> {
 pub fn show(app: &mut OxApp, ui: &mut Ui) {
     zoom::wheel(app, ui, ui.available_rect_before_wrap());
     let dark = ui.visuals().dark_mode;
-    let folder = app.current_folder();
+    let folder = app.target_folder();
     // Borrowed by the rows while the tab is mutably borrowed; put back at the end.
     let bin = std::mem::take(&mut app.tabs.active_mut().view.bin);
     let git = app.tabs.active().view.git.clone();
@@ -131,10 +131,12 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         // Bin and archive entries aren't real files the Shell can read.
         thumbs: (app.settings.appearance.thumbnails
             && !app.tabs.active().location().is_bin()
-            && !app.tabs.active().location().is_read_only())
+            && !app.tabs.active().location().is_read_only()
+            && !app.tabs.active().location().is_remote())
         .then_some(&app.thumbs),
         props: (!app.tabs.active().location().is_bin()
-            && !app.tabs.active().location().is_read_only())
+            && !app.tabs.active().location().is_read_only()
+            && !app.tabs.active().location().is_remote())
         .then_some(&app.column_values),
         bin: &bin,
         sizes: (app.settings.browsing.folder_sizes
