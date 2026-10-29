@@ -1007,12 +1007,10 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
             ) {
                 actions.push(Action::OpenInNewTab(Location::Settings, true));
             }
-            if btn(
-                ui,
-                true,
-                "⌨",
-                &shortcuts::hint(tr("Command palette"), Command::Palette),
-            ) {
+            if keyboard_button(ui)
+                .on_hover_text(shortcuts::hint(tr("Command palette"), Command::Palette))
+                .clicked()
+            {
                 app.ui.palette = Some(Default::default());
             }
             if btn(ui, true, "◧", tr("Toggle sidebar")) {
@@ -1045,4 +1043,38 @@ fn command_bar(app: &mut OxApp, ui: &mut Ui) {
         });
     });
     app.actions.extend(actions);
+}
+
+/// The command palette button: a small drawn keyboard, as wide as the
+/// symbols next to it (the ⌨ glyph of Windows' emoji font is much wider).
+fn keyboard_button(ui: &mut Ui) -> egui::Response {
+    let pad = ui.spacing().button_padding;
+    let size = vec2(12.0 + 2.0 * pad.x, ui.spacing().interact_size.y);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let color = ui.style().interact(&resp).text_color();
+    let p = ui.painter();
+    let body = Rect::from_center_size(rect.center(), vec2(12.0, 9.0));
+    p.rect_stroke(
+        body,
+        CornerRadius::same(2),
+        Stroke::new(1.1, color),
+        egui::StrokeKind::Inside,
+    );
+    // A row of keys and the space bar.
+    for k in 0..4 {
+        let x = body.left() + 3.0 + k as f32 * 2.0;
+        p.rect_filled(
+            Rect::from_center_size(egui::pos2(x, body.top() + 3.2), vec2(1.1, 1.1)),
+            CornerRadius::ZERO,
+            color,
+        );
+    }
+    p.line_segment(
+        [
+            egui::pos2(body.left() + 3.5, body.bottom() - 2.6),
+            egui::pos2(body.right() - 3.5, body.bottom() - 2.6),
+        ],
+        Stroke::new(1.1, color),
+    );
+    resp
 }

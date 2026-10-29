@@ -30,6 +30,8 @@ The release workflow publishes the section of the tagged version as the release 
 
 ### Changed
 - The terminal panel's close button has no background any more.
+- The command palette button in the toolbar is a small drawn keyboard, as wide as the icons
+  next to it (Windows' ⌨ emoji was much wider).
 
 ### Removed
 - The *UI scale* setting.
