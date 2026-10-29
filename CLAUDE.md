@@ -12,7 +12,7 @@ A file explorer for Windows in Rust (egui/eframe). Cargo workspace, toolchain pi
 Prefer the `rust-check` agent: it runs these and returns only the failures.
 
 ## Rules
-- **Line budget: no file over 1000 lines.** A hook reports files that cross it. Files already over it (`app.rs`, `ui/preview.rs`, `ui/header.rs`, `ui/settings_page.rs`, `tabs.rs`) must not grow; put new code in a submodule, or use the `file-splitter` agent first.
+- **Line budget: no file over 1000 lines.** A hook reports files that cross it. Files already over it (`app.rs`, `ui/preview.rs`, `ui/header.rs`, `tabs.rs`) must not grow; put new code in a submodule, or use the `file-splitter` agent first.
 - Interface texts go through `tr(…)`/`t(…)`/`trf!(…)` with the English text as the key. Each needs a German entry in `i18n_de.rs` (the `translator` agent adds them). New source files with texts must be added to `SOURCES` in `crates/ox-app/src/i18n_check.rs`.
 - Icons are symbols in strings, drawn by `assets/icons.ttf`; a new symbol must be added to `tools/icon-font/build_icon_font.py` (checked by `icon_check.rs`).
 - Keep core logic in `ox-core` (testable); `ox-app` only draws and wires things up.

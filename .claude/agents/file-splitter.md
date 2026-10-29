@@ -1,6 +1,6 @@
 ---
 name: file-splitter
-description: Splits a Rust source file that is over the 1000-line budget into submodules without changing behaviour. Use it when the line-budget hook reports a file over budget, or before adding code to one of the oversized files (app.rs, ui/preview.rs, ui/header.rs, ui/settings_page.rs, tabs.rs).
+description: Splits a Rust source file that is over the 1000-line budget into submodules without changing behaviour. Use it when the line-budget hook reports a file over budget, or before adding code to one of the oversized files (app.rs, ui/preview.rs, ui/header.rs, tabs.rs).
 tools: Read, Edit, Write, Grep, Glob, Bash
 model: sonnet
 ---

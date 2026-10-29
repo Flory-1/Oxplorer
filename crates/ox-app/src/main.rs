@@ -77,6 +77,10 @@ fn main() -> eframe::Result {
             if crashed {
                 ui::help_page::crash_note(&mut app);
             }
+            if app.settings.startup.check_updates {
+                let ctx = cc.egui_ctx.clone();
+                ox_core::update::start(move || ctx.request_repaint());
+            }
             Ok(Box::new(app))
         }),
     )

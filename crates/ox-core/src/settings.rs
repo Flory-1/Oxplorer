@@ -146,11 +146,23 @@ impl Default for Browsing {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Startup {
     pub start_page: StartPage,
     pub start_folder: Option<PathBuf>,
+    /// Look for a newer release on GitHub (once a day) and say so on Home.
+    pub check_updates: bool,
+}
+
+impl Default for Startup {
+    fn default() -> Self {
+        Self {
+            start_page: StartPage::default(),
+            start_folder: None,
+            check_updates: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

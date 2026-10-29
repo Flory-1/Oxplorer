@@ -34,6 +34,7 @@ pub mod textinfo;
 pub mod themes;
 pub mod titlebar;
 pub mod transfer;
+pub mod update;
 pub mod watcher;
 
 pub use entry::{FileEntry, SortKey, SortOrder};
