@@ -353,6 +353,12 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         &shortcuts::label(Command::ToggleSplit),
         act(|| Action::Tab(TabAction::ToggleSplit)),
     );
+    cmd(
+        "⇄",
+        tr("Compare folders"),
+        &shortcuts::label(Command::CompareFolders),
+        act(|| Action::Compare(crate::app::CompareAction::Start)),
+    );
     if app.tabs.panes.is_some() {
         cmd(
             "⇆",

@@ -97,6 +97,7 @@ impl OxApp {
                 C::NextTab => actions.push(Action::Tab(TabAction::Cycle(1))),
                 C::PrevTab => actions.push(Action::Tab(TabAction::Cycle(-1))),
                 C::ToggleSplit => actions.push(Action::Tab(TabAction::ToggleSplit)),
+                C::CompareFolders => actions.push(Action::Compare(super::CompareAction::Start)),
                 C::SwitchPane => actions.push(Action::Tab(TabAction::SwitchPane)),
                 C::Back => actions.push(Action::Back),
                 C::Forward => actions.push(Action::Forward),

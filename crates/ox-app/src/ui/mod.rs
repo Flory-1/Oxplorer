@@ -1,5 +1,6 @@
 //! All drawing code. Each submodule draws one area of the window.
 
+mod compare;
 mod dialogs;
 mod files;
 pub mod header;
@@ -247,6 +248,7 @@ fn content(app: &mut OxApp, ui: &mut Ui) {
 /// pane is drawn with its tab made active for the moment, and pressing the
 /// mouse in it moves the focus there before any of its actions run.
 fn split_view(app: &mut OxApp, ui: &mut Ui, panes: [TabId; 2]) {
+    compare::bar(app, ui);
     let rect = ui.available_rect_before_wrap();
     let half = (rect.width() - 1.0) / 2.0;
     for (i, id) in panes.into_iter().enumerate() {
@@ -277,6 +279,7 @@ fn split_view(app: &mut OxApp, ui: &mut Ui, panes: [TabId; 2]) {
         }
     }
     let x = rect.left() + half + 0.5;
+    compare::split_button(app, ui, egui::pos2(rect.left() + half, rect.top()));
     ui.painter().vline(
         x,
         rect.y_range(),

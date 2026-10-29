@@ -162,6 +162,28 @@ const TOPICS: &[Topic] = &[
     },
     Topic {
         section: 1,
+        title: "Comparing folders",
+        blocks: &[List(&[
+            "Compare folders (Ctrl+Shift+D, the ⇄ button between the panes or the command \
+             palette) compares the folders of the two panes. Without the split view it opens \
+             it: pick the other folder in the new pane.",
+            "Coloured strips mark the items: green is only on this side, blue is newer, orange \
+             is older, red is different (same date but another size, or a folder with \
+             differences inside). Items without a strip are the same.",
+            "Files count as the same when size and date modified match. Dates up to two \
+             seconds apart count as equal, since FAT and exFAT drives store them that coarsely. \
+             Compare contents checks files of the same size byte by byte instead.",
+            "Sub-folders also compares what's inside folders both sides have. Only differences \
+             hides what's the same.",
+            "Copy missing copies what only one side has to the other side. Copy newer replaces \
+             older files with the newer ones, both ways. You're asked first, and the copies \
+             show in the transfer panel.",
+            "The comparison follows the panes: it's made again when a pane shows another \
+             folder or its files change.",
+        ])],
+    },
+    Topic {
+        section: 1,
         title: "Searching",
         blocks: &[List(&[
             "Typing in the search box filters the current folder instantly.",

@@ -5,6 +5,7 @@
 
 pub mod archive;
 pub mod clipboard;
+pub mod compare;
 pub mod default_app;
 pub mod details;
 pub mod dirsize;
