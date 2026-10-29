@@ -243,7 +243,7 @@ impl Tab {
                 },
                 None => Location::Folder(archive.parent().unwrap_or(archive).to_path_buf()),
             }),
-            _ => None,
+            other => other.remote_up(),
         };
         let from = self.location().clone();
         self.navigate(parent.unwrap_or(Location::Home));

@@ -129,6 +129,9 @@ fn job_row(
             if job.hdd.load(Ordering::Relaxed) {
                 t.push_str(tr(" · one at a time (HDD)"));
             }
+            if job.is_remote() {
+                t.push_str(tr(" · server transfer (no resume or verify)"));
+            }
             t
         }
         JobState::Completed => ox_core::trf!(

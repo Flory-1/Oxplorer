@@ -373,7 +373,7 @@ impl OxApp {
         if dropped.is_empty() {
             return;
         }
-        match self.current_folder() {
+        match self.target_folder() {
             Some(dest) => self.push(Action::Drop(dropped, dest)),
             None => self.toast(tr("Open a folder to drop files into it.")),
         }

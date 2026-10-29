@@ -25,6 +25,7 @@ pub mod journal;
 mod metadata;
 mod plan;
 mod queue;
+mod remote;
 mod throttle;
 mod verify;
 pub mod when_done;
@@ -40,6 +41,7 @@ use serde::{Deserialize, Serialize};
 
 pub use ask::{ErrorChoice, ErrorQuestion};
 pub use copy::CopyOptions;
+pub use remote::RemoteSide;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TransferKind {
@@ -100,6 +102,9 @@ pub struct TransferRequest {
     /// Individual files with their exact target path (used to retry failed
     /// files). Copied in addition to `sources`.
     pub pairs: Vec<(PathBuf, PathBuf)>,
+    /// The server of a download or upload (see [`RemoteSide`]); `None`
+    /// for local jobs.
+    pub remote: Option<RemoteSide>,
 }
 
 impl TransferRequest {
@@ -115,6 +120,7 @@ impl TransferRequest {
             destination,
             conflict,
             pairs: Vec::new(),
+            remote: None,
         }
     }
 }
@@ -250,6 +256,7 @@ pub struct Job {
     /// Start only after everything ahead in the queue is done.
     run_after: AtomicBool,
     journal: journal::JobJournal,
+    remote: Option<RemoteSide>,
 }
 
 impl Job {
@@ -284,7 +291,13 @@ impl Job {
             prompt: Default::default(),
             run_after: AtomicBool::new(false),
             journal: Default::default(),
+            remote: req.remote.clone(),
         }
+    }
+
+    /// A download or upload: no resuming, no verification.
+    pub fn is_remote(&self) -> bool {
+        self.remote.is_some()
     }
 
     pub fn state(&self) -> JobState {
@@ -358,6 +371,7 @@ impl Job {
             // The failed copies were removed, so remaining conflicts are real ones.
             conflict: ConflictPolicy::Ask,
             pairs,
+            remote: self.remote.clone(),
         })
     }
 
@@ -512,8 +526,11 @@ fn job_volumes(req: &TransferRequest) -> Vec<String> {
     }
     let mut vols: Vec<String> = paths
         .into_iter()
+        .filter(|p| !crate::remote::is_remote_path(p))
         .filter_map(crate::disk::volume_id)
         .collect();
+    // Jobs on one server wait for each other like jobs on one drive.
+    vols.extend(req.remote.iter().map(|r| r.server.server_key()));
     vols.sort();
     vols.dedup();
     vols
@@ -652,6 +669,9 @@ impl TransferEngine {
 }
 
 fn run_job(job: &Job, cfg: &EngineConfig, notify: &dyn Fn()) {
+    if let Some(side) = &job.remote {
+        return remote::run(job, side, cfg, notify);
+    }
     let _journal = journal::Guard::open(job, cfg.journal_dir.as_deref());
     job.set_state(JobState::Scanning);
     notify();

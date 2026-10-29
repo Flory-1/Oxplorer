@@ -36,10 +36,23 @@ quick-xml = "0.42"
 yaml-rust2 = { version = "0.13", default-features = false }
 # Bundled: SQLite is compiled in (opened read-only, never written).
 rusqlite = { version = "0.41", default-features = false, features = ["bundled", "hooks"] }
+# Remote locations (SFTP, FTP/FTPS, WebDAV). All pure Rust; TLS is rustls
+# with the ring provider (no OpenSSL, no aws-lc), certificates checked
+# against the Windows certificate store.
+russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
+russh-sftp = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "io-util"] }
+suppaftp = { version = "12", features = ["rustls-ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-platform-verifier = "0.7"
+ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }
+hmac = "0.12"
+sha1 = "0.10"
+base64 = "0.22"
 
 [target.'cfg(windows)'.dependencies]
 clipboard-win = { version = "5", features = ["std"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_Globalization", "Win32_System_IO", "Win32_System_Ioctl"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Credentials", "Win32_Storage_FileSystem", "Win32_Globalization", "Win32_System_IO", "Win32_System_Ioctl"] }
 windows = { version = "0.62", features = [
     "Data_Pdf",
     "Foundation",

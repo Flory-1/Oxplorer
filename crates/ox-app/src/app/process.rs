@@ -11,6 +11,9 @@ impl OxApp {
     }
 
     pub(super) fn process(&mut self, action: Action) {
+        let Some(action) = self.remote_filter(action) else {
+            return;
+        };
         let system_clip = self.settings.transfer.use_system_clipboard;
         match action {
             Action::Navigate(loc) => self.navigate(loc),
@@ -514,6 +517,7 @@ impl OxApp {
             Action::ShowInFolder(path) => self.show_in_folder(path),
             Action::DiskUsage(a) => self.disk_usage_action(a),
             Action::Player(a) => self.player_action(a),
+            Action::Remote(a) => self.remote_action(a),
             Action::NewLink(dir, kind) => self.new_link_dialog(dir, kind),
             Action::ShowLinkTarget(link) => self.show_link_target(link),
             Action::Session(a) => self.process_session(a),

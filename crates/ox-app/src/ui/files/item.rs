@@ -120,6 +120,7 @@ pub(super) fn item_context_menu(
         if e.is_symlink
             && selection.len() == 1
             && !cx.read_only
+            && !ox_core::remote::is_remote_path(&e.path)
             && ui.button(tr("🔗 Open link target location")).clicked()
         {
             actions.push(Action::ShowLinkTarget(e.path.clone()));

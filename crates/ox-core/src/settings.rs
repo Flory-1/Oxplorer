@@ -433,6 +433,8 @@ pub struct Settings {
     pub developer: Developer,
     /// The user's own commands (Settings → Custom commands).
     pub commands: crate::commands::CustomCommands,
+    /// Saved SFTP/FTP/WebDAV places (never with passwords).
+    pub remote: crate::remote::RemotePlaces,
 }
 
 /// A file type in the "New" menus: its label, the file name it starts with
