@@ -27,24 +27,16 @@ Windows machine yet.
   - Explorer clipboard interop, hidden/system attributes, junctions, long paths, high DPI and
     moving the window between monitors with different scaling
 - ⏳ **Copy engine benchmarks** against Explorer, robocopy and TeraCopy (many small files, one
-  huge file, SSD → USB stick, network share), with the numbers in the README
+  huge file, SSD → USB stick, network share), with the numbers in the README. The
+  `copy_bench` example measures the engine, robocopy and xcopy; Explorer and TeraCopy by hand
 - ⏳ Code-signed releases, so SmartScreen doesn't warn on the first start
 
 ## Phase 8 — Safer file operations
 
-- ⏳ **Undo** (Ctrl+Z) for the last operations: rename, bulk rename, move, copy (deletes the
-  copies), new folder/file and delete to the Recycle Bin, with Redo (Ctrl+Y)
-- ⏳ **Resume interrupted transfers**: a journal per job, so a copy cut off by a crash, sleep or a
-  pulled USB stick continues where it stopped
-- ⏳ **Ask about errors while the job runs** (retry / skip / skip all) instead of only
-  collecting them for the end
-- ⏳ **Transfer queue**: reorder or pause single jobs, *run after the current one*, and a
-  setting for what happens when a job finishes (nothing, notification, sleep)
-- ⏳ Keep permissions (ACLs), alternate data streams and timestamps of folders, optional
-- ⏳ **Compare folders**: two folders side by side with new, changed and missing files marked,
-  and copy over what's missing (uses the split view)
 - 💡 **Mirror / sync** a folder to another (one way, with a preview of what will change)
-- ⏳ Benchmarks in CI, so a slower copy engine fails the build
+- 💡 Real Windows notifications when transfers are done (needs an AppUserModelID from the
+  installer's Start menu shortcut; today it's a message in the app and a flashing taskbar button)
+- 💡 Keep the undo history across restarts
 
 ## Phase 9 — Views and browsing
 

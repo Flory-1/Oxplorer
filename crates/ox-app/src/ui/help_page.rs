@@ -368,6 +368,16 @@ const TOPICS: &[Topic] = &[
     },
     Topic {
         section: 4,
+        title: "A copy was cut off. Do I have to start again?",
+        blocks: &[Text(
+            "No. If Oxplorer closed, the computer went to sleep or a USB stick was pulled \
+             during a copy or move, the transfer panel shows it as interrupted. Resume skips \
+             the files that were copied completely and copies the rest; Discard forgets it. \
+             A move only deletes an original once its copy is complete.",
+        )],
+    },
+    Topic {
+        section: 4,
         title: "Can I use Oxplorer and Windows Explorer together?",
         blocks: &[Text(
             "Yes. They share the clipboard, so you can copy in one and paste in the other. \

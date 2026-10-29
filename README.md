@@ -57,6 +57,8 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
   and *Compress to ZIP* are in the right-click menu.
 - **Recycle Bin view**: deleted items with their original location; restore, delete
   permanently or empty the bin, and drop files onto it to delete them
+- **Undo and redo** (Ctrl+Z / Ctrl+Y) for renames, moves, copies, new items and deletes to the
+  Recycle Bin; Oxplorer checks first that nothing changed since
 
 ### Tabs, split view and quick access
 
@@ -65,6 +67,8 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 - Chrome-style **tab groups** with names and colours; click a group's chip to collapse it
 - **Split view** (Ctrl+\\): two folders side by side. F6 or a click switches the pane, and
   you can drag files between the panes.
+- **Compare folders** (Ctrl+Shift+D) in the split view: what only one side has, what's newer
+  and what differs is marked, and missing or newer files are copied over in one go
 - **Home tab**, always the first tab: favorites, drives with usage bars, and recent folders and
   files. What you open from it opens in a new tab.
 - **Sidebar** with Favorites, This PC, Network, Recent, Tags and Saved searches
@@ -127,6 +131,11 @@ Copying and moving never opens the Windows copy dialog. Oxplorer's own engine
 - Optional **verification** (xxh3 hash of original and copy); moves only delete originals that
   were copied correctly
 - **Retry failed files** with one click, an optional **speed limit** and a **transfer history**
+- **Asks about errors** while it runs (retry / skip / skip all) and **resumes interrupted
+  transfers** after a crash, sleep or a pulled USB stick
+- A **queue**: hold, reorder or run jobs after the current ones, and when all are done, show a
+  notification or put the computer to sleep
+- Optionally keeps **permissions**, **alternate data streams** and **folder dates**
 - The **clipboard is shared with Explorer** both ways: copy in Explorer, paste in Oxplorer,
   and the paste still runs through the fast engine
 
@@ -221,6 +230,7 @@ palette always show the keys in use.
 | Ctrl+L or Alt+D | Edit address |
 | Ctrl+F or Ctrl+E | Search |
 | Ctrl+C / Ctrl+X / Ctrl+V | Copy / cut / paste (works with Explorer too) |
+| Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z | Undo / redo |
 | Ctrl+Shift+C | Copy path |
 | F2 | Rename (bulk rename for several items) |
 | Del / Shift+Del | Delete / delete permanently |
@@ -234,6 +244,7 @@ palette always show the keys in use.
 | F1 | Help |
 | Alt+P | Preview pane |
 | Ctrl+\\ / F6 | Split view / switch pane |
+| Ctrl+Shift+D | Compare the folders of the split view |
 | Ctrl+` | Terminal panel |
 | Ctrl+Shift+E | Open in editor |
 
@@ -320,7 +331,8 @@ a missing translation fails CI.
 crates/
   ox-core/            UI-independent logic (unit tested)
     transfer/         copy/move engine: scan → conflict decision → parallel copy,
-                      verification, speed limit, history
+                      verification, speed limit, history, queue, error questions,
+                      resume journal, permissions/streams/folder dates
     search.rs         query language, parallel walker, indexed search
     index.rs          persistent file-name index (build, query, cache)
     rename.rs         bulk rename: patterns, preview, safe apply with rollback
@@ -340,6 +352,8 @@ crates/
     network.rs        \\server shares, mapped network drives
     default_app.rs    "open folders in Oxplorer" (registry, HKCU)
     recycle.rs        Recycle Bin: list, restore, purge
+    undo.rs           undo/redo history of file operations, with safety checks
+    compare.rs        compare two folders (size and date, or contents)
     clipboard.rs      file clipboard, shared with Windows Explorer
     disk.rs           volume ids, HDD/SSD detection
     entry.rs          directory listing, file kinds, sorting

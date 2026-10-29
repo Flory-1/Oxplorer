@@ -6,6 +6,40 @@ The release workflow publishes the section of the tagged version as the release 
 ## [Unreleased]
 
 ### Added
+- **Undo and redo**: Ctrl+Z undoes the last file operation and Ctrl+Y (or Ctrl+Shift+Z) redoes
+  it: renames and bulk renames, moves, copies, new folders and files, and deletes to the
+  Recycle Bin. The last 50 are remembered. Undone copies and new files go to the Recycle Bin,
+  and deleted items come back from it. If an item was changed, moved or replaced since, Oxplorer
+  says so instead of guessing; permanent deletes can't be undone. The command palette shows what
+  Undo and Redo would do.
+- **Errors are asked about while copying**: when a file can't be copied or moved, the transfer
+  waits and asks: retry, skip, or skip all errors of that job. Skipped files are still listed at
+  the end and can be retried. Settings → Copy engine → *Ask when a file fails* turns it off.
+- **Transfer queue**: waiting transfers start in order and can be put on hold, moved earlier or
+  later, or set to run after the current ones. *Paste after current transfers* (folder menu and
+  command palette) queues a paste that way.
+- **When all transfers are done**: a setting can show a notification (a message in the app and a
+  flashing taskbar button) or put the computer to sleep. Sleep only follows transfers that
+  weren't cancelled, after a 30-second countdown you can cancel.
+- **Interrupted transfers can be resumed**: if Oxplorer closes, the computer sleeps or a USB
+  stick is pulled mid-copy, the transfer panel offers to resume or discard the transfer. Files
+  that were copied completely are skipped, a file that was cut off is copied again, and a move
+  only deletes an original once its copy is complete.
+- **Keep folder dates** (on by default): copied folders keep the modified date of the originals.
+- **Keep permissions** and **keep alternate data streams** (both optional, Settings → Copy
+  engine): copies take over the access rules (ACLs) of the originals, and the owner where
+  Windows allows it, or the extra data programs attach to files and folders. With streams off,
+  copies get only the contents, but the "downloaded from the internet" mark is always kept.
+- **Compare folders**: Ctrl+Shift+D (or the ⇄ button between the panes, or the command
+  palette) compares the two folders of the split view. Colour strips mark what only one side
+  has, what's newer or older and what differs; a bar above the panes sums it up, with *Only
+  differences* to hide the rest. Copy what's missing to the left or right, or replace older
+  files with the newer ones, after a confirmation and through the transfer panel. Sub-folders
+  and a byte-by-byte check of the contents can be turned on.
+- **Copy benchmark** for developers: `cargo run --release -p ox-core --example copy_bench` times
+  the copy engine on many small files, one large file and a mix, optionally next to robocopy,
+  xcopy and a plain copy loop, on any destination. Saved as a baseline, a later run fails when
+  the engine got more than 15 % slower. It's run locally before a release, not in CI.
 - **Update check**: once a day Oxplorer asks GitHub for the newest release and, when there's a
   newer one, says so on the Home page with a link to what's new. ✖ hides the note for that
   version; Settings → Startup → *Check for updates* turns it off.

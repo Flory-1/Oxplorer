@@ -125,4 +125,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("{v1} ({v2}) already done", "{v1} ({v2}) bereits erledigt"),
     (" · stopped {v1}", " · unterbrochen am {v1}"),
     ("\"{v1}\" isn't available. Connect the drive and try again.", "„{v1}“ ist nicht verfügbar. Schließen Sie das Laufwerk an und versuchen Sie es erneut."),
+    // Help: interrupted transfers
+    ("A copy was cut off. Do I have to start again?", "Ein Kopiervorgang wurde abgebrochen. Muss ich von vorn anfangen?"),
+    ("No. If Oxplorer closed, the computer went to sleep or a USB stick was pulled during a copy or move, the transfer panel shows it as interrupted. Resume skips the files that were copied completely and copies the rest; Discard forgets it. A move only deletes an original once its copy is complete.", "Nein. Wurde Oxplorer beendet, ging der Computer in den Energiesparmodus oder wurde ein USB-Stick während eines Kopier- oder Verschiebevorgangs abgezogen, zeigt die Übertragungsliste ihn als unterbrochen an. „Fortsetzen“ überspringt die vollständig kopierten Dateien und kopiert den Rest; „Verwerfen“ entfernt ihn. Beim Verschieben wird ein Original erst gelöscht, wenn seine Kopie vollständig ist."),
 ];
