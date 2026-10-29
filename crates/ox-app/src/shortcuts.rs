@@ -9,6 +9,7 @@ use egui::{InputState, Key, KeyboardShortcut, Modifiers};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Command {
     NewTab,
+    NewWindow,
     CloseTab,
     NextTab,
     PrevTab,
@@ -67,6 +68,7 @@ const fn info(
 /// Every command with a shortcut, in the order the settings page lists them.
 pub const COMMANDS: &[CommandInfo] = &[
     info(Command::NewTab, "new_tab", "New tab", &["Ctrl+T"]),
+    info(Command::NewWindow, "new_window", "New window", &["Ctrl+N"]),
     info(Command::CloseTab, "close_tab", "Close tab", &["Ctrl+W"]),
     info(Command::NextTab, "next_tab", "Next tab", &["Ctrl+Tab"]),
     info(

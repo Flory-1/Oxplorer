@@ -24,7 +24,7 @@ mod session;
 mod tests;
 
 pub use location::{Listing, Location};
-pub use session::Session;
+pub use session::{Session, SessionTab};
 
 /// Listing + selection state of the file view in one tab.
 #[derive(Default)]

@@ -81,9 +81,14 @@ pub(super) fn tab_strip(app: &mut OxApp, ui: &mut Ui) {
             actions.push(Action::Tab(TabAction::New));
         }
         plus.context_menu(|ui| {
+            new_window_button(ui, &mut actions);
+            ui.separator();
             super::super::sessions::sessions_menu(ui, &mut app.sessions, &mut actions);
         });
     });
+    let strip = row.response.rect;
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(super::tab_strip_rect_id(), strip));
     if title_bar {
         let height = row.response.rect.bottom();
         let (buttons, max) = caption_buttons(ui.ctx(), height, &mut actions);
@@ -313,6 +318,7 @@ fn tab_widget(
             {
                 actions.push(Action::Tab(TabAction::New));
             }
+            new_window_button(ui, actions);
         });
         return hit;
     }
@@ -399,6 +405,9 @@ fn tab_menu(app: &OxApp, resp: &egui::Response, id: crate::tabs::TabId, actions:
         if ui.button(tr("📑 Duplicate")).clicked() {
             actions.push(Action::Tab(TabAction::Duplicate(id)));
         }
+        if ui.button(tr("🗔 Move to new window")).clicked() {
+            actions.push(Action::Tab(TabAction::ToNewWindow(id, None)));
+        }
         if tab.pinned {
             if ui.button(tr("📍 Unpin tab")).clicked() {
                 actions.push(Action::Tab(TabAction::Pin(id, false)));
@@ -424,6 +433,18 @@ fn tab_menu(app: &OxApp, resp: &egui::Response, id: crate::tabs::TabId, actions:
             actions.push(Action::Tab(TabAction::CloseOthers(id)));
         }
     });
+}
+
+fn new_window_button(ui: &mut Ui, actions: &mut Vec<Action>) {
+    if ui
+        .add(
+            egui::Button::new(tr("🗔 New window"))
+                .shortcut_text(shortcuts::label(Command::NewWindow)),
+        )
+        .clicked()
+    {
+        actions.push(Action::Tab(TabAction::NewWindow));
+    }
 }
 
 /// "Add tab to new group", "Add tab to group" and "Remove from group".

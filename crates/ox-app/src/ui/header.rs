@@ -40,6 +40,12 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     command_bar(app, ui);
 }
 
+/// Where the tab strip is (kept in egui's memory each frame), to tell a
+/// tab dragged off the strip.
+pub fn tab_strip_rect_id() -> egui::Id {
+    egui::Id::unique("tab_strip_rect")
+}
+
 pub(super) fn group_color(g: &TabGroup) -> Color32 {
     let [r, gg, b] = GROUP_COLORS[g.color % GROUP_COLORS.len()].1;
     Color32::from_rgb(r, gg, b)

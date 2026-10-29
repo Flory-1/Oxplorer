@@ -71,9 +71,10 @@ struct TaggedItem {
     tags: Vec<TagColor>,
 }
 
+/// The tags as stored in `tags.toml`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
-struct TagFile {
+pub struct TagFile {
     /// Custom names, indexed like [`TagColor::ALL`] (empty = default name).
     labels: Vec<String>,
     items: Vec<TaggedItem>,
@@ -99,7 +100,7 @@ impl TagStore {
         store
     }
 
-    fn from_file(file: TagFile) -> Self {
+    pub fn from_file(file: TagFile) -> Self {
         let mut labels: [String; 7] = Default::default();
         for (slot, label) in labels.iter_mut().zip(file.labels) {
             *slot = label;
@@ -117,7 +118,7 @@ impl TagStore {
         }
     }
 
-    fn to_file(&self) -> TagFile {
+    pub fn to_file(&self) -> TagFile {
         let mut items: Vec<TaggedItem> = self
             .items
             .iter()

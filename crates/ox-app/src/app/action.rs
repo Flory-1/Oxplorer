@@ -107,6 +107,10 @@ pub enum Action {
 
 pub enum TabAction {
     New,
+    /// Open a new window showing what the active tab shows (Ctrl+N).
+    NewWindow,
+    /// Open a tab in a new window (at this screen position) and close it here.
+    ToNewWindow(TabId, Option<[f32; 2]>),
     Close(TabId),
     Activate(TabId),
     Duplicate(TabId),
