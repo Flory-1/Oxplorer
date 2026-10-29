@@ -5,6 +5,8 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-10-29
+
 ### Added
 - **Office documents and mails in the preview**: a *Document* tab shows Word, Excel, PowerPoint,
   Outlook (.msg), Visio, RTF and everything else Windows can preview, with the same preview
@@ -53,10 +55,6 @@ The release workflow publishes the section of the tagged version as the release 
   you use. It works across whole drives instantly.
 - **Search inside archives**: `archives:yes` or the *Inside archives* chip also finds the files
   in zip, 7z and tar archives by name; results open inside the archive.
-
-## [1.0.3] - 2026-10-29
-
-### Added
 - **Column chooser**: right-click the details header (or View → Columns) to show or hide
   columns, drag a header to move it and an edge to resize it. New columns: date created,
   dimensions, length, date taken, authors, file version, attributes and, in OneDrive or Dropbox
