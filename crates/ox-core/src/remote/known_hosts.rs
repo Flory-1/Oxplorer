@@ -40,8 +40,16 @@ impl HostKeyStatus {
 
 /// Oxplorer's own file (in its config folder).
 pub fn oxplorer_file() -> PathBuf {
+    #[cfg(test)]
+    if let Some(p) = TEST_FILE.lock().unwrap().clone() {
+        return p;
+    }
     crate::config_dir().join("known_hosts")
 }
+
+/// Tests against real servers keep the keys they trust out of the user's file.
+#[cfg(test)]
+pub(crate) static TEST_FILE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
 
 /// OpenSSH's file of the user.
 pub fn user_file() -> Option<PathBuf> {

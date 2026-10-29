@@ -49,6 +49,7 @@ fn req(
         destination: dest.to_path_buf(),
         conflict,
         pairs: Vec::new(),
+        remote: None,
     }
 }
 

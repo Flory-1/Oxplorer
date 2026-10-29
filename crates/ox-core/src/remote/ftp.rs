@@ -302,3 +302,34 @@ impl RemoteFs for FtpFs {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Lists a real server: `OX_FTP_URL=ftps://user@host/path`, password
+    /// in `OX_FTP_PASSWORD`.
+    #[test]
+    #[ignore]
+    fn lists_a_real_server() {
+        let addr = super::super::RemoteAddr::parse(&std::env::var("OX_FTP_URL").unwrap()).unwrap();
+        let fs = FtpFs::connect(Login {
+            password: std::env::var("OX_FTP_PASSWORD").ok(),
+            auth: Default::default(),
+            addr,
+        })
+        .unwrap();
+        let home = fs.home().unwrap();
+        let entries = fs.list(&home).unwrap();
+        println!("{home}: {} entries", entries.len());
+        assert!(!entries.is_empty());
+        if let Some(file) = entries.iter().find(|e| !e.is_dir && e.size > 0) {
+            let path = super::super::url::join_path(&home, &file.name);
+            let head = super::super::read_head(&fs, &path, 100).unwrap();
+            assert!(!head.is_empty());
+            // The connection still works after a stopped download.
+            assert!(fs.stat(&path).unwrap().is_some());
+        }
+        fs.close();
+    }
+}

@@ -534,19 +534,37 @@ mod tests {
     use super::*;
 
     /// Lists a real server: `OX_SFTP_URL=sftp://user@host/path` (password
-    /// in `OX_SFTP_PASSWORD`, or keys/agent). The host key must be trusted.
+    /// in `OX_SFTP_PASSWORD`, or keys/agent). The first connection must stop
+    /// at the unknown host key; it is then trusted (in a temporary file).
     #[test]
     #[ignore]
     fn lists_a_real_server() {
+        let tmp = tempfile::tempdir().unwrap();
+        *known_hosts::TEST_FILE.lock().unwrap() = Some(tmp.path().join("known_hosts"));
         let addr = super::super::RemoteAddr::parse(&std::env::var("OX_SFTP_URL").unwrap()).unwrap();
-        let fs = SftpFs::connect(Login {
+        let login = Login {
             password: std::env::var("OX_SFTP_PASSWORD").ok(),
             auth: AuthMethod::Auto,
-            addr: addr.clone(),
-        })
-        .unwrap();
+            addr,
+        };
+        let fs = match SftpFs::connect(login.clone()) {
+            Err(RemoteError::HostKey(q)) => {
+                println!("{} {} {}", q.host, q.key_type, q.fingerprint);
+                q.trust().unwrap();
+                SftpFs::connect(login).unwrap()
+            }
+            Ok(_) => panic!("connected without asking about the host key"),
+            Err(e) => panic!("{e}"),
+        };
         let home = fs.home().unwrap();
         assert!(home.starts_with('/'));
-        fs.list(&home).unwrap();
+        let entries = fs.list(&home).unwrap();
+        println!("{home}: {} entries", entries.len());
+        if let Some(file) = entries.iter().find(|e| !e.is_dir && e.size > 0) {
+            let path = super::super::url::join_path(&home, &file.name);
+            let head = super::super::read_head(&fs, &path, 100).unwrap();
+            assert!(!head.is_empty());
+        }
+        fs.close();
     }
 }
