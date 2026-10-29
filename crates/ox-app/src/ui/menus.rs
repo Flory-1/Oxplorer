@@ -136,6 +136,16 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     {
         actions.push(Action::OpenWith(sel[0].clone()));
     }
+    if sel.len() == 1
+        && ui
+            .add(
+                egui::Button::new(tr("👁 Quick Look"))
+                    .shortcut_text(shortcuts::label(Command::QuickLook)),
+            )
+            .clicked()
+    {
+        actions.push(Action::QuickLook);
+    }
     ui.separator();
     if ui
         .add(egui::Button::new(tr("✂ Cut")).shortcut_text(shortcuts::label(Command::Cut)))

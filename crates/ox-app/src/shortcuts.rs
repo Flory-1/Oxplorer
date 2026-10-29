@@ -44,6 +44,7 @@ pub enum Command {
     ShellMenu,
     ToggleTerminal,
     OpenInEditor,
+    QuickLook,
 }
 
 pub struct CommandInfo {
@@ -191,6 +192,7 @@ pub const COMMANDS: &[CommandInfo] = &[
         "Open in editor",
         &["Ctrl+Shift+E"],
     ),
+    info(Command::QuickLook, "quick_look", "Quick Look", &["Space"]),
 ];
 
 pub fn command_info(cmd: Command) -> &'static CommandInfo {

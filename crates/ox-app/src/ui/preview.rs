@@ -3,6 +3,7 @@
 mod font;
 mod git_graph;
 mod info;
+mod large;
 mod load;
 mod player;
 use font::*;
@@ -53,6 +54,8 @@ enum Content {
         bytes: u64,
         /// The history of the Git repository the folder is in.
         git: Option<Arc<GitInfo>>,
+        /// What's in it (only for Quick Look).
+        items: Vec<FileEntry>,
     },
     Font {
         /// egui font family the file was installed as.
@@ -77,6 +80,8 @@ pub enum PreviewTab {
     Glyphs,
     Git,
     Player,
+    /// The items of a folder or archive (Quick Look).
+    Contents,
 }
 
 impl PreviewTab {
@@ -92,6 +97,7 @@ impl PreviewTab {
             PreviewTab::Glyphs => tr("🔣 Glyphs"),
             PreviewTab::Git => tr("🌿 Git"),
             PreviewTab::Player => tr("▶ Player"),
+            PreviewTab::Contents => tr("📂 Contents"),
         }
     }
 }
@@ -111,7 +117,12 @@ impl Content {
             }
             Content::Media { cover: Some(_), .. } => vec![Info, Media],
             Content::Font { .. } => vec![Info, FontSample, Glyphs],
-            Content::Folder { git: Some(_), .. } => vec![Info, Git],
+            Content::Folder { git, items, .. } => {
+                let mut tabs = vec![Info];
+                tabs.extend((!items.is_empty()).then_some(Contents));
+                tabs.extend(git.as_ref().map(|_| Git));
+                tabs
+            }
             _ => vec![Info],
         }
     }
@@ -164,7 +175,6 @@ pub struct PreviewState {
     sample: String,
     /// The previewed font installed into egui (removed when the next loads).
     font_family: Option<String>,
-    font_seq: u64,
     /// Layout cache of the Markdown view.
     markdown: egui_commonmark::CommonMarkCache,
     /// The last commit that changed the item (in Git repositories) and the
@@ -176,6 +186,9 @@ pub struct PreviewState {
     /// SHA-256 and MD5, once asked for.
     checksums: Option<Checksums>,
     play: PlayerState,
+    /// Quick Look: opens on what the file shows rather than Info, with
+    /// sharper pictures, pictures fitted, folder contents and autoplay.
+    quick_look: bool,
 }
 
 enum Checksums {
@@ -184,6 +197,13 @@ enum Checksums {
 }
 
 impl PreviewState {
+    pub fn for_quick_look() -> Self {
+        Self {
+            quick_look: true,
+            ..Default::default()
+        }
+    }
+
     /// Make sure the preview shows `entry`, starting a background load if needed.
     fn update(&mut self, ctx: &egui::Context, entry: &FileEntry, show_hidden: bool) {
         let key = (entry.path.clone(), entry.modified);
@@ -201,9 +221,9 @@ impl PreviewState {
                 let _ = extra_tx.send((last_commit(&e), details));
                 repaint.request_repaint();
             });
-            let (entry, repaint) = (entry.clone(), ctx.clone());
+            let (entry, repaint, large) = (entry.clone(), ctx.clone(), self.quick_look);
             std::thread::spawn(move || {
-                let _ = tx.send(load(entry, show_hidden));
+                let _ = tx.send(load(entry, show_hidden, large));
                 repaint.request_repaint();
             });
             self.content = Some(Content::Loading(rx));
@@ -212,6 +232,9 @@ impl PreviewState {
             self.extra_rx = Some(extra_rx);
             self.checksums = None;
             self.play.playback = None;
+            if self.quick_look {
+                self.play.autoplay = true;
+            }
         }
         if let Some((commit, details)) = self.extra_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.last_commit = commit;
@@ -251,11 +274,13 @@ impl PreviewState {
                         files,
                         bytes,
                         git,
+                        items,
                     } => Content::Folder {
                         folders,
                         files,
                         bytes,
                         git,
+                        items,
                     },
                     Loaded::Font { data, info, chars } => Content::Font {
                         family: self.install_font(ctx, data),
@@ -273,8 +298,10 @@ impl PreviewState {
     /// previously previewed font so they don't pile up in memory.
     fn install_font(&mut self, ctx: &egui::Context, data: Vec<u8>) -> String {
         use egui::{FontData, FontFamily};
-        self.font_seq += 1;
-        let name = format!("oxplorer-preview-{}", self.font_seq);
+        // Shared by the pane and Quick Look, so their names differ.
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        let name = format!("oxplorer-preview-{seq}");
         let mut defs = ctx.fonts_mut(|f| f.definitions().clone());
         if let Some(old) = self.font_family.take() {
             defs.font_data.remove(&old);
@@ -305,6 +332,18 @@ impl PreviewState {
     /// Start on the Info tab next time.
     pub fn reset_tab(&mut self) {
         self.wanted = None;
+    }
+
+    /// Let go of everything (Quick Look closing): the player stops and a
+    /// previewed font is taken out of egui again.
+    pub fn release(&mut self, ctx: &egui::Context) {
+        self.clear();
+        if let Some(old) = self.font_family.take() {
+            let mut defs = ctx.fonts_mut(|f| f.definitions().clone());
+            defs.font_data.remove(&old);
+            defs.families.remove(&egui::FontFamily::Name(old.into()));
+            ctx.set_fonts(defs);
+        }
     }
 }
 
@@ -388,6 +427,20 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     app.actions.extend(actions);
 }
 
+/// Quick Look's preview of `entry` in the space left (see `quick_look`).
+pub fn show_large(
+    ui: &mut Ui,
+    state: &mut PreviewState,
+    entry: &FileEntry,
+    show_hidden: bool,
+    total: Option<DirSize>,
+    date_fmt: &str,
+    actions: &mut Vec<Action>,
+) {
+    state.update(ui.ctx(), entry, show_hidden);
+    tabbed(ui, state, entry, total, None, date_fmt, actions);
+}
+
 fn header(ui: &mut Ui, e: &FileEntry) {
     ui.label(RichText::new(&e.name).strong().size(15.0));
     ui.label(RichText::new(e.type_label()).weak());
@@ -413,11 +466,13 @@ fn tabbed(
         return;
     };
     let tabs = content.tabs();
-    // The tab picked last, if this file has it; otherwise Info.
-    let tab = state
-        .wanted
-        .filter(|t| tabs.contains(t))
-        .unwrap_or(PreviewTab::Info);
+    // The tab picked last, if this file has it; otherwise Info (Quick
+    // Look: what the file shows).
+    let first = match state.quick_look {
+        true => tabs.get(1).copied().unwrap_or(PreviewTab::Info),
+        false => PreviewTab::Info,
+    };
+    let tab = state.wanted.filter(|t| tabs.contains(t)).unwrap_or(first);
     ui.add_space(4.0);
     ui.horizontal_wrapped(|ui| {
         for t in &tabs {
@@ -429,6 +484,14 @@ fn tabbed(
     ui.separator();
 
     let content = state.content.as_ref().expect("checked above");
+    if large::show(ui, state.quick_look, tab, content) {
+        return;
+    }
+    // Quick Look: the video and its buttons fit without scrolling.
+    let max_h = match state.quick_look {
+        true => (ui.available_height() - 90.0).max(120.0),
+        false => f32::INFINITY,
+    };
     if let (PreviewTab::Glyphs, Content::Font { family, chars, .. }) = (tab, content) {
         glyph_grid(ui, family, chars, actions);
         return;
@@ -510,7 +573,7 @@ fn tabbed(
                     Content::Media { cover, .. } => cover.as_ref(),
                     _ => None,
                 };
-                player_tab(ui, &mut state.play, e, cover);
+                player_tab(ui, &mut state.play, e, cover, max_h);
             }
             PreviewTab::Markdown => {
                 if let Content::Text { text, .. } = content {

@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Keys typed within this time add to the name being typed.
+const TYPE_AHEAD: Duration = Duration::from_millis(900);
+
 impl OxApp {
     /// Clipboard shortcuts are disabled in eframe so that Ctrl+V works even when
     /// the clipboard holds files instead of text. Text fields still need them,
@@ -59,6 +62,12 @@ impl OxApp {
         let in_bin = self.tabs.active().location().is_bin();
         let read_only = self.tabs.active().location().is_read_only();
         let has_sel = !selection.is_empty();
+        let quick_look = self.quick_look.is_some();
+        if quick_look {
+            self.quick_look_keys(ctx);
+        }
+        // Space while typing a name to jump to belongs to the name.
+        let typing = !self.ui.type_ahead.is_empty() && self.ui.type_ahead_at.elapsed() < TYPE_AHEAD;
 
         // Which commands make sense here; only their keys are taken.
         let available = |c: C| match c {
@@ -75,6 +84,7 @@ impl OxApp {
                 shows_files && has_sel && !in_bin && !read_only && ox_core::shell::supported()
             }
             C::Paste | C::NewFolder => shows_files && folder.is_some(),
+            C::QuickLook => quick_look || (shows_files && has_sel && !in_bin && !typing),
             C::OpenInEditor => {
                 shows_files && !in_bin && !read_only && (has_sel || folder.is_some())
             }
@@ -119,6 +129,7 @@ impl OxApp {
                 }
                 C::Settings => actions.push(Action::OpenInNewTab(Location::Settings, true)),
                 C::Help => actions.push(Action::OpenInNewTab(Location::Help, true)),
+                C::QuickLook => actions.push(Action::QuickLook),
                 C::SelectAll => actions.push(Action::SelectAll),
                 C::SelectPattern => actions.push(Action::Select(SelectAction::PatternDialog(true))),
                 C::DeselectPattern => {
@@ -219,8 +230,10 @@ impl OxApp {
             }
         });
 
-        if !typed.trim().is_empty() {
-            if self.ui.type_ahead_at.elapsed() > Duration::from_millis(900) {
+        let typing = self.ui.type_ahead_at.elapsed() < TYPE_AHEAD && !self.ui.type_ahead.is_empty();
+        // A space only counts inside a name ("my f…"), not on its own.
+        if !typed.trim().is_empty() || (typing && !typed.is_empty()) {
+            if self.ui.type_ahead_at.elapsed() > TYPE_AHEAD {
                 self.ui.type_ahead.clear();
             }
             self.ui.type_ahead.push_str(&typed.to_lowercase());

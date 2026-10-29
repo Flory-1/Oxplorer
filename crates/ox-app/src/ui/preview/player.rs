@@ -35,12 +35,14 @@ pub(super) fn clock(secs: f32) -> String {
 }
 
 /// The built-in player: the video (or the cover of audio files), a seek
-/// bar and the buttons. The file is opened when the tab is shown.
+/// bar and the buttons. The file is opened when the tab is shown. The
+/// picture is at most `max_h` high (Quick Look; unlimited in the pane).
 pub(super) fn player_tab(
     ui: &mut Ui,
     state: &mut PlayerState,
     e: &FileEntry,
     cover: Option<&TextureHandle>,
+    max_h: f32,
 ) {
     use ox_core::player::Player;
     let volume = *state.volume.get_or_insert(0.8);
@@ -86,28 +88,29 @@ pub(super) fn player_tab(
     }
     let st = player.status();
     let width = ui.available_width();
+    // Fits `size` into the width and `max_h`, centred.
+    let fit = |ui: &mut Ui, tex: &TextureHandle, most: f32| {
+        let size = tex.size_vec2();
+        let scale = (width / size.x).min(max_h / size.y).min(most);
+        ui.vertical_centered(|ui| {
+            ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(6.0));
+        });
+    };
 
     // The picture.
     if st.video {
         match &pb.texture {
-            Some(tex) => {
-                let size = tex.size_vec2();
-                ui.add(egui::Image::new((tex.id(), size * (width / size.x))).corner_radius(6.0));
-            }
+            Some(tex) => fit(ui, tex, f32::INFINITY),
             None => {
                 let (rect, _) = ui.allocate_exact_size(
-                    egui::vec2(width, width * 9.0 / 16.0),
+                    egui::vec2(width, (width * 9.0 / 16.0).min(max_h)),
                     egui::Sense::hover(),
                 );
                 ui.painter().rect_filled(rect, 6.0, egui::Color32::BLACK);
             }
         }
     } else if let Some(tex) = cover {
-        let size = tex.size_vec2();
-        let scale = (width / size.x).min(1.0);
-        ui.vertical_centered(|ui| {
-            ui.add(egui::Image::new((tex.id(), size * scale)).corner_radius(6.0));
-        });
+        fit(ui, tex, 1.0);
     } else {
         ui.add_space(16.0);
         ui.vertical_centered(|ui| {

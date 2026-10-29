@@ -32,4 +32,17 @@ pub const TABLE: &[(&str, &str)] = &[
         "Select an item first.",
         "Wählen Sie zuerst ein Element aus.",
     ),
+    // Quick Look
+    ("Quick Look", "Schnellansicht"),
+    ("👁 Quick Look", "👁 Schnellansicht"),
+    ("Close (Space or Esc)", "Schließen (Leertaste oder Esc)"),
+    (
+        "Arrow keys: the previous or next item",
+        "Pfeiltasten: voriges oder nächstes Element",
+    ),
+    ("📂 Contents", "📂 Inhalt"),
+    (
+        "Only the first {v1} items are shown.",
+        "Nur die ersten {v1} Elemente werden angezeigt.",
+    ),
 ];

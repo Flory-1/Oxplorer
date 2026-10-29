@@ -9,6 +9,7 @@ mod home;
 mod menus;
 pub(crate) mod palette;
 pub(crate) mod preview;
+pub(crate) mod quick_look;
 mod select_pattern;
 mod settings_page;
 mod sidebar;
@@ -128,6 +129,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     if preview_shown && app.settings.preview.as_window {
         preview_window(app, ui.ctx());
     }
+    quick_look::show(app, ui.ctx());
     dialogs::show(app, ui.ctx());
     palette::show(app, ui.ctx());
     toasts(app, ui.ctx());

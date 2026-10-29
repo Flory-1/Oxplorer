@@ -5,8 +5,14 @@ use super::*;
 
 /// Largest file we try to decode as an image.
 pub(super) const MAX_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
-/// Longest image side after downscaling.
+/// Longest image side after downscaling (in the pane, in Quick Look).
 pub(super) const MAX_IMAGE_SIDE: u32 = 1024;
+pub(super) const MAX_IMAGE_SIDE_LARGE: u32 = 2560;
+/// Width PDF pages are rendered at (in the pane, in Quick Look).
+const PDF_WIDTH: u32 = 800;
+const PDF_WIDTH_LARGE: u32 = 1600;
+/// Items of a folder or archive listed in Quick Look.
+pub(super) const MAX_ITEMS: usize = 2000;
 /// How much of a text file is shown.
 pub(super) const MAX_TEXT_BYTES: usize = 128 * 1024;
 /// How many lines of it.
@@ -34,6 +40,8 @@ pub(super) enum Loaded {
         bytes: u64,
         /// The history of the Git repository the folder is in.
         git: Option<Arc<GitInfo>>,
+        /// What's in it, folders first (only for Quick Look).
+        items: Vec<FileEntry>,
     },
     /// A font file: its bytes (installed into egui to draw it), details
     /// and every character it has a glyph for.
@@ -83,12 +91,30 @@ pub(super) fn is_text(e: &FileEntry) -> bool {
         )
 }
 
-pub(super) fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
+/// The items of a folder for Quick Look (`large`), sorted and capped.
+fn listed(mut items: Vec<FileEntry>, large: bool) -> Vec<FileEntry> {
+    if !large {
+        return Vec::new();
+    }
+    use ox_core::entry::{SortKey, SortOrder};
+    ox_core::entry::sort_entries(&mut items, SortKey::Name, SortOrder::Ascending, true);
+    items.truncate(MAX_ITEMS);
+    items
+}
+
+/// Load the preview of `entry`; `large` for Quick Look (sharper pictures
+/// and pages, and the items of folders).
+pub(super) fn load(entry: FileEntry, show_hidden: bool, large: bool) -> Loaded {
     if let Some((arc, inner)) = ox_core::archive::split_virtual(&entry.path)
         .filter(|(_, inner)| !inner.as_os_str().is_empty())
     {
-        return load_from_archive(&entry, &arc, &inner);
+        return load_from_archive(&entry, &arc, &inner, large);
     }
+    let side = if large {
+        MAX_IMAGE_SIDE_LARGE
+    } else {
+        MAX_IMAGE_SIDE
+    };
     if entry.is_dir {
         return match ox_core::entry::list_dir(&entry.path, show_hidden) {
             Ok(items) => Loaded::Folder {
@@ -96,6 +122,7 @@ pub(super) fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
                 files: items.iter().filter(|i| !i.is_dir).count(),
                 bytes: items.iter().filter(|i| !i.is_dir).map(|i| i.size).sum(),
                 git: git_info(&entry.path),
+                items: listed(items, large),
             },
             Err(e) => Loaded::Error(e.to_string()),
         };
@@ -111,11 +138,17 @@ pub(super) fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
                     .flat_map(|e| e.path.ancestors().skip(usize::from(!e.is_dir)))
                     .filter(|p| !p.as_os_str().is_empty())
                     .collect();
+                let items = if large {
+                    ox_core::archive::list(&entry.path, Path::new("")).unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
                 Loaded::Folder {
                     folders: folders.len(),
                     files: files.len(),
                     bytes: files.iter().map(|e| e.size).sum(),
                     git: None,
+                    items: listed(items, large),
                 }
             }
             Err(e) => Loaded::Error(ox_core::trf!("Can't read this archive: {e}", e = e)),
@@ -125,7 +158,7 @@ pub(super) fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
         if entry.size > MAX_IMAGE_BYTES {
             return Loaded::Error(tr("The image is too large to preview.").into());
         }
-        return image_result(image::open(&entry.path));
+        return image_result(image::open(&entry.path), side);
     }
     if matches!(entry.kind(), FileKind::Audio | FileKind::Video) {
         if let Some(media) = media_info(&entry.path, entry.kind() == FileKind::Video) {
@@ -143,7 +176,10 @@ pub(super) fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
         return font_info(&entry.path).unwrap_or(Loaded::Nothing);
     }
     if entry.kind() == FileKind::Pdf {
-        return match ox_core::pdf::render_first_page(&entry.path, 800) {
+        return match ox_core::pdf::render_first_page(
+            &entry.path,
+            if large { PDF_WIDTH_LARGE } else { PDF_WIDTH },
+        ) {
             Ok(pdf) => match image::load_from_memory(&pdf.png) {
                 Ok(img) => {
                     let rgba = img.to_rgba8();
@@ -169,12 +205,12 @@ pub(super) fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
     }
 }
 
-pub(super) fn image_result(img: image::ImageResult<image::DynamicImage>) -> Loaded {
+pub(super) fn image_result(img: image::ImageResult<image::DynamicImage>, side: u32) -> Loaded {
     match img {
         Ok(img) => {
             let (w, h) = (img.width(), img.height());
-            let img = if w.max(h) > MAX_IMAGE_SIDE {
-                img.thumbnail(MAX_IMAGE_SIDE, MAX_IMAGE_SIDE)
+            let img = if w.max(h) > side {
+                img.thumbnail(side, side)
             } else {
                 img
             };
@@ -190,7 +226,12 @@ pub(super) fn image_result(img: image::ImageResult<image::DynamicImage>) -> Load
 }
 
 /// Preview of an item inside an archive, read without extracting it.
-pub(super) fn load_from_archive(entry: &FileEntry, arc: &Path, inner: &Path) -> Loaded {
+pub(super) fn load_from_archive(
+    entry: &FileEntry,
+    arc: &Path,
+    inner: &Path,
+    large: bool,
+) -> Loaded {
     use ox_core::archive;
     if entry.is_dir {
         return match archive::list(arc, inner) {
@@ -199,6 +240,7 @@ pub(super) fn load_from_archive(entry: &FileEntry, arc: &Path, inner: &Path) -> 
                 files: items.iter().filter(|i| !i.is_dir).count(),
                 bytes: items.iter().filter(|i| !i.is_dir).map(|i| i.size).sum(),
                 git: None,
+                items: listed(items, large),
             },
             Err(e) => Loaded::Error(e.to_string()),
         };
@@ -208,7 +250,14 @@ pub(super) fn load_from_archive(entry: &FileEntry, arc: &Path, inner: &Path) -> 
             return Loaded::Error(tr("The image is too large to preview.").into());
         }
         return match archive::read_entry(arc, inner, MAX_IMAGE_BYTES) {
-            Ok(bytes) => image_result(image::load_from_memory(&bytes)),
+            Ok(bytes) => {
+                let side = if large {
+                    MAX_IMAGE_SIDE_LARGE
+                } else {
+                    MAX_IMAGE_SIDE
+                };
+                image_result(image::load_from_memory(&bytes), side)
+            }
             Err(e) => Loaded::Error(e.to_string()),
         };
     }

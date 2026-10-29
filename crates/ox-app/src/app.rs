@@ -10,6 +10,7 @@ mod input;
 mod poll;
 mod process;
 mod properties;
+mod quick_look;
 mod select;
 mod transfer_watch;
 mod undo;
@@ -147,6 +148,8 @@ pub struct OxApp {
     pub thumbs: crate::thumbs::Thumbnails,
     pub index: IndexService,
     pub preview: crate::ui::preview::PreviewState,
+    /// Quick Look, while it is open (Space).
+    pub quick_look: Option<crate::ui::quick_look::QuickLook>,
     pub folder_sizes: FolderSizes,
     /// Keyboard shortcuts in effect (defaults + the user's changes).
     pub keymap: crate::shortcuts::Keymap,
@@ -293,6 +296,7 @@ impl OxApp {
                 })
             },
             preview: Default::default(),
+            quick_look: None,
             folder_sizes: {
                 let repaint = cc.egui_ctx.clone();
                 FolderSizes::new(move || repaint.request_repaint())
