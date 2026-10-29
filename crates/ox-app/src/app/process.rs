@@ -471,6 +471,7 @@ impl OxApp {
             }
             Action::SelectAll => self.tabs.active_mut().view.select_all(),
             Action::Select(a) => self.process_select(a),
+            Action::QuickLook => self.toggle_quick_look(),
             Action::ForgetRecent(p) => {
                 self.quick.forget(&p);
                 self.save_quick();

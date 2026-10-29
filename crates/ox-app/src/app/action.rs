@@ -84,6 +84,8 @@ pub enum Action {
     SelectAll,
     /// Select by pattern, invert, same type.
     Select(super::SelectAction),
+    /// Open Quick Look on the selected item, or close it.
+    QuickLook,
     ForgetRecent(PathBuf),
     ClearRecent,
     SettingsChanged,

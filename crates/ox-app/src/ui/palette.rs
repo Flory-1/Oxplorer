@@ -254,6 +254,14 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             &shortcuts::label(Command::SelectAll),
             act(|| Action::SelectAll),
         );
+        if !selection.is_empty() && !tab.location().is_bin() {
+            cmd(
+                "👁",
+                tr("Quick Look"),
+                &shortcuts::label(Command::QuickLook),
+                act(|| Action::QuickLook),
+            );
+        }
         use crate::app::SelectAction as S;
         for (label, command, action) in [
             (
