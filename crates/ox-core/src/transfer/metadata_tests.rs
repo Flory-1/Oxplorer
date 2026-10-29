@@ -194,7 +194,10 @@ mod windows {
             .status
             .success();
         assert!(ok, "icacls failed");
-        assert_eq!(dacl(&file), (true, 1), "test setup");
+        // Some machines (CI runners) give new files explicit entries of their
+        // own, which `/inheritance:r` keeps, so only the flag is certain.
+        let own = dacl(&file);
+        assert!(own.0, "test setup");
 
         let keep = tmp.path().join("keep");
         fs::create_dir(&keep).unwrap();
@@ -207,7 +210,7 @@ mod windows {
             &keep,
         );
         assert!(job.errors().is_empty(), "{:?}", job.errors());
-        assert_eq!(dacl(&keep.join("src/secret.txt")), (true, 1));
+        assert_eq!(dacl(&keep.join("src/secret.txt")), own);
         // The folder had inherited permissions only: it still inherits.
         assert!(!dacl(&keep.join("src")).0);
 
