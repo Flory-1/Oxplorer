@@ -523,12 +523,16 @@ impl OxApp {
                 tab.view.loading = Some(rx);
             }
             Location::Search { root, query } => {
-                let q = Query::parse(&query, search_opts.case_sensitive);
+                let mut q = Query::parse(&query, search_opts.case_sensitive);
+                q.resolve_tags(&self.tags);
                 tab.view = Default::default();
                 let repaint = move || ctx.request_repaint();
-                // Answer from the index when it covers the place we search in.
+                // Answer from the index when it covers the place we search in
+                // (it only knows file system names, not what's in archives).
                 let handle = match index {
-                    Some(idx) if root.as_deref().is_none_or(|r| idx.covers(r)) => {
+                    Some(idx)
+                        if !q.in_archives() && root.as_deref().is_none_or(|r| idx.covers(r)) =>
+                    {
                         search::start_indexed(idx, root, q, search_opts, repaint)
                     }
                     _ => {

@@ -1,12 +1,15 @@
 //! Parsing a query string and matching names and metadata against it.
 
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::fs;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use crate::entry::FileKind;
+use crate::tags::TagStore;
 
 #[derive(Debug, Clone)]
 enum Term {
@@ -59,6 +62,33 @@ pub struct Query {
     modified_within: Option<Duration>,
     content: Option<ContentPattern>,
     case_sensitive: bool,
+    /// `tag:` names as typed; looked up by [`Query::resolve_tags`].
+    tags: Vec<String>,
+    tagged: Option<Arc<Tagged>>,
+    /// `archives:yes`: the walk also matches the items inside archives.
+    in_archives: bool,
+}
+
+/// The items carrying one of the `tag:` colours, from the tag store.
+#[derive(Debug, Default, PartialEq)]
+struct Tagged {
+    paths: Vec<PathBuf>,
+    /// The same paths, lower-cased: Windows paths ignore case.
+    keys: HashSet<String>,
+}
+
+/// `path` lower-cased, with `/` and `\` alike (on Windows).
+pub(super) fn path_key(path: &Path) -> String {
+    let path: PathBuf = path.components().collect();
+    path.to_string_lossy().to_lowercase()
+}
+
+/// Is `value` a yes (`archives:yes`)?
+fn is_yes(value: &str) -> bool {
+    matches!(
+        value.to_ascii_lowercase().as_str(),
+        "yes" | "y" | "on" | "true" | "1"
+    )
 }
 
 /// File kinds for `kind:` values.
@@ -161,6 +191,19 @@ impl Query {
                         }
                         continue;
                     }
+                    "tag" | "tags" => {
+                        q.tags.extend(
+                            value
+                                .split([',', ';', '|'])
+                                .map(|t| t.trim().trim_matches('"').to_owned())
+                                .filter(|t| !t.is_empty()),
+                        );
+                        continue;
+                    }
+                    "archives" | "archive" | "inarchives" => {
+                        q.in_archives = is_yes(value);
+                        continue;
+                    }
                     "regex" | "re" => term = regex_term(value, case_sensitive),
                     _ => {} // Not a filter, e.g. "C:" — treat as a normal term.
                 }
@@ -189,11 +232,55 @@ impl Query {
             && self.max_size.is_none()
             && self.modified_within.is_none()
             && self.content.is_none()
+            && self.tags.is_empty()
     }
 
     /// The query looks inside files, so it can't be answered from names alone.
     pub fn needs_content(&self) -> bool {
         self.content.is_some()
+    }
+
+    /// The query has a `tag:` filter.
+    pub fn has_tags(&self) -> bool {
+        !self.tags.is_empty()
+    }
+
+    /// `archives:yes`: also search the names of the items inside archives.
+    pub fn in_archives(&self) -> bool {
+        self.in_archives
+    }
+
+    /// Look up the `tag:` names (colour names or custom labels) in `store`.
+    /// Call it before searching: until then, and for unknown names, a `tag:`
+    /// filter matches nothing.
+    pub fn resolve_tags(&mut self, store: &TagStore) {
+        if self.tags.is_empty() {
+            return;
+        }
+        let mut paths: Vec<PathBuf> = self
+            .tags
+            .iter()
+            .filter_map(|name| store.parse(name))
+            .flat_map(|color| store.with_tag(color))
+            .collect();
+        paths.sort();
+        paths.dedup();
+        let keys = paths.iter().map(|p| path_key(p)).collect();
+        self.tagged = Some(Arc::new(Tagged { paths, keys }));
+    }
+
+    /// Does `path` carry one of the `tag:` colours? (`true` if there is no `tag:`.)
+    pub fn matches_tags(&self, path: &Path) -> bool {
+        self.tags.is_empty()
+            || self
+                .tagged
+                .as_ref()
+                .is_some_and(|t| t.keys.contains(&path_key(path)))
+    }
+
+    /// The items with one of the `tag:` colours (after [`Query::resolve_tags`]).
+    pub(super) fn tagged_paths(&self) -> &[PathBuf] {
+        self.tagged.as_deref().map_or(&[], |t| t.paths.as_slice())
     }
 
     /// Does a file name match the name-based parts of the query?
@@ -286,7 +373,8 @@ impl Query {
         meta: impl Fn() -> Option<fs::Metadata>,
         path: &Path,
     ) -> bool {
-        if !self.matches_type(name, is_dir) || !self.matches_name(name) {
+        if !self.matches_type(name, is_dir) || !self.matches_name(name) || !self.matches_tags(path)
+        {
             return false;
         }
         if self.needs_meta() {
@@ -583,5 +671,45 @@ mod tests {
         assert!(!q.matches_meta("a", false, 2048, Some(now - Duration::from_secs(3 * 86400))));
         assert!(!q.matches_meta("a", false, 2048, None));
         assert!(Query::parse("content:x", false).needs_content());
+    }
+
+    #[test]
+    fn tag_tokens() {
+        use crate::tags::TagColor;
+        let mut store = TagStore::default();
+        store.toggle(&[PathBuf::from("/x/Report.pdf")], TagColor::Red);
+        store.toggle(&[PathBuf::from("/x/plan.txt")], TagColor::Blue);
+        store.toggle(&[PathBuf::from("/x/todo.txt")], TagColor::Green);
+        store.set_label(TagColor::Green, "To do");
+
+        let mut q = Query::parse(r#"tag:red,"To do" ext:pdf,txt"#, false);
+        assert_eq!(q.tags, vec!["red", "To do"]);
+        assert!(q.has_tags() && !q.is_empty());
+        // Unresolved, a tag filter matches nothing.
+        assert!(!q.matches_tags(Path::new("/x/Report.pdf")));
+        q.resolve_tags(&store);
+        assert_eq!(
+            q.tagged_paths(),
+            [PathBuf::from("/x/Report.pdf"), PathBuf::from("/x/todo.txt")]
+        );
+        // Paths are compared ignoring case.
+        assert!(q.matches_tags(Path::new("/X/report.PDF")));
+        assert!(q.matches_tags(Path::new("/x/todo.txt")));
+        assert!(!q.matches_tags(Path::new("/x/plan.txt")));
+
+        let mut q = Query::parse("tag:nope", false);
+        q.resolve_tags(&store);
+        assert!(q.tagged_paths().is_empty() && !q.matches_tags(Path::new("/x/plan.txt")));
+        assert!(Query::parse("report", false).matches_tags(Path::new("/y")));
+    }
+
+    #[test]
+    fn archives_token() {
+        assert!(Query::parse("report archives:yes", false).in_archives());
+        assert!(Query::parse("ARCHIVES:on", false).in_archives());
+        assert!(!Query::parse("archives:no", false).in_archives());
+        assert!(!Query::parse("report", false).in_archives());
+        // Only a switch: on its own it searches for nothing.
+        assert!(Query::parse("archives:yes", false).is_empty());
     }
 }

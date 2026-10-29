@@ -20,8 +20,19 @@
 //! | `size:>10mb`         | size filter (`<`, `>`, units b/kb/mb/gb)              |
 //! | `modified:7d`        | modified in the last 7 days (`today`, `24h`, `2w`)    |
 //! | `content:"TODO"`     | file contents contain the text (≤ 32 MB, text files)  |
+//! | `tag:red,"To do"`    | tagged with one of the colours (name or custom label) |
+//! | `archives:yes`       | also match the items inside zip, 7z and tar archives  |
+//!
+//! `tag:` needs [`Query::resolve_tags`]; both back ends then only look at the
+//! tagged items. `archives:yes` works in the walk only (the index holds file
+//! system names): it lists every archive the walk meets (tar and tar.gz up
+//! to 256 MB) and applies the name, type, size and date filters to the items
+//! inside, whose results carry virtual paths (`a.zip\inner\file`, see
+//! [`crate::archive::split_virtual`]). `content:` isn't searched in archives.
 
+mod archives;
 mod query;
+mod tagged;
 mod walk;
 
 pub(crate) use query::wildcard;
@@ -127,6 +138,10 @@ pub fn start_indexed(
     opts: SearchOptions,
     notify: impl Fn() + Send + Sync + 'static,
 ) -> SearchHandle {
+    if query.has_tags() {
+        // Quicker from the tag store than from millions of index entries.
+        return start(within.into_iter().collect(), query, opts, notify);
+    }
     let (tx, rx) = crossbeam_channel::unbounded();
     let cancel = Arc::new(AtomicBool::new(false));
     let handle = SearchHandle {
@@ -167,7 +182,8 @@ pub fn start_indexed(
 }
 
 /// Start searching `roots` in the background. `notify` is called whenever new
-/// results are available (e.g. to repaint the UI).
+/// results are available (e.g. to repaint the UI). A `tag:` query with no
+/// `roots` finds tagged items anywhere.
 pub fn start(
     roots: Vec<PathBuf>,
     query: Query,
@@ -291,5 +307,160 @@ mod tests {
             "\"big file\" kind:image"
         );
         assert!(has_filter("a SIZE:>10mb", "size:>10mb"));
+    }
+
+    /// All results of a search, sorted by path.
+    fn results(h: SearchHandle) -> Vec<FileEntry> {
+        let mut out = Vec::new();
+        for ev in h.events.iter() {
+            match ev {
+                SearchEvent::Results(r) => out.extend(r),
+                SearchEvent::Done { .. } => break,
+            }
+        }
+        out.sort_by(|a, b| a.path.cmp(&b.path));
+        out
+    }
+
+    #[test]
+    fn tag_queries_in_both_back_ends() {
+        use crate::index::{FileIndex, IndexConfig};
+        use crate::tags::{TagColor, TagStore};
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("a/b")).unwrap();
+        for f in ["a/report.pdf", "a/b/plan.txt", "a/b/other.txt"] {
+            fs::write(root.join(f), "x").unwrap();
+        }
+        let mut store = TagStore::default();
+        store.toggle(&[root.join("a/report.pdf")], TagColor::Red);
+        store.toggle(
+            &[root.join("a/b/plan.txt"), root.join("a/b")],
+            TagColor::Blue,
+        );
+        store.set_label(TagColor::Blue, "Work");
+        // Tagged, but outside the searched folder.
+        store.toggle(&[PathBuf::from("/elsewhere/x.txt")], TagColor::Red);
+        let query = |q: &str| {
+            let mut q = Query::parse(q, false);
+            q.resolve_tags(&store);
+            q
+        };
+        let paths = |r: Vec<FileEntry>| r.into_iter().map(|e| e.path).collect::<Vec<_>>();
+
+        let walk = |q: &str| {
+            paths(results(start(
+                vec![root.to_path_buf()],
+                query(q),
+                SearchOptions::default(),
+                || {},
+            )))
+        };
+        assert_eq!(walk("tag:red"), [root.join("a/report.pdf")]);
+        assert_eq!(
+            walk("tag:work"),
+            [root.join("a/b"), root.join("a/b/plan.txt")]
+        );
+        assert_eq!(
+            walk("tag:red,blue type:file plan"),
+            [root.join("a/b/plan.txt")]
+        );
+        assert!(walk("tag:green").is_empty());
+
+        let idx = Arc::new(FileIndex::build(
+            &IndexConfig {
+                roots: vec![root.to_path_buf()],
+                exclude: vec![],
+                threads: 2,
+            },
+            &AtomicBool::new(false),
+            &AtomicU64::new(0),
+        ));
+        let indexed = |q: &str, within: Option<PathBuf>| {
+            paths(results(start_indexed(
+                idx.clone(),
+                within,
+                query(q),
+                SearchOptions::default(),
+                || {},
+            )))
+        };
+        assert_eq!(
+            indexed("tag:blue ext:txt", Some(root.to_path_buf())),
+            [root.join("a/b/plan.txt")]
+        );
+        assert_eq!(
+            indexed("tag:red", None),
+            [PathBuf::from("/elsewhere/x.txt"), root.join("a/report.pdf")]
+                .into_iter()
+                .filter(|p| p.exists())
+                .collect::<Vec<_>>()
+        );
+        // The index applies `tag:` on its own too.
+        let (ids, _) = idx.search(
+            &query("tag:red"),
+            &crate::index::IndexQuery {
+                max_results: 10,
+                ..Default::default()
+            },
+        );
+        assert_eq!(ids.len(), 1);
+    }
+
+    #[test]
+    fn archive_items_are_searched_on_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let src = root.join("src");
+        fs::create_dir_all(src.join("Docs/sub")).unwrap();
+        fs::write(src.join("Docs/report.pdf"), "x".repeat(2000)).unwrap();
+        fs::write(src.join("Docs/sub/notes.txt"), "TODO").unwrap();
+        let zip = root.join("in").join("docs.zip");
+        fs::create_dir_all(root.join("in")).unwrap();
+        crate::archive::compress_zip(&[src.join("Docs")], &zip, &AtomicBool::new(false)).unwrap();
+        let tar = root.join("in").join("docs.tar");
+        {
+            let mut b = tar::Builder::new(fs::File::create(&tar).unwrap());
+            b.append_dir_all("Docs", src.join("Docs")).unwrap();
+            b.finish().unwrap();
+        }
+        fs::remove_dir_all(&src).unwrap();
+
+        let walk = |q: &str| {
+            let r = results(start(
+                vec![root.join("in")],
+                Query::parse(q, false),
+                SearchOptions::default(),
+                || {},
+            ));
+            r.into_iter().map(|e| e.path).collect::<Vec<_>>()
+        };
+        assert!(walk("report").is_empty(), "off by default");
+        // Sorted by path: the tar comes first.
+        let reports = vec![
+            tar.join("Docs").join("report.pdf"),
+            zip.join("Docs").join("report.pdf"),
+        ];
+        assert_eq!(walk("report archives:yes"), reports);
+        assert_eq!(walk("archives:yes size:>1kb kind:document"), reports);
+        // Folders count, also when only implied by the paths of their files.
+        let folders = walk("archives:yes type:folder sub");
+        assert_eq!(
+            folders,
+            [tar.join("Docs").join("sub"), zip.join("Docs").join("sub")]
+        );
+        // The archives themselves still match, and `content:` stays outside.
+        assert_eq!(
+            walk("archives:yes docs"),
+            [tar.clone(), tar.join("Docs"), zip.clone(), zip.join("Docs")]
+        );
+        assert!(walk("archives:yes content:todo").is_empty());
+
+        // Results open in the archive view.
+        let (arc, inner) = crate::archive::split_virtual(&folders[1]).unwrap();
+        assert_eq!(
+            (arc, inner),
+            (zip.clone(), PathBuf::from("Docs").join("sub"))
+        );
     }
 }

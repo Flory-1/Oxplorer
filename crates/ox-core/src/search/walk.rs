@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::Sender;
 
 use super::{Query, SearchEvent, SearchOptions};
+use crate::archive;
 use crate::entry::FileEntry;
 
 pub(super) fn run(
@@ -22,6 +23,21 @@ pub(super) fn run(
     let started = Instant::now();
     let found = Arc::new(AtomicU64::new(0));
     let truncated = Arc::new(AtomicBool::new(false));
+    if query.has_tags() {
+        let (items, n, cut) = super::tagged::search(&roots, &query, &opts, &cancel);
+        scanned.store(n, Ordering::Relaxed);
+        if !items.is_empty() {
+            let _ = tx.send(SearchEvent::Results(items));
+        }
+        let _ = tx.send(SearchEvent::Done {
+            elapsed: started.elapsed(),
+            scanned: n,
+            truncated: cut,
+            from_index: false,
+        });
+        notify();
+        return;
+    }
     let Some((first, rest)) = roots.split_first() else {
         let _ = tx.send(SearchEvent::Done {
             elapsed: started.elapsed(),
@@ -45,6 +61,7 @@ pub(super) fn run(
 
     let query = Arc::new(query);
     let max = opts.max_results as u64;
+    let in_archives = query.in_archives();
     builder.build_parallel().run(|| {
         let mut batch = Batch {
             items: Vec::new(),
@@ -86,6 +103,22 @@ pub(super) fn run(
                         .push(FileEntry::from_metadata(entry.path().to_path_buf(), &meta));
                     batch.maybe_flush();
                 }
+            }
+            if in_archives && !is_dir && archive::kind(entry.path()).is_some() {
+                let Ok(meta) = entry.metadata() else {
+                    return ignore::WalkState::Continue;
+                };
+                let (items, listed) = super::archives::search(entry.path(), &meta, &query);
+                batch.local_scanned += listed;
+                for item in items {
+                    if found.fetch_add(1, Ordering::Relaxed) >= max {
+                        truncated.store(true, Ordering::Relaxed);
+                        cancel.store(true, Ordering::Relaxed);
+                        return ignore::WalkState::Quit;
+                    }
+                    batch.items.push(item);
+                }
+                batch.maybe_flush();
             }
             ignore::WalkState::Continue
         })

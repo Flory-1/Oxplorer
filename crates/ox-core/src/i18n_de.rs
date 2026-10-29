@@ -886,6 +886,7 @@ mod flat_links;
 mod help_views;
 mod libraries;
 mod operations;
+mod search_tags;
 mod tabs;
 mod views;
 mod zoom_select;
@@ -903,4 +904,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(cloud::TABLE)
         .chain(libraries::TABLE)
         .chain(help_views::TABLE)
+        .chain(search_tags::TABLE)
 }
