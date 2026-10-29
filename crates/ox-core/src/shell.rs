@@ -111,17 +111,23 @@ pub fn drag_out(paths: &[PathBuf]) -> bool {
 
 /// Window look on Windows 11: the backdrop material behind see-through
 /// parts of the window (Mica, Acrylic or none), rounded corners and a dark
-/// or light title bar. `hwnd` is the window's handle. Older Windows ignore
-/// what they don't know; other platforms ignore it all.
-pub fn set_window_style(hwnd: isize, backdrop: crate::settings::Backdrop, dark: bool) {
+/// or light title bar. `hwnd` is the window's handle; `no_title_bar` says
+/// the tabs took the title bar's place (see `titlebar`). Older Windows
+/// ignore what they don't know; other platforms ignore it all.
+pub fn set_window_style(
+    hwnd: isize,
+    backdrop: crate::settings::Backdrop,
+    dark: bool,
+    no_title_bar: bool,
+) {
     #[cfg(windows)]
     {
         // SAFETY: only window attributes of the given window are set.
-        unsafe { imp::set_window_style(hwnd, backdrop, dark) }
+        unsafe { imp::set_window_style(hwnd, backdrop, dark, no_title_bar) }
     }
     #[cfg(not(windows))]
     {
-        let _ = (hwnd, backdrop, dark);
+        let _ = (hwnd, backdrop, dark, no_title_bar);
     }
 }
 
@@ -624,6 +630,7 @@ mod imp {
         hwnd: isize,
         backdrop: crate::settings::Backdrop,
         dark: bool,
+        no_title_bar: bool,
     ) {
         use crate::settings::Backdrop;
         use windows::Win32::Graphics::Dwm::{
@@ -651,13 +658,26 @@ mod imp {
             };
             set(DWMWA_SYSTEMBACKDROP_TYPE, kind.0);
             // The material shows through the client area only where the
-            // frame is extended into it (all of it, with -1 margins).
+            // frame is extended into it (all of it, with -1 margins). Where
+            // it reaches over the top edge, DWM also draws the title bar's
+            // caption buttons; without a title bar the app draws its own, so
+            // then the frame is extended from the bottom up over the whole
+            // window instead.
             let m = if backdrop == Backdrop::Off { 0 } else { -1 };
-            let margins = MARGINS {
-                cxLeftWidth: m,
-                cxRightWidth: m,
-                cyTopHeight: m,
-                cyBottomHeight: m,
+            let margins = if m != 0 && no_title_bar {
+                MARGINS {
+                    cxLeftWidth: 0,
+                    cxRightWidth: 0,
+                    cyTopHeight: 0,
+                    cyBottomHeight: 0x7fff,
+                }
+            } else {
+                MARGINS {
+                    cxLeftWidth: m,
+                    cxRightWidth: m,
+                    cyTopHeight: m,
+                    cyBottomHeight: m,
+                }
             };
             let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
         }

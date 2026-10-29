@@ -6,6 +6,12 @@ The release workflow publishes the section of the tagged version as the release 
 ## [Unreleased]
 
 ### Added
+- **Tabs in the title bar** (Windows), as in Windows 11's Explorer: the separate title bar
+  above the tabs is gone, and minimize, maximize and close sit next to the tabs, drawn like
+  Windows 11's. Drag the free space next to the tabs to move the window, double-click it to
+  maximize or right-click it for the window menu; the window keeps its borders, shadow, rounded
+  corners and snapping, and pointing at maximize shows the snap layouts. Settings → Appearance →
+  *Tabs in the title bar* brings Windows' title bar back.
 - **Built-in player** (Windows): audio and video files play in the preview pane's new
   *Player* tab, with a seek bar, 10 seconds back and forward, repeat and volume. Windows' own
   media engine plays them, so every format Windows can play works. *▶ Play* in the Info tab

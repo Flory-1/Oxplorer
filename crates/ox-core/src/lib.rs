@@ -30,6 +30,7 @@ pub mod shell;
 pub mod tags;
 pub mod textinfo;
 pub mod themes;
+pub mod titlebar;
 pub mod transfer;
 pub mod watcher;
 

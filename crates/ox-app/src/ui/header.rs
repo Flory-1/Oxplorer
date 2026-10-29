@@ -16,6 +16,10 @@ use crate::shortcuts::{self, Command};
 use crate::tabs::{Location, TabGroup, GROUP_COLORS};
 
 const TAB_HEIGHT: f32 = 32.0;
+/// Caption buttons (minimize, maximize, close), as wide as Windows 11's.
+const CAPTION_W: f32 = 46.0;
+/// Free space after the tabs to grab the window by.
+const DRAG_GAP: f32 = 40.0;
 
 pub fn show(app: &mut OxApp, ui: &mut Ui) {
     tab_strip(app, ui);
@@ -34,6 +38,14 @@ fn group_color(g: &TabGroup) -> Color32 {
 
 fn tab_strip(app: &mut OxApp, ui: &mut Ui) {
     let mut actions = Vec::new();
+    // Things to click in the strip, for the title bar's hit testing.
+    let mut hits = Vec::new();
+    let title_bar = app.ui.title_bar;
+    let reserve = if title_bar {
+        3.0 * CAPTION_W + DRAG_GAP
+    } else {
+        0.0
+    };
     let active = app.tabs.active;
     let visible_tabs = app
         .tabs
@@ -47,12 +59,13 @@ fn tab_strip(app: &mut OxApp, ui: &mut Ui) {
         .count()
         .max(1);
     let chips = app.tabs.groups.len() as f32 * 70.0;
-    let tab_w = ((ui.available_width() - 48.0 - chips) / visible_tabs as f32).clamp(110.0, 230.0);
+    let tab_w =
+        ((ui.available_width() - 48.0 - chips - reserve) / visible_tabs as f32).clamp(110.0, 230.0);
 
-    ui.horizontal(|ui| {
+    let row = ui.horizontal(|ui| {
         egui::ScrollArea::horizontal()
             .id_salt("tab_strip")
-            .max_width(ui.available_width() - 40.0)
+            .max_width(ui.available_width() - 40.0 - reserve)
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -65,13 +78,21 @@ fn tab_strip(app: &mut OxApp, ui: &mut Ui) {
                             prev_group = tab.group;
                             if let Some(g) = &group {
                                 ui.add_space(4.0);
-                                group_chip(ui, g, &app.tabs.groups, &mut actions);
+                                hits.push(group_chip(ui, g, &app.tabs.groups, &mut actions));
                             }
                         }
                         if group.as_ref().is_some_and(|g| g.collapsed) {
                             continue;
                         }
-                        tab_widget(app, ui, idx, tab_w, active, group.as_ref(), &mut actions);
+                        hits.push(tab_widget(
+                            app,
+                            ui,
+                            idx,
+                            tab_w,
+                            active,
+                            group.as_ref(),
+                            &mut actions,
+                        ));
                     }
                 });
             });
@@ -80,6 +101,7 @@ fn tab_strip(app: &mut OxApp, ui: &mut Ui) {
                 .frame(false)
                 .min_size(vec2(28.0, TAB_HEIGHT)),
         );
+        hits.push(plus.interact_rect);
         if plus
             .on_hover_text(shortcuts::hint(tr("New tab"), Command::NewTab))
             .clicked()
@@ -87,10 +109,154 @@ fn tab_strip(app: &mut OxApp, ui: &mut Ui) {
             actions.push(Action::Tab(TabAction::New));
         }
     });
+    if title_bar {
+        let height = row.response.rect.bottom();
+        let (buttons, max) = caption_buttons(ui.ctx(), height, &mut actions);
+        hits.extend(buttons);
+        app.ui.title_height = height;
+        app.ui.max_button = Some(max);
+    }
+    app.ui.title_hits = hits;
     app.actions.extend(actions);
 }
 
-fn group_chip(ui: &mut Ui, g: &TabGroup, all: &[TabGroup], actions: &mut Vec<Action>) {
+pub fn caption_buttons_id() -> egui::Id {
+    egui::Id::unique("caption_buttons")
+}
+
+/// Minimize, maximize/restore and close at the top right, drawn like
+/// Windows 11's. Returns the rectangles of minimize and close (clicked here)
+/// and of maximize (Windows handles that one, for its snap layouts).
+fn caption_buttons(
+    ctx: &egui::Context,
+    height: f32,
+    actions: &mut Vec<Action>,
+) -> ([Rect; 2], Rect) {
+    use egui::ViewportCommand;
+    let screen = ctx.content_rect();
+    let size = vec2(CAPTION_W, height - screen.top());
+    let origin = egui::pos2(screen.right() - 3.0 * CAPTION_W, screen.top());
+    let (maximized, focused) = ctx.input(|i| {
+        (
+            i.viewport().maximized.unwrap_or(false),
+            i.viewport().focused.unwrap_or(true),
+        )
+    });
+    let native_max = ox_core::titlebar::max_button();
+    let mut rects = [Rect::NOTHING; 3];
+    egui::Area::new(caption_buttons_id())
+        .fixed_pos(origin)
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            let dark = ui.visuals().dark_mode;
+            let text = ui.visuals().strong_text_color();
+            let glyph_color = if focused {
+                text
+            } else {
+                text.gamma_multiply(0.45)
+            };
+            let ppp = ui.pixels_per_point();
+            for (i, glyph) in [Glyph::Minimize, Glyph::Maximize(maximized), Glyph::Close]
+                .into_iter()
+                .enumerate()
+            {
+                let rect = Rect::from_min_size(origin + vec2(i as f32 * CAPTION_W, 0.0), size);
+                rects[i] = rect;
+                let resp = ui.interact(rect, egui::Id::unique(("caption", i)), Sense::click());
+                // Windows tells the window about the mouse on the maximize
+                // button (it shows the snap layouts), not egui.
+                let (hovered, pressed) = if i == 1 && native_max != Default::default() {
+                    (native_max.hovered, native_max.pressed)
+                } else {
+                    (resp.hovered(), resp.is_pointer_button_down_on())
+                };
+                let close = glyph == Glyph::Close;
+                let fill = match (close, hovered, pressed) {
+                    (_, false, _) => Color32::TRANSPARENT,
+                    (true, true, false) => Color32::from_rgb(0xc4, 0x2b, 0x1c),
+                    (true, true, true) => Color32::from_rgb(0xc8, 0x40, 0x31),
+                    (false, true, pressed) => {
+                        let a = if pressed { 0x0c } else { 0x16 };
+                        if dark {
+                            Color32::from_white_alpha(a)
+                        } else {
+                            Color32::from_black_alpha(a)
+                        }
+                    }
+                };
+                ui.painter().rect_filled(rect, 0.0, fill);
+                let color = if close && hovered {
+                    Color32::WHITE
+                } else {
+                    glyph_color
+                };
+                paint_glyph(ui.painter(), rect.center(), glyph, color, ppp);
+                let tip = match glyph {
+                    Glyph::Minimize => tr("Minimize"),
+                    Glyph::Maximize(true) => tr("Restore"),
+                    Glyph::Maximize(false) => tr("Maximize"),
+                    Glyph::Close => tr("Close"),
+                };
+                if resp.on_hover_text(tip).clicked() {
+                    let cmd = match glyph {
+                        Glyph::Minimize => ViewportCommand::Minimized(true),
+                        Glyph::Maximize(m) => ViewportCommand::Maximized(!m),
+                        Glyph::Close => ViewportCommand::Close,
+                    };
+                    ctx.send_viewport_cmd(cmd);
+                }
+            }
+        });
+    let _ = actions;
+    ([rects[0], rects[2]], rects[1])
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Glyph {
+    Minimize,
+    /// Whether the window is maximized (then it shows "restore").
+    Maximize(bool),
+    Close,
+}
+
+/// The caption button symbols, 10 points wide with 1 pixel lines, on pixel
+/// centres so they stay sharp.
+fn paint_glyph(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    glyph: Glyph,
+    color: Color32,
+    ppp: f32,
+) {
+    use egui::emath::GuiRounding;
+    let stroke = Stroke::new(1.0 / ppp, color);
+    let half = 5.0;
+    let p = |x: f32, y: f32| egui::pos2(center.x + x, center.y + y).round_to_pixel_center(ppp);
+    match glyph {
+        Glyph::Minimize => {
+            painter.line_segment([p(-half, 0.0), p(half, 0.0)], stroke);
+        }
+        Glyph::Maximize(false) => {
+            let r = Rect::from_min_max(p(-half, -half), p(half, half));
+            painter.rect_stroke(r, 1.0, stroke, egui::StrokeKind::Middle);
+        }
+        Glyph::Maximize(true) => {
+            // Two windows: the front one lower left, the back one peeking out.
+            let front = Rect::from_min_max(p(-half, -half + 2.0), p(half - 2.0, half));
+            painter.rect_stroke(front, 1.0, stroke, egui::StrokeKind::Middle);
+            painter.line_segment([p(-half + 2.0, -half), p(half, -half)], stroke);
+            painter.line_segment([p(half, -half), p(half, half - 2.0)], stroke);
+        }
+        Glyph::Close => {
+            let stroke = Stroke::new(1.1, color);
+            let c = |x: f32, y: f32| egui::pos2(center.x + x, center.y + y);
+            painter.line_segment([c(-half, -half), c(half, half)], stroke);
+            painter.line_segment([c(-half, half), c(half, -half)], stroke);
+        }
+    }
+}
+
+fn group_chip(ui: &mut Ui, g: &TabGroup, all: &[TabGroup], actions: &mut Vec<Action>) -> Rect {
     let color = group_color(g);
     let label = if g.name.is_empty() {
         " ".to_owned()
@@ -163,6 +329,7 @@ fn group_chip(ui: &mut Ui, g: &TabGroup, all: &[TabGroup], actions: &mut Vec<Act
             actions.push(Action::Tab(TabAction::CloseGroup(g.id)));
         }
     });
+    rect.intersect(ui.clip_rect())
 }
 
 fn tab_widget(
@@ -173,13 +340,14 @@ fn tab_widget(
     active: u64,
     group: Option<&TabGroup>,
     actions: &mut Vec<Action>,
-) {
+) -> Rect {
     let tab = &app.tabs.tabs[idx];
     let id = tab.id;
     let is_active = id == active;
     // In split view the other pane's tab looks open too, but without the accent.
     let is_partner = app.tabs.split_partner() == Some(id);
     let (rect, resp) = ui.allocate_exact_size(vec2(width, TAB_HEIGHT), Sense::click_and_drag());
+    let hit = resp.interact_rect;
     let visuals = ui.visuals().clone();
 
     // Reordering and dropping files onto tabs.
@@ -310,7 +478,7 @@ fn tab_widget(
         );
         if close.clicked() {
             actions.push(Action::Tab(TabAction::Close(id)));
-            return;
+            return hit;
         }
     }
 
@@ -374,6 +542,7 @@ fn tab_widget(
             actions.push(Action::Tab(TabAction::CloseOthers(id)));
         }
     });
+    hit
 }
 
 // ---- navigation row ------------------------------------------------------------

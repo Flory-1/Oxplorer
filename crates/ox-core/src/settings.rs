@@ -67,6 +67,8 @@ pub struct Appearance {
     pub thumbnails: bool,
     /// Mica or Acrylic behind the sidebar and header (Windows 11).
     pub backdrop: Backdrop,
+    /// The tabs take the place of the window's title bar (Windows).
+    pub tabs_in_title_bar: bool,
     /// Interface language.
     pub language: Language,
     /// Colour scheme used in dark mode (see `themes`).
@@ -84,6 +86,7 @@ impl Default for Appearance {
             system_icons: true,
             thumbnails: true,
             backdrop: Backdrop::Off,
+            tabs_in_title_bar: true,
             language: Language::System,
             dark_theme: crate::themes::DEFAULT_DARK.to_owned(),
             light_theme: crate::themes::DEFAULT_LIGHT.to_owned(),
