@@ -263,6 +263,34 @@ CI builds a Windows binary and installer on every push to `main`; download them 
 [Inno Setup](https://jrsoftware.org/isinfo.php) from `installer/oxplorer.iss`, and
 `installer/build.ps1` builds it together with the winget manifests.
 
+### Copy benchmark
+
+A local tool that measures the copy engine (CI and `cargo test` only run its unit tests):
+
+```bash
+cargo run --release -p ox-core --example copy_bench -- --dest D:\bench --compare robocopy,std
+```
+
+It generates its test data in a temp folder (or under `--src`), copies it to `--dest` (another
+drive, a USB stick or a network share; default: the temp folder) and deletes everything
+afterwards. Scenarios (`--scenarios small,large,mixed`):
+
+- **small**: 10 000 files of 4 KB in nested folders (`--small-count`, `--small-size`)
+- **large**: one 1 GB file of random data (`--large-size`)
+- **mixed**: a fifth of the small files with 1–256 KB each, 16 medium files and one file a
+  quarter of the large size
+
+Each tool runs `--runs 3` times; the table shows the median, MB/s and files/s. `--compare`
+adds robocopy (`/E /MT:8`), xcopy and a sequential `std::fs::copy` loop, `--move` adds a move
+with the engine. The OS file cache makes repeated runs faster than a cold copy; a `--large-size`
+larger than the RAM avoids that.
+
+Before a release, check that the engine didn't get slower: save a baseline once with
+`--save-baseline bench.toml`, later run the same command with `--baseline bench.toml`. The
+exit code is 1 if an Oxplorer result is more than 15 % slower (`--max-slowdown 1.15`). Use the
+same machine, destination and sizes; results under 50 ms aren't checked. `--help` lists all
+options.
+
 ### Releases
 
 1. Set the new version in `Cargo.toml`, `crates/ox-app/assets/oxplorer.rc` and

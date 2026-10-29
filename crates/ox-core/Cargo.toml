@@ -65,3 +65,9 @@ tempfile = "3"
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["compress"] }
 sha2 = "0.10"
 md-5 = "0.10"
+
+# Copy benchmark (see README, "Copy benchmark"). `test = true` runs its unit
+# tests with `cargo test`; the benchmark itself only runs with `cargo run --example`.
+[[example]]
+name = "copy_bench"
+test = true
