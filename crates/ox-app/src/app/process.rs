@@ -26,7 +26,14 @@ impl OxApp {
             }
             Action::Back => self.tabs.active_mut().back(),
             Action::Forward => self.tabs.active_mut().forward(),
-            Action::Up => self.tabs.active_mut().up(),
+            Action::Up => {
+                if !self.disk_usage_up() {
+                    self.cleanup_aware_up();
+                }
+            }
+            Action::Refresh if self.in_disk_usage() => {
+                self.disk_usage_action(DiskUsageAction::Rescan);
+            }
             Action::Refresh => {
                 if let Some(folder) = self.current_folder() {
                     self.folder_sizes.invalidate_tree(&folder);
@@ -435,6 +442,7 @@ impl OxApp {
                 if query.trim().is_empty() {
                     return;
                 }
+                self.process_history(HistoryAction::Remember(query.clone()));
                 self.navigate(Location::Search { root, query });
             }
             Action::SearchLive(root, query) => {
@@ -490,11 +498,14 @@ impl OxApp {
             }
             Action::Tab(t) => self.process_tab(t),
             Action::Compare(a) => self.process_compare(a),
+            Action::Cleanup(a) => self.process_cleanup(a),
             Action::ToggleFlatView => self.toggle_flat_view(),
             Action::ShowInFolder(path) => self.show_in_folder(path),
+            Action::DiskUsage(a) => self.disk_usage_action(a),
             Action::NewLink(dir, kind) => self.new_link_dialog(dir, kind),
             Action::ShowLinkTarget(link) => self.show_link_target(link),
             Action::Session(a) => self.process_session(a),
+            Action::SearchHistory(a) => self.process_history(a),
             Action::View(a) => self.process_view(a),
             Action::Toast(t) => self.toast(t),
             Action::RestoreFromBin(paths) => {

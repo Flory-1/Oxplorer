@@ -1,6 +1,10 @@
 //! Header navigation row: back/forward, address bar, breadcrumbs and search box.
 
+mod suggest;
+
 use super::*;
+use crate::app::HistoryAction;
+use suggest::{Dropdown, Picked};
 
 pub(super) fn nav_row(app: &mut OxApp, ui: &mut Ui) {
     let mut actions = Vec::new();
@@ -154,11 +158,30 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) -> Rect 
                 Location::Gallery => {
                     ui.label(tr("🎞  Gallery"));
                 }
+                Location::DiskUsage(p) => {
+                    ui.label(ox_core::trf!("🖴  Disk usage of {path}", path = p.display()));
+                }
                 Location::Archive { archive, inner } => {
                     if let Some(parent) = archive.parent() {
                         breadcrumbs(ui, parent, actions);
                     }
                     archive_crumbs(ui, archive, inner, actions);
+                }
+                Location::Cleanup { root, mode } => {
+                    let icon = Location::cleanup_icon(*mode);
+                    let place = root.display();
+                    ui.label(match mode {
+                        ox_core::cleanup::CleanupMode::Duplicates => ox_core::trf!(
+                            "{icon}  Duplicates in {place}",
+                            icon = icon,
+                            place = place
+                        ),
+                        ox_core::cleanup::CleanupMode::EmptyFolders => ox_core::trf!(
+                            "{icon}  Empty folders in {place}",
+                            icon = icon,
+                            place = place
+                        ),
+                    });
                 }
                 Location::Search { root, query } => {
                     let place = root
@@ -360,11 +383,23 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
     let folders_first = app.settings.browsing.folders_first;
     let case = app.settings.search.case_sensitive;
     let instant = app.settings.search.instant_filter;
+    let remember = app.settings.search.remember_searches;
     let focus = std::mem::take(&mut app.ui.focus_search);
     // With the index, Home and search tabs show results while typing.
     let live = app.settings.search.search_as_you_type && app.index_ready();
+    let id = ui.make_persistent_id("search_box");
+    let focused = ui.memory(|m| m.has_focus(id));
+    if focused && remember {
+        app.search_history.refresh();
+    }
+    let history: &[String] = if remember {
+        app.search_history.entries()
+    } else {
+        &[]
+    };
     let tab = app.tabs.active_mut();
     let live_here = live && matches!(tab.location(), Location::Home | Location::Search { .. });
+    let in_search = matches!(tab.location(), Location::Search { .. });
     let (root, place) = match tab.location() {
         Location::Folder(p) => (Some(p.clone()), display_name(p)),
         Location::Search { root, .. } => (
@@ -377,9 +412,9 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
         _ => (None, tr("This PC").into()),
     };
     let in_bin = tab.location().is_bin();
-    let id = ui.make_persistent_id("search_box");
-    let focused = ui.memory(|m| m.has_focus(id));
+    let dropdown = Dropdown::before(ui, id);
     ui.allocate_ui(vec2(width, 30.0), |ui| {
+        let mut edit_resp = None;
         let field = field_frame(ui, focused, accent).show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.label(RichText::new("🔍").weak());
@@ -388,12 +423,13 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
                     .frame(egui::Frame::NONE)
                     .hint_text(ox_core::trf!("Search {place}", place = place))
                     .desired_width(ui.available_width() - 4.0)
-                    .align(Align2::LEFT_CENTER);
-                let resp = ui.add(edit);
+                    .align(Align2::LEFT_CENTER)
+                    .event_filter(dropdown.event_filter());
+                let resp = dropdown.add_field(ui, |ui| ui.add(edit));
                 if focus {
                     resp.request_focus();
                 }
-                                if resp.changed() && instant {
+                if resp.changed() && instant {
                     tab.refresh_visible(folders_first, case);
                 }
                 if resp.changed() && live_here {
@@ -402,11 +438,17 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
                 let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
                 let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
                 if resp.lost_focus() && enter && !in_bin {
-                    actions.push(Action::Search(root, tab.filter.clone()));
+                    actions.push(Action::Search(root.clone(), tab.filter.clone()));
                 } else if resp.lost_focus() && escape {
                     tab.filter.clear();
                     tab.refresh_visible(folders_first, case);
+                } else if resp.lost_focus() && live_here && in_search {
+                    // Left a search made while typing (e.g. for its results): it counts as run.
+                    actions.push(Action::SearchHistory(HistoryAction::Remember(
+                        tab.filter.clone(),
+                    )));
                 }
+                edit_resp = Some(resp.clone());
                 resp.on_hover_text(tr(
                     "Type to filter this folder, press Enter to search all sub-folders.\n\
                      On Home, results appear while you type (with the search index).\n\
@@ -414,6 +456,36 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
                 ));
             });
         });
+        let edit = edit_resp.expect("the search field was shown");
+        let suggestions = ox_core::search_history::suggest(&tab.filter, history, suggest::MAX);
+        match dropdown.show(ui, &field.response, &edit, &tab.filter, suggestions) {
+            Some(Picked::Take(s, run)) => {
+                tab.filter = s.text;
+                if run && !in_bin {
+                    ui.memory_mut(|m| m.surrender_focus(id));
+                    actions.push(Action::Search(root, tab.filter.clone()));
+                } else {
+                    suggest::cursor_to_end(ui, id, &tab.filter);
+                    if instant || run {
+                        tab.refresh_visible(folders_first, case);
+                    }
+                    if live_here {
+                        actions.push(Action::SearchLive(root, tab.filter.clone()));
+                    }
+                }
+            }
+            Some(Picked::Submit) if !in_bin => {
+                ui.memory_mut(|m| m.surrender_focus(id));
+                actions.push(Action::Search(root, tab.filter.clone()));
+            }
+            Some(Picked::Submit) | None => {}
+            Some(Picked::Remove(q)) => {
+                actions.push(Action::SearchHistory(HistoryAction::Remove(q)));
+            }
+            Some(Picked::ClearHistory) => {
+                actions.push(Action::SearchHistory(HistoryAction::Clear));
+            }
+        }
         field.response.rect
     })
     .inner

@@ -272,8 +272,12 @@ pub struct Search {
     pub index_exclude: Vec<String>,
     /// Rebuild the index every N minutes (0 = only on start and on demand).
     pub index_refresh_minutes: u32,
+    /// Apply file changes to the index as they happen.
+    pub index_live: bool,
     /// Show results while typing (needs the index).
     pub search_as_you_type: bool,
+    /// Remember the searches that were run and suggest them again.
+    pub remember_searches: bool,
 }
 
 impl Search {
@@ -291,6 +295,26 @@ impl Search {
             exclude: self.index_exclude.clone(),
             threads: self.threads,
         }
+    }
+
+    /// What live updates follow: the indexed folders `cfg`, except those on
+    /// removable and network drives (a watch would keep a USB stick from
+    /// being ejected). `None` if live updates are off or nothing is left.
+    pub fn live_config(
+        &self,
+        cfg: &crate::index::IndexConfig,
+        drives: &[crate::places::Drive],
+    ) -> Option<crate::index::IndexConfig> {
+        if !self.index_live {
+            return None;
+        }
+        let mut cfg = cfg.clone();
+        cfg.roots.retain(|r| {
+            !drives
+                .iter()
+                .any(|d| (d.removable || d.remote.is_some()) && r.starts_with(&d.mount))
+        });
+        (!cfg.roots.is_empty()).then_some(cfg)
     }
 }
 
@@ -313,7 +337,9 @@ impl Default for Search {
             .map(String::from)
             .to_vec(),
             index_refresh_minutes: 30,
+            index_live: true,
             search_as_you_type: true,
+            remember_searches: true,
         }
     }
 }
@@ -493,6 +519,38 @@ pub fn save_toml<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_updates_skip_removable_and_network_drives() {
+        let drive = |mount: &str, removable: bool, remote: Option<&str>| crate::places::Drive {
+            mount: PathBuf::from(mount),
+            label: String::new(),
+            file_system: String::new(),
+            total: 0,
+            available: 0,
+            removable,
+            remote: remote.map(String::from),
+        };
+        let drives = [
+            drive("/fixed", false, None),
+            drive("/usb", true, None),
+            drive("/net", false, Some(r"\\server\share")),
+        ];
+        let mut s = Search {
+            index_roots: ["/fixed", "/usb/photos", "/net"]
+                .map(PathBuf::from)
+                .to_vec(),
+            ..Search::default()
+        };
+        let cfg = s.index_config(&[]);
+        let live = s.live_config(&cfg, &drives).unwrap();
+        assert_eq!(live.roots, vec![PathBuf::from("/fixed")]);
+        assert_eq!(live.exclude, cfg.exclude);
+        s.index_roots = vec![PathBuf::from("/usb")];
+        assert!(s.live_config(&s.index_config(&[]), &drives).is_none());
+        s.index_live = false;
+        assert!(s.live_config(&cfg, &drives).is_none());
+    }
 
     #[test]
     fn roundtrip_and_partial_files() {

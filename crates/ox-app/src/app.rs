@@ -5,8 +5,10 @@
 //! borrow checker happy and makes every user command go through one place.
 
 mod action;
+mod cleanup;
 mod cloud;
 mod compare;
+mod disk_usage;
 mod flat;
 mod input;
 mod instances;
@@ -16,6 +18,7 @@ mod poll;
 mod process;
 mod properties;
 mod quick_look;
+mod search_history;
 mod select;
 mod sessions;
 mod transfer_watch;
@@ -23,9 +26,12 @@ mod undo;
 mod view;
 mod window;
 pub use action::{Action, TabAction};
+pub use cleanup::{CleanupAction, CleanupView, ConfirmCleanup};
 pub use compare::{CompareAction, CompareState};
+pub use disk_usage::{DiskUsageAction, DiskUsageScans};
 pub use instances::Start;
 pub use properties::Properties;
+pub use search_history::{HistoryAction, RecentSearches};
 pub use select::SelectAction;
 pub use sessions::{SavedSessions, SessionAction};
 pub use transfer_watch::TransferWatch;
@@ -173,6 +179,8 @@ pub struct OxApp {
     /// Quick Look, while it is open (Space).
     pub quick_look: Option<crate::ui::quick_look::QuickLook>,
     pub folder_sizes: FolderSizes,
+    /// The trees scanned for disk usage views.
+    pub disk_usage: DiskUsageScans,
     /// Keyboard shortcuts in effect (defaults + the user's changes).
     pub keymap: crate::shortcuts::Keymap,
     /// Colour schemes: built-in ones and the user's (see `ox_core::themes`).
@@ -220,6 +228,8 @@ pub struct OxApp {
     pub undo: undo::UndoState,
     /// Named sessions (sets of tabs saved to open again).
     pub sessions: SavedSessions,
+    /// Searches that were run, suggested under the search box.
+    pub search_history: RecentSearches,
     /// This window among other Oxplorer windows (files they share).
     instance: instances::Instance,
     /// When the panes were last checked for syncing cloud files.
@@ -231,6 +241,8 @@ pub struct OxApp {
     libraries_at: Option<Instant>,
     /// Running Gallery walks: the tab and the flag that stops it.
     gallery_walks: Vec<(TabId, Arc<AtomicBool>)>,
+    /// Find duplicates / empty folders: the pages' scans and ticks.
+    pub cleanups: cleanup::Cleanups,
 }
 
 /// What background work started by an action reports back.
@@ -343,6 +355,7 @@ impl OxApp {
             },
             preview: Default::default(),
             quick_look: None,
+            disk_usage: Default::default(),
             folder_sizes: {
                 let repaint = cc.egui_ctx.clone();
                 FolderSizes::new(move || repaint.request_repaint())
@@ -373,12 +386,14 @@ impl OxApp {
             index_settings: None,
             undo: Default::default(),
             sessions: Default::default(),
+            search_history: Default::default(),
             instance,
             cloud_check: None,
             libraries: Vec::new(),
             libraries_rx: None,
             libraries_at: None,
             gallery_walks: Vec::new(),
+            cleanups: Default::default(),
         }
     }
 
@@ -447,7 +462,9 @@ impl OxApp {
         }
         self.poll_tabs();
         self.poll_compare();
+        self.poll_cleanups();
         self.poll_folder_sizes();
+        self.poll_disk_usage();
         self.poll_git();
         self.poll_cloud();
         self.poll_libraries();
@@ -523,12 +540,16 @@ impl OxApp {
                 tab.view.loading = Some(rx);
             }
             Location::Search { root, query } => {
-                let q = Query::parse(&query, search_opts.case_sensitive);
+                let mut q = Query::parse(&query, search_opts.case_sensitive);
+                q.resolve_tags(&self.tags);
                 tab.view = Default::default();
                 let repaint = move || ctx.request_repaint();
-                // Answer from the index when it covers the place we search in.
+                // Answer from the index when it covers the place we search in
+                // (it only knows file system names, not what's in archives).
                 let handle = match index {
-                    Some(idx) if root.as_deref().is_none_or(|r| idx.covers(r)) => {
+                    Some(idx)
+                        if !q.in_archives() && root.as_deref().is_none_or(|r| idx.covers(r)) =>
+                    {
                         search::start_indexed(idx, root, q, search_opts, repaint)
                     }
                     _ => {
@@ -593,7 +614,11 @@ impl OxApp {
                 });
                 self.gallery_walks.push((tab.id, cancel));
             }
-            Location::Home | Location::Settings | Location::Help => {}
+            Location::Cleanup { root, mode } => {
+                self.cleanups.start(tab.id, root, mode, show_hidden, ctx);
+            }
+            // Disk usage views get their scan in `poll_disk_usage`.
+            Location::Home | Location::Settings | Location::Help | Location::DiskUsage(_) => {}
         }
     }
 
@@ -677,6 +702,7 @@ impl OxApp {
     fn manage_index(&mut self) {
         let s = &self.settings.search;
         if !s.index_enabled {
+            self.index.set_live(None);
             if self.index.index().is_some() || self.index.is_building() {
                 self.index.clear();
             }
@@ -690,11 +716,14 @@ impl OxApp {
             }
             self.index_settings = Some(wanted);
         }
+        let drives: Vec<PathBuf> = self.drives.iter().map(|d| d.mount.clone()).collect();
+        let config = self.settings.search.index_config(&drives);
+        // Live updates follow the same folders (and restart when they change).
+        let live = self.settings.search.live_config(&config, &self.drives);
+        self.index.set_live(live);
         if self.index.state() == IndexState::Loading || self.index.is_building() {
             return;
         }
-        let drives: Vec<PathBuf> = self.drives.iter().map(|d| d.mount.clone()).collect();
-        let config = self.settings.search.index_config(&drives);
         let minutes = self.settings.search.index_refresh_minutes;
         let interval = Duration::from_secs(u64::from(minutes) * 60);
         if std::mem::take(&mut self.index_force) {

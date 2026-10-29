@@ -5,6 +5,33 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+### Added
+- **Live index updates**: the search index follows new, deleted, renamed and changed files as
+  they happen (within about 2 seconds) instead of waiting for the next refresh. Settings →
+  Search → *Live updates*; removable and network drives aren't watched, so USB sticks can still
+  be ejected.
+- **Faster index on NTFS drives**: run as administrator, Oxplorer reads whole NTFS drives
+  straight from the master file table, much faster than walking every folder, and follows
+  changes through the NTFS change journal. Without admin rights it walks the folders and watches
+  them as before.
+- **Disk usage**: right-click a folder or drive (also the drive cards on Home, or the command
+  palette) → *Disk usage* shows what takes up the space as a treemap, with the largest items
+  next to it. Click a folder to zoom in, Back or Up to zoom out; sizes fill in while it scans,
+  and the scan also fills the Size column for every sub-folder.
+- **Find duplicates and empty folders**: right-click a folder → *Clean up*. Duplicates are found
+  by size, then by their first and last bytes, then by a hash of the whole file, so big files
+  are only read when they have to be; hard links and links aren't counted. Tick what to remove
+  (or *Select all but the newest / oldest*) and *Delete selected* moves it to the Recycle Bin,
+  with an extra warning when every copy of a file is ticked.
+- **Search history and suggestions**: the search box remembers the searches you ran and, while
+  you type, suggests earlier ones and completes the query syntax (`ki` → `kind:` →
+  `kind:image`). Up/Down choose, Enter runs, Tab puts it in the box. Settings → Search →
+  *Remember searches* turns it off.
+- **`tag:` in searches** (`tag:red,blue`, also your tag names) and a chip for each tag colour
+  you use. It works across whole drives instantly.
+- **Search inside archives**: `archives:yes` or the *Inside archives* chip also finds the files
+  in zip, 7z and tar archives by name; results open inside the archive.
+
 ## [1.0.3] - 2026-10-29
 
 ### Added

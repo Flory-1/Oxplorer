@@ -1,6 +1,7 @@
 //! Where a tab points (`Location`) and the listing loaded for it.
 
 use super::*;
+use ox_core::cleanup::CleanupMode;
 
 /// What a tab is showing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -34,6 +35,13 @@ pub enum Location {
     },
     /// Every picture and video of the Pictures library, newest first.
     Gallery,
+    /// Duplicate files or empty folders under `root`, to review and delete.
+    Cleanup {
+        root: PathBuf,
+        mode: CleanupMode,
+    },
+    /// What takes up the space in a folder or drive (a treemap).
+    DiskUsage(PathBuf),
 }
 
 impl Location {
@@ -52,6 +60,18 @@ impl Location {
             },
             Location::Library { name, .. } => name.clone(),
             Location::Gallery => tr("Gallery").into(),
+            Location::Cleanup { root, mode } => {
+                let name = entry::display_name(root);
+                match mode {
+                    CleanupMode::Duplicates => ox_core::trf!("Duplicates: {name}", name = name),
+                    CleanupMode::EmptyFolders => {
+                        ox_core::trf!("Empty folders: {name}", name = name)
+                    }
+                }
+            }
+            Location::DiskUsage(p) => {
+                ox_core::trf!("Disk usage: {name}", name = entry::display_name(p))
+            }
         }
     }
 
@@ -68,6 +88,16 @@ impl Location {
             Location::Archive { .. } => "📦",
             Location::Library { .. } => "📚",
             Location::Gallery => "🎞",
+            Location::Cleanup { mode, .. } => Self::cleanup_icon(*mode),
+            Location::DiskUsage(_) => "🖴",
+        }
+    }
+
+    /// The icon of a clean-up page.
+    pub fn cleanup_icon(mode: CleanupMode) -> &'static str {
+        match mode {
+            CleanupMode::Duplicates => "📋",
+            CleanupMode::EmptyFolders => "📂",
         }
     }
 

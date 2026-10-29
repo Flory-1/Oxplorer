@@ -60,6 +60,9 @@ What changed in each version: [CHANGELOG.md](CHANGELOG.md).
 - The view refreshes by itself when files change on disk
 - **Folder sizes** in the Size column, calculated in the background and cached. Sort by size
   to find what fills your disk.
+- **Disk usage view**: a treemap of a folder or drive, with the largest items next to it
+- **Find duplicates and empty folders** in a folder, with a list to review before they go to
+  the Recycle Bin
 - **Colour tags** with your own names (e.g. Red → *Urgent*): coloured dots in the file view, a
   *Tags* section in the sidebar, and tags follow the items you rename or move
 - **Archives as folders**: open `.zip`, `.7z`, `.tar`, `.tar.gz` and `.tgz` files to browse
@@ -113,10 +116,15 @@ the background, so large files never block the window.
 
 - Typing in the search box **filters the current folder** instantly
 - A **file-name index** of your drives finds files anywhere as you type: 280,000 files are
-  searched in milliseconds. The index is kept between runs and refreshed in the background.
+  searched in milliseconds. The index is kept between runs and follows file changes as they
+  happen. Run as administrator, NTFS drives are read straight from the master file table and
+  followed through the change journal.
 - **Enter** searches all sub-folders: from the index when it covers the folder, otherwise with
   a multi-threaded walker
-- **Filter chips** for kind, date and size, and **saved searches** in the sidebar
+- **Filter chips** for kind, date, size and tags, and **saved searches** in the sidebar
+- **Search history and suggestions**: earlier searches and completions of the query syntax
+  under the search box
+- **Search inside archives**: also find the files in zip, 7z and tar archives by name
 - Query syntax:
 
   | Query | Meaning |
@@ -131,6 +139,8 @@ the background, so large files never block the window.
   | `size:>10mb`, `size:<1kb` | by size |
   | `modified:7d`, `modified:today` | recently changed |
   | `content:"TODO"` | text inside files |
+  | `tag:red,blue` | by colour tag (also your tag names) |
+  | `archives:yes` | also inside zip, 7z and tar archives |
 
 ### Copy engine
 

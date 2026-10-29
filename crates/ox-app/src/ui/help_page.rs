@@ -192,6 +192,11 @@ const TOPICS: &[Topic] = &[
              milliseconds and results appear as you type.",
             "Filter chips above the results narrow them down by kind, date and size. Save a \
              search to find it in the sidebar.",
+            "There are chips for your colour tags too, and Inside archives also finds the \
+             files in zip, 7z and tar archives.",
+            "The search box remembers your searches. Up and Down choose an earlier search or \
+             a completion of what you type (ki → kind:); Enter runs it, Tab puts it in the \
+             box. Settings → Search → Remember searches turns the history off.",
             "See Search syntax for everything you can type.",
         ])],
     },
@@ -239,6 +244,21 @@ const TOPICS: &[Topic] = &[
              background; … means a size is still being calculated.",
             "Inside a Git repository a Git column shows what changed: M modified, A added, \
              D deleted, R renamed, ? untracked, I ignored. The status bar shows the branch.",
+        ])],
+    },
+    Topic {
+        section: 1,
+        title: "Disk usage, duplicates and empty folders",
+        blocks: &[List(&[
+            "Right-click a folder or drive → Disk usage shows what takes up the space, as a \
+             map of rectangles, with the largest items next to it. Click a folder to zoom \
+             in; Back or Up zooms out again.",
+            "Right-click a folder → Clean up → Find duplicates lists the files with the same \
+             contents and the space they waste. Tick the copies you don't need, or use Select \
+             all but the newest, and Delete selected moves them to the Recycle Bin (Ctrl+Z \
+             brings them back).",
+            "Clean up → Find empty folders lists the folders with nothing in them, to review \
+             and delete the same way.",
         ])],
     },
     Topic {
@@ -398,6 +418,14 @@ const TOPICS: &[Topic] = &[
                     "content:\"TODO\"",
                     "text inside files (slower, can't use the index)",
                 ),
+                (
+                    "tag:red,blue",
+                    "tagged with one of these colours or tag names",
+                ),
+                (
+                    "archives:yes",
+                    "also the files inside zip, 7z and tar archives (not with the index)",
+                ),
             ]),
         ],
     },
@@ -454,11 +482,18 @@ const TOPICS: &[Topic] = &[
     Topic {
         section: 4,
         title: "Searching my whole drive is slow",
-        blocks: &[Text(
-            "Turn on the search index in Settings → Search and pick the drives to index. The \
-             first build takes a while; after that searches are instant and the index is \
-             refreshed in the background. Searches with content: always read the files.",
-        )],
+        blocks: &[
+            Text(
+                "Turn on the search index in Settings → Search and pick the drives to index. \
+                 The first build takes a while; after that searches are instant and the index \
+                 is refreshed in the background. Searches with content: always read the files.",
+            ),
+            Text(
+                "With Live updates on, new, renamed and deleted files show up in the index \
+                 within seconds. Run Oxplorer as administrator once to build the index of NTFS \
+                 drives from their master file table, which is much faster.",
+            ),
+        ],
     },
     Topic {
         section: 4,

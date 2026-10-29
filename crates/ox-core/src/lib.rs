@@ -4,6 +4,7 @@
 //! tested (and reused by a future CLI or alternative front-end).
 
 pub mod archive;
+pub mod cleanup;
 pub mod clipboard;
 pub mod cloud;
 pub mod columns;
@@ -12,6 +13,7 @@ pub mod default_app;
 pub mod details;
 pub mod dirsize;
 pub mod disk;
+pub mod disk_usage;
 pub mod entry;
 pub mod flat;
 pub mod folder_views;
@@ -40,6 +42,7 @@ pub mod props;
 pub mod recycle;
 pub mod rename;
 pub mod search;
+pub mod search_history;
 pub mod select;
 pub mod sessions;
 pub mod settings;

@@ -30,6 +30,9 @@ Windows machine yet.
     sync root, and libraries with folders on other drives
   - several windows: Ctrl+N, dragging a tab out (also onto another monitor), and which window
     keeps the session
+  - the search index run as administrator: built from the NTFS master file table and kept up to
+    date by the change journal (`cargo test -p ox-core -- --ignored mft` checks it against C:\)
+  - the disk usage treemap, the duplicates and empty folders pages, and the search suggestions
 - ⏳ **Copy engine benchmarks** against Explorer, robocopy and TeraCopy (many small files, one
   huge file, SSD → USB stick, network share), with the numbers in the README. The
   `copy_bench` example measures the engine, robocopy and xcopy; Explorer and TeraCopy by hand
@@ -52,16 +55,11 @@ Windows machine yet.
 
 ## Phase 10 — Search and disk usage
 
-- ⏳ **Live index updates** from file system events (today the index is refreshed on a schedule)
-- ⏳ **NTFS MFT reader** (`FSCTL_ENUM_USN_DATA`) as a much faster index builder on Windows, and
-  the USN journal for live updates (needs admin rights → optional helper service)
-- ⏳ `tag:` in the query syntax and tags as a filter chip
-- ⏳ **Search inside archives** (names of the files in zip/7z/tar)
-- ⏳ Search history and suggestions in the search box
-- ⏳ **Disk usage view**: a treemap or sunburst of a drive or folder, built from the folder
-  size cache, to find what fills the disk
-- ⏳ **Find duplicates** (same size, then same hash) and **empty folders**, with a list to
-  review before deleting
+- 💡 A small **helper service**, so the index is read from the NTFS master file table and follows
+  the change journal without running Oxplorer as administrator
+- 💡 Catch up on what changed while Oxplorer was closed (from the change journal) instead of
+  rebuilding the index
+- 💡 Duplicates: hash on several threads, and an optional byte-by-byte compare
 - 💡 Optional full-text index of documents (txt, md, code, PDF and Office text) for fast
   `content:` searches
 

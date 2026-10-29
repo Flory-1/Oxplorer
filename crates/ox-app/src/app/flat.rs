@@ -19,7 +19,14 @@ impl OxApp {
         let Some(parent) = path.parent().map(Path::to_path_buf) else {
             return;
         };
-        let loc = Location::Folder(parent);
+        // An item found inside an archive is shown in the archive view.
+        let loc = match archive::split_virtual(&path) {
+            Some((archive, inner)) if !inner.as_os_str().is_empty() => Location::Archive {
+                archive,
+                inner: inner.parent().map(Path::to_path_buf).unwrap_or_default(),
+            },
+            _ => Location::Folder(parent),
+        };
         self.navigate(loc.clone());
         let tab = self.tabs.active_mut();
         if *tab.location() == loc {

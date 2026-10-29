@@ -9,7 +9,7 @@ use super::{row, toggle};
 use crate::app::{Action, OxApp};
 
 /// Query examples on the Search page: what to type, and what it does.
-const QUERY_SYNTAX: [(&str, &str); 11] = [
+const QUERY_SYNTAX: [(&str, &str); 13] = [
     ("report", "name contains \"report\""),
     ("\"annual report\"", "exact phrase"),
     ("*.rs   img_??", "wildcards"),
@@ -24,6 +24,14 @@ const QUERY_SYNTAX: [(&str, &str); 11] = [
     ("size:>10mb   size:<1kb", "by size"),
     ("modified:7d   modified:today", "recently modified"),
     ("content:\"TODO\"", "text inside files (≤ 32 MB)"),
+    (
+        "tag:red,blue",
+        "tagged with one of these colours or tag names",
+    ),
+    (
+        "archives:yes",
+        "also the files inside zip, 7z and tar archives (not with the index)",
+    ),
 ];
 
 pub(super) fn search(ui: &mut Ui, s: &mut Settings) {
@@ -128,7 +136,11 @@ pub(super) fn index_section(ui: &mut Ui, app: &mut OxApp) {
                         secs = ox_core::format::decimal(took.as_secs_f64(), 1)
                     ));
                 }
+                if idx.mft_roots() > 0 {
+                    text.push_str(tr(" · read from the NTFS master file table"));
+                }
                 ui.label(text);
+                live_status(ui, &index, &idx);
             } else if index.state() == IndexState::Empty {
                 ui.label(tr("Not built yet."));
             }
@@ -197,6 +209,12 @@ pub(super) fn index_section(ui: &mut Ui, app: &mut OxApp) {
             }
         },
     );
+    toggle(
+        ui,
+        &mut se.index_live,
+        tr("Live updates"),
+        tr("Apply file changes to the index as they happen, between refreshes."),
+    );
     row(ui, tr("Refresh every"), "", |ui| {
         ui.add(
             egui::Slider::new(&mut se.index_refresh_minutes, 0..=240).custom_formatter(|v, _| {
@@ -208,6 +226,69 @@ pub(super) fn index_section(ui: &mut Ui, app: &mut OxApp) {
             }),
         );
     });
+}
+
+/// Remembering searches for the suggestions under the search box.
+pub(super) fn history_section(ui: &mut Ui, app: &mut OxApp) {
+    ui.add_space(14.0);
+    ui.label(RichText::new(tr("Search history")).size(16.0).strong());
+    ui.add_space(8.0);
+    toggle(
+        ui,
+        &mut app.settings.search.remember_searches,
+        tr("Remember searches"),
+        tr("Suggest earlier searches under the search box. Kept only on this computer."),
+    );
+    app.search_history.refresh();
+    let empty = app.search_history.entries().is_empty();
+    row(
+        ui,
+        tr("Clear search history"),
+        if empty {
+            tr("Nothing remembered yet")
+        } else {
+            ""
+        },
+        |ui| {
+            if ui
+                .add_enabled(!empty, egui::Button::new(tr("🗑 Clear")))
+                .clicked()
+            {
+                app.actions
+                    .push(Action::SearchHistory(crate::app::HistoryAction::Clear));
+            }
+        },
+    );
+}
+
+/// Whether live updates run and how changes are followed.
+fn live_status(ui: &mut Ui, index: &ox_core::index::IndexService, idx: &ox_core::index::FileIndex) {
+    if let Some(live) = index.live() {
+        let mut text = if live.journal_drives > 0 {
+            tr("Live updates on (NTFS change journal)").to_owned()
+        } else {
+            tr("Live updates on").to_owned()
+        };
+        if live.changes > 0 {
+            text.push_str(&ox_core::trf!(
+                " · {v1} applied",
+                v1 = ox_core::i18n::count(live.changes, "change")
+            ));
+        }
+        ui.label(RichText::new(text).weak());
+    }
+    // Whole drives were walked although reading the MFT would be much faster.
+    let drives = idx.roots().iter().any(|r| r.parent().is_none());
+    if cfg!(windows) && drives && idx.mft_roots() == 0 && index.last_build().is_some() {
+        ui.label(
+            RichText::new(tr(
+                "Run Oxplorer as administrator to read NTFS drives directly from the master \
+                 file table (much faster) and follow changes through the change journal.",
+            ))
+            .weak()
+            .small(),
+        );
+    }
 }
 
 #[cfg(test)]

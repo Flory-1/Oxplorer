@@ -81,6 +81,8 @@ pub enum Action {
     /// Search while typing: updates the current search tab instead of adding history.
     SearchLive(Option<PathBuf>, String),
     SaveSearch(Option<PathBuf>, String),
+    /// The searches that were run (suggested under the search box).
+    SearchHistory(super::HistoryAction),
     RemoveSavedSearch(usize),
     RebuildIndex,
     SelectAll,
@@ -107,6 +109,8 @@ pub enum Action {
     MoveToBin(Vec<PathBuf>),
     /// Compare folders (the split view's panes).
     Compare(super::CompareAction),
+    /// Find duplicates / empty folders: delete the ticked items, show one.
+    Cleanup(super::CleanupAction),
     /// Turn the flat view (all files of the sub-folders in one list) on or off.
     ToggleFlatView,
     /// Go to the folder an item is in and select it there.
@@ -119,6 +123,8 @@ pub enum Action {
     Session(super::SessionAction),
     /// How the file view looks (columns, …).
     View(super::ViewAction),
+    /// The disk usage view: scan again, stop.
+    DiskUsage(super::DiskUsageAction),
 }
 
 pub enum TabAction {

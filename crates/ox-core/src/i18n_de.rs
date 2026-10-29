@@ -881,11 +881,17 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Don't show this again for this version", "Für diese Version nicht mehr anzeigen"),
 ];
 
+mod cleanup;
 mod cloud;
+mod disk_usage;
 mod flat_links;
+mod help_search;
 mod help_views;
+mod index_live;
 mod libraries;
 mod operations;
+mod search_history;
+mod search_tags;
 mod tabs;
 mod views;
 mod zoom_select;
@@ -903,4 +909,10 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(cloud::TABLE)
         .chain(libraries::TABLE)
         .chain(help_views::TABLE)
+        .chain(search_tags::TABLE)
+        .chain(search_history::TABLE)
+        .chain(cleanup::TABLE)
+        .chain(disk_usage::TABLE)
+        .chain(help_search::TABLE)
+        .chain(index_live::TABLE)
 }

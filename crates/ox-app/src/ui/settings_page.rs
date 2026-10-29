@@ -12,7 +12,7 @@ mod transfer;
 mod views;
 
 use keys::shortcuts;
-use search::{index_section, search};
+use search::{history_section, index_section, search};
 use theme::{swatch, theme_editor};
 use transfer::transfer;
 
@@ -98,6 +98,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                         Section::Transfer => transfer(ui, &mut app.settings),
                         Section::Search => {
                             search(ui, &mut app.settings);
+                            history_section(ui, app);
                             index_section(ui, app);
                         }
                         Section::Shortcuts => shortcuts(ui, app),

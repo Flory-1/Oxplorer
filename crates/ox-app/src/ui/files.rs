@@ -27,6 +27,7 @@ use ox_core::entry::{FileEntry, SortKey};
 use ox_core::format;
 use ox_core::recycle::BinListing;
 use ox_core::settings::ViewMode;
+use ox_core::tags::{TagColor, TagStore};
 
 use super::{DragItems, MenuTarget};
 use crate::app::{Action, OxApp};
@@ -176,7 +177,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     }
 
     if let Location::Search { root, query } = tab.location().clone() {
-        filter_chips(ui, &root, &query, &mut actions);
+        filter_chips(ui, &root, &query, cx.tags, &mut actions);
     }
     if let Some(state) = &tab.flat {
         flat::bar(ui, state, tab.view.entries.len(), &mut actions);
@@ -344,10 +345,34 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
 }
 
 /// Quick filters above search results; each chip adds or removes a query token.
-fn filter_chips(ui: &mut Ui, root: &Option<PathBuf>, query: &str, actions: &mut Vec<Action>) {
+fn filter_chips(
+    ui: &mut Ui,
+    root: &Option<PathBuf>,
+    query: &str,
+    tags: &TagStore,
+    actions: &mut Vec<Action>,
+) {
     const KIND: &[&str] = &["kind:", "type:"];
     const DATE: &[&str] = &["modified:", "date:"];
     const SIZE: &[&str] = &["size:"];
+    const TAG: &[&str] = &["tag:", "tags:"];
+    const ARCHIVES: &[&str] = &["archives:", "archive:", "inarchives:"];
+    let chip = |ui: &mut Ui,
+                label: egui::WidgetText,
+                token: &str,
+                group: &[&str],
+                actions: &mut Vec<Action>| {
+        let on = ox_core::search::has_filter(query, token);
+        let chip = egui::Button::new(label)
+            .selected(on)
+            .corner_radius(CornerRadius::same(12));
+        let resp = ui.add(chip);
+        if resp.clicked() {
+            let q = ox_core::search::toggle_filter(query, token, group);
+            actions.push(Action::SearchLive(root.clone(), q));
+        }
+        resp
+    };
     let chips: [(&str, &str, u8, &[&str]); 12] = [
         (tr("📁 Folders"), "type:folder", 0, KIND),
         (tr("🖼 Images"), "kind:image", 0, KIND),
@@ -373,15 +398,32 @@ fn filter_chips(ui: &mut Ui, root: &Option<PathBuf>, query: &str, actions: &mut 
                         ui.separator();
                         last_group = group_id;
                     }
-                    let on = ox_core::search::has_filter(query, token);
-                    let chip = egui::Button::new(label)
-                        .selected(on)
-                        .corner_radius(CornerRadius::same(12));
-                    if ui.add(chip).clicked() {
-                        let q = ox_core::search::toggle_filter(query, token, group);
-                        actions.push(Action::SearchLive(root.clone(), q));
-                    }
+                    chip(ui, label.into(), token, group, actions);
                 }
+                // The tags in use, each in its colour.
+                let counts = tags.counts();
+                let used = TagColor::ALL.into_iter().filter(|c| counts[c.index()] > 0);
+                for (i, color) in used.enumerate() {
+                    if i == 0 {
+                        ui.separator();
+                    }
+                    let label = egui::RichText::new(format!("●  {}", tags.label(color)))
+                        .color(super::tag_color(color));
+                    let token = format!("tag:{}", color.name().to_lowercase());
+                    chip(ui, label.into(), &token, TAG, actions);
+                }
+                ui.separator();
+                chip(
+                    ui,
+                    tr("🔍 Inside archives").into(),
+                    "archives:yes",
+                    ARCHIVES,
+                    actions,
+                )
+                .on_hover_text(tr(
+                    "Also find the files inside zip, 7z and tar archives (by name, not \
+                     content). Searches the disk, not the index.",
+                ));
                 ui.separator();
                 if ui
                     .button(tr("☆ Save search"))

@@ -58,11 +58,21 @@ pub(super) fn item_interact(
         }
         resp.dnd_set_drag_payload(DragItems(view.selected_paths()));
     }
-    if e.is_dir {
+    if e.is_dir && !(cx.is_search && in_archive(e)) {
         super::super::drop_target(actions, resp, &e.path)
     } else {
         false
     }
+}
+
+/// A search result found inside an archive (`archives:yes`): read-only, like
+/// the items of the archive view.
+fn in_archive(e: &FileEntry) -> bool {
+    e.readonly
+        && e.path
+            .ancestors()
+            .skip(1)
+            .any(|a| ox_core::archive::kind(a).is_some())
 }
 
 pub(super) fn item_context_menu(
@@ -116,7 +126,7 @@ pub(super) fn item_context_menu(
         }
         let target = MenuTarget {
             selection: &selection,
-            read_only: cx.read_only,
+            read_only: cx.read_only || (cx.is_search && in_archive(e)),
             tags: cx.tags,
             single_dir,
             pinned: cx.favorites.contains(&e.path),
