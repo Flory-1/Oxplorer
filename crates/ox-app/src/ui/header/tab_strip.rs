@@ -13,11 +13,13 @@ pub(super) fn tab_strip(app: &mut OxApp, ui: &mut Ui) {
         0.0
     };
     let active = app.tabs.active;
+    // The Home tab and the pinned tabs show only their icon.
+    let small = app.tabs.pinned_end();
     let visible_tabs = app
         .tabs
         .tabs
         .iter()
-        .skip(1) // the Home tab has its own width
+        .skip(small)
         .filter(|t| {
             t.group
                 .and_then(|g| app.tabs.group(g))
@@ -26,8 +28,8 @@ pub(super) fn tab_strip(app: &mut OxApp, ui: &mut Ui) {
         .count()
         .max(1);
     let chips = app.tabs.groups.len() as f32 * 70.0;
-    let tab_w = ((ui.available_width() - 48.0 - chips - reserve - HOME_TAB_W)
-        / visible_tabs as f32)
+    let small_w = small as f32 * (HOME_TAB_W + 2.0);
+    let tab_w = ((ui.available_width() - 48.0 - chips - reserve - small_w) / visible_tabs as f32)
         .clamp(110.0, 230.0);
 
     let row = ui.horizontal(|ui| {
@@ -70,12 +72,17 @@ pub(super) fn tab_strip(app: &mut OxApp, ui: &mut Ui) {
                 .min_size(vec2(28.0, TAB_HEIGHT)),
         );
         hits.push(plus.interact_rect);
-        if plus
-            .on_hover_text(shortcuts::hint(tr("New tab"), Command::NewTab))
-            .clicked()
-        {
+        let plus = plus.on_hover_text(format!(
+            "{}\n{}",
+            shortcuts::hint(tr("New tab"), Command::NewTab),
+            tr("Right-click for sessions")
+        ));
+        if plus.clicked() {
             actions.push(Action::Tab(TabAction::New));
         }
+        plus.context_menu(|ui| {
+            super::super::sessions::sessions_menu(ui, &mut app.sessions, &mut actions);
+        });
     });
     if title_bar {
         let height = row.response.rect.bottom();
@@ -177,7 +184,9 @@ fn tab_widget(
     let id = tab.id;
     // The fixed Home tab: only its icon, no close button, stays first.
     let home = app.tabs.is_home(id);
-    let width = if home { HOME_TAB_W } else { width };
+    // Pinned tabs look like it, but can be moved (among themselves) and closed.
+    let pinned = tab.pinned;
+    let width = if home || pinned { HOME_TAB_W } else { width };
     let is_active = id == active;
     // In split view the other pane's tab looks open too, but without the accent.
     let is_partner = app.tabs.split_partner() == Some(id);
@@ -194,9 +203,10 @@ fn tab_widget(
     if !home {
         resp.dnd_set_drag_payload(DragTab(id));
     }
+    // Pinned and other tabs don't mix, so only show where it can go.
     let tab_hover = resp
         .dnd_hover_payload::<DragTab>()
-        .is_some_and(|d| d.0 != id);
+        .is_some_and(|d| d.0 != id && app.tabs.is_pinned(d.0) == pinned && !home);
     if let Some(dragged) = resp.dnd_release_payload::<DragTab>() {
         if dragged.0 != id {
             actions.push(Action::Tab(TabAction::Move(dragged.0, idx)));
@@ -279,7 +289,7 @@ fn tab_widget(
         _ => tab.title(),
     };
     let accent = crate::theme::accent(&app.settings);
-    if home {
+    if home || pinned {
         crate::icons::paint_icon(
             ui.painter(),
             crate::icons::icon_rect(body.center().x - 7.5, body.center().y, 15.0),
@@ -287,6 +297,8 @@ fn tab_widget(
             text_color,
             accent,
         );
+    }
+    if home {
         let resp = resp.on_hover_text(tr("Home"));
         if resp.clicked() {
             actions.push(Action::Tab(TabAction::Activate(id)));
@@ -302,6 +314,19 @@ fn tab_widget(
                 actions.push(Action::Tab(TabAction::New));
             }
         });
+        return hit;
+    }
+    if pinned {
+        let resp = resp.on_hover_text(match tab.location() {
+            Location::Folder(p) => format!("{title}\n{}", p.display()),
+            _ => title,
+        });
+        if resp.clicked() {
+            actions.push(Action::Tab(TabAction::Activate(id)));
+        }
+        // No close button, and middle-click doesn't close it either (easy to
+        // do by accident on a small tab); its menu and Ctrl+W still do.
+        tab_menu(app, &resp, id, actions);
         return hit;
     }
     crate::icons::paint_icon(
@@ -361,44 +386,32 @@ fn tab_widget(
     if resp.middle_clicked() {
         actions.push(Action::Tab(TabAction::Close(id)));
     }
+    tab_menu(app, &resp, id, actions);
+    hit
+}
+
+/// The context menu of a tab (other than the Home tab).
+fn tab_menu(app: &OxApp, resp: &egui::Response, id: crate::tabs::TabId, actions: &mut Vec<Action>) {
+    let Some(tab) = app.tabs.get(id) else {
+        return;
+    };
     resp.context_menu(|ui| {
         if ui.button(tr("📑 Duplicate")).clicked() {
             actions.push(Action::Tab(TabAction::Duplicate(id)));
         }
-        ui.separator();
-        if ui.button(tr("🔖 Add tab to new group")).clicked() {
-            actions.push(Action::Tab(TabAction::NewGroup(id)));
-        }
-        let others: Vec<&TabGroup> = app
-            .tabs
-            .groups
-            .iter()
-            .filter(|g| Some(g.id) != tab.group)
-            .collect();
-        if !others.is_empty() {
-            ui.menu_button(tr("🔖 Add tab to group"), |ui| {
-                for g in others {
-                    let name = if g.name.is_empty() {
-                        ox_core::trf!(
-                            "{v1} group",
-                            v1 = tr(GROUP_COLORS[g.color % GROUP_COLORS.len()].0)
-                        )
-                    } else {
-                        g.name.clone()
-                    };
-                    if ui
-                        .button(RichText::new(format!("● {name}")).color(group_color(g)))
-                        .clicked()
-                    {
-                        actions.push(Action::Tab(TabAction::AddToGroup(id, g.id)));
-                    }
-                }
-            });
-        }
-        if tab.group.is_some() && ui.button(tr("⛓ Remove from group")).clicked() {
-            actions.push(Action::Tab(TabAction::RemoveFromGroup(id)));
+        if tab.pinned {
+            if ui.button(tr("📍 Unpin tab")).clicked() {
+                actions.push(Action::Tab(TabAction::Pin(id, false)));
+            }
+        } else if ui.button(tr("📌 Pin tab")).clicked() {
+            actions.push(Action::Tab(TabAction::Pin(id, true)));
         }
         ui.separator();
+        // Pinned tabs aren't in groups (joining one unpins them).
+        if !tab.pinned {
+            group_items(app, ui, id, tab.group, actions);
+            ui.separator();
+        }
         if ui
             .add(
                 egui::Button::new(tr("✖ Close")).shortcut_text(shortcuts::label(Command::CloseTab)),
@@ -411,5 +424,46 @@ fn tab_widget(
             actions.push(Action::Tab(TabAction::CloseOthers(id)));
         }
     });
-    hit
+}
+
+/// "Add tab to new group", "Add tab to group" and "Remove from group".
+fn group_items(
+    app: &OxApp,
+    ui: &mut Ui,
+    id: crate::tabs::TabId,
+    group: Option<crate::tabs::GroupId>,
+    actions: &mut Vec<Action>,
+) {
+    if ui.button(tr("🔖 Add tab to new group")).clicked() {
+        actions.push(Action::Tab(TabAction::NewGroup(id)));
+    }
+    let others: Vec<&TabGroup> = app
+        .tabs
+        .groups
+        .iter()
+        .filter(|g| Some(g.id) != group)
+        .collect();
+    if !others.is_empty() {
+        ui.menu_button(tr("🔖 Add tab to group"), |ui| {
+            for g in others {
+                let name = if g.name.is_empty() {
+                    ox_core::trf!(
+                        "{v1} group",
+                        v1 = tr(GROUP_COLORS[g.color % GROUP_COLORS.len()].0)
+                    )
+                } else {
+                    g.name.clone()
+                };
+                if ui
+                    .button(RichText::new(format!("● {name}")).color(group_color(g)))
+                    .clicked()
+                {
+                    actions.push(Action::Tab(TabAction::AddToGroup(id, g.id)));
+                }
+            }
+        });
+    }
+    if group.is_some() && ui.button(tr("⛓ Remove from group")).clicked() {
+        actions.push(Action::Tab(TabAction::RemoveFromGroup(id)));
+    }
 }

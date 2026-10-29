@@ -10,6 +10,8 @@ use crate::app::{Action, OxApp, TabAction};
 use crate::shortcuts::{self, Command};
 use crate::tabs::Location;
 
+mod tabs;
+
 #[derive(Default)]
 pub struct PaletteState {
     pub query: String,
@@ -447,6 +449,8 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         act(|| Action::ClearRecent),
     );
 
+    tabs::entries(app, &mut v);
+
     // Places
     let mut place = |icon, label: String, path: std::path::PathBuf| {
         let detail = path.display().to_string();
@@ -489,6 +493,7 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
     let Some(mut state) = app.ui.palette.take() else {
         return;
     };
+    app.sessions.refresh();
     let all = entries(app);
     // Best matches first; ties keep the natural order.
     let mut ranked: Vec<(i32, usize)> = all

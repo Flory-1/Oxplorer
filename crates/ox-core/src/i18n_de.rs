@@ -882,9 +882,10 @@ pub const TABLE: &[(&str, &str)] = &[
 ];
 
 mod operations;
+mod tabs;
 
 /// Every entry: [`TABLE`] and the tables of the submodules (split for the
 /// line budget; add new entries to the last one).
 pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> {
-    TABLE.iter().chain(operations::TABLE)
+    TABLE.iter().chain(operations::TABLE).chain(tabs::TABLE)
 }

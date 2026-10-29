@@ -10,12 +10,14 @@ mod input;
 mod poll;
 mod process;
 mod properties;
+mod sessions;
 mod transfer_watch;
 mod undo;
 mod window;
 pub use action::{Action, TabAction};
 pub use compare::{CompareAction, CompareState};
 pub use properties::Properties;
+pub use sessions::{SavedSessions, SessionAction};
 pub use transfer_watch::TransferWatch;
 
 use ox_core::i18n::t as tr;
@@ -68,6 +70,12 @@ pub enum Dialog {
     Properties(Box<Properties>),
     RenameGroup {
         id: GroupId,
+        text: String,
+        focus: bool,
+    },
+    /// Name for saving the open tabs as a session, or (`old`) a new name for one.
+    SessionName {
+        old: Option<String>,
         text: String,
         focus: bool,
     },
@@ -185,6 +193,8 @@ pub struct OxApp {
     notices: (Sender<Notice>, Receiver<Notice>),
     /// What Ctrl+Z / Ctrl+Y can undo and redo.
     pub undo: undo::UndoState,
+    /// Named sessions (sets of tabs saved to open again).
+    pub sessions: SavedSessions,
 }
 
 /// What background work started by an action reports back.
@@ -310,6 +320,7 @@ impl OxApp {
             index_force: false,
             index_settings: None,
             undo: Default::default(),
+            sessions: Default::default(),
         }
     }
 

@@ -101,6 +101,8 @@ pub enum Action {
     MoveToBin(Vec<PathBuf>),
     /// Compare folders (the split view's panes).
     Compare(super::CompareAction),
+    /// Named sessions: save, open, rename and delete sets of tabs.
+    Session(super::SessionAction),
 }
 
 pub enum TabAction {
@@ -108,6 +110,8 @@ pub enum TabAction {
     Close(TabId),
     Activate(TabId),
     Duplicate(TabId),
+    /// Pin (`true`) or unpin a tab.
+    Pin(TabId, bool),
     CloseOthers(TabId),
     NewGroup(TabId),
     AddToGroup(TabId, GroupId),
