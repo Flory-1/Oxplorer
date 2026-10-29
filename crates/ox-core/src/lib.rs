@@ -23,6 +23,7 @@ pub mod flat;
 pub mod folder_views;
 pub mod format;
 pub mod fsops;
+pub mod fulltext;
 pub mod fuzzy;
 pub mod gallery;
 pub mod git;

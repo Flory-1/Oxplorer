@@ -44,6 +44,9 @@ impl OxApp {
             Location::Search { root, query } => {
                 let mut q = Query::parse(&query, search_opts.case_sensitive);
                 q.resolve_tags(&self.tags);
+                if let Some(text_index) = self.fulltext.index() {
+                    q.use_text_index(text_index);
+                }
                 tab.view = Default::default();
                 let repaint = move || ctx.request_repaint();
                 // Answer from the index when it covers the place we search in

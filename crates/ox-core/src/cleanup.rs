@@ -32,6 +32,11 @@ pub struct ScanOptions {
     pub show_hidden: bool,
     /// Duplicates: count empty (zero-byte) files as duplicates of each other.
     pub include_empty_files: bool,
+    /// Duplicates: after the hashes match, compare the files byte by byte.
+    pub byte_compare: bool,
+    /// Duplicates: files compared at the same time; 0 = automatic (one on a
+    /// hard disk, else up to four).
+    pub threads: usize,
 }
 
 /// How a scan is going; read by the UI while it runs.

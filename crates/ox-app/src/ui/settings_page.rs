@@ -6,6 +6,7 @@ use ox_core::i18n::t as tr;
 use ox_core::settings::{Backdrop, Settings, StartPage, Theme, ViewMode};
 
 mod commands;
+mod fulltext;
 mod keys;
 mod search;
 mod theme;
@@ -104,6 +105,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                             search(ui, &mut app.settings);
                             history_section(ui, app);
                             index_section(ui, app);
+                            fulltext::fulltext_section(ui, app);
                         }
                         Section::Shortcuts => shortcuts(ui, app),
                         Section::About => about(ui),

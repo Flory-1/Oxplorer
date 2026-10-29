@@ -141,6 +141,7 @@ impl OxApp {
             libraries_at: None,
             gallery_walks: Vec::new(),
             cleanups: Default::default(),
+            fulltext: fulltext::FullText::new(&cc.egui_ctx),
             pictures: Default::default(),
             wsl: Default::default(),
             commands: Default::default(),

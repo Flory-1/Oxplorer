@@ -43,11 +43,13 @@ impl OxApp {
                                 truncated,
                                 from_index,
                             } => {
-                                let limit = if truncated {
-                                    tr(" · limit reached")
-                                } else {
-                                    ""
-                                };
+                                let mut limit = String::new();
+                                if handle.from_text_index() {
+                                    limit.push_str(tr(" · from the text index"));
+                                }
+                                if truncated {
+                                    limit.push_str(tr(" · limit reached"));
+                                }
                                 let results =
                                     ox_core::i18n::count(tab.view.entries.len() as u64, "result");
                                 search.done = Some(if from_index {
@@ -186,6 +188,7 @@ impl OxApp {
     }
 
     pub(super) fn poll_background(&mut self) {
+        self.manage_fulltext();
         let mut finished = Vec::new();
         self.background
             .retain(|(label, rx, dir)| match rx.try_recv() {

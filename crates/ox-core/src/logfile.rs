@@ -59,8 +59,18 @@ struct FileLogger {
 
 impl Log for FileLogger {
     fn enabled(&self, meta: &Metadata) -> bool {
-        let ours = meta.target().starts_with("ox_");
-        meta.level() <= if ours { Level::Info } else { Level::Warn }
+        let target = meta.target();
+        let ours = target.starts_with("ox_");
+        // The PDF reader of the text index complains about many odd files.
+        let noisy = target.starts_with("pdf_extract") || target.starts_with("lopdf");
+        meta.level()
+            <= if ours {
+                Level::Info
+            } else if noisy {
+                Level::Error
+            } else {
+                Level::Warn
+            }
     }
 
     fn log(&self, record: &Record) {
@@ -154,9 +164,28 @@ fn system() -> String {
     )
 }
 
+thread_local! {
+    /// A panic now is caught by [`catch_panic`]: no crash report.
+    static CATCHING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `f` and turn a panic into `None`, with a line in the log instead of a
+/// crash report: for readers of untrusted files (PDF text for the index).
+pub fn catch_panic<T>(f: impl FnOnce() -> T) -> Option<T> {
+    let before = CATCHING.with(|c| c.replace(true));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).ok();
+    CATCHING.with(|c| c.set(before));
+    result
+}
+
 fn install_panic_hook(dir: PathBuf) {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        if CATCHING.with(std::cell::Cell::get) {
+            let message = info.payload_as_str().unwrap_or("(no message)");
+            log::warn!("caught a panic: {message}");
+            return;
+        }
         let message = info.payload_as_str().unwrap_or("(no message)");
         let place = info
             .location()

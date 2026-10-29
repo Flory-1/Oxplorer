@@ -49,6 +49,8 @@ ureq = { version = "3", default-features = false, features = ["rustls", "platfor
 hmac = "0.12"
 sha1 = "0.10"
 base64 = "0.22"
+# Text of PDF files for the text index (pure Rust, on lopdf).
+pdf-extract = "0.12"
 
 [target.'cfg(windows)'.dependencies]
 clipboard-win = { version = "5", features = ["std"] }

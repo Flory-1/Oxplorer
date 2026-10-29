@@ -887,6 +887,7 @@ mod commands;
 mod data_view;
 mod disk_usage;
 mod flat_links;
+mod fulltext;
 mod git_ops;
 mod help_preview;
 mod help_search;
@@ -937,4 +938,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(git_ops::TABLE)
         .chain(remote::TABLE)
         .chain(help_tools::TABLE)
+        .chain(fulltext::TABLE)
 }

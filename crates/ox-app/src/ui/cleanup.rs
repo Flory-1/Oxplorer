@@ -36,6 +36,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let tab = app.tabs.active().id;
     let date_fmt = app.settings.browsing.date_format.clone();
     let mut actions = Vec::new();
+    let mut byte_compare = app.cleanups.byte_compare;
     let Some(view) = app.cleanups.get_mut(tab) else {
         // The scan starts with the next frame.
         ui.centered_and_justified(|ui| ui.spinner());
@@ -45,6 +46,9 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         .inner_margin(egui::Margin::symmetric(20, 14))
         .show(ui, |ui| {
             top(ui, view, &mut actions);
+            if view.mode == CleanupMode::Duplicates {
+                byte_compare_option(ui, &mut byte_compare, &mut actions);
+            }
             ui.add_space(6.0);
             ui.separator();
             match &view.outcome {
@@ -56,7 +60,23 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     if view.confirm.is_some() {
         confirm(ui, view, tab, &mut actions);
     }
+    app.cleanups.byte_compare = byte_compare;
     app.actions.extend(actions);
+}
+
+/// "Compare contents byte by byte"; changing it scans again.
+fn byte_compare_option(ui: &mut Ui, on: &mut bool, actions: &mut Vec<Action>) {
+    ui.add_space(4.0);
+    let changed = ui
+        .checkbox(on, tr("Compare contents byte by byte"))
+        .on_hover_text(tr(
+            "After the hashes match, read the files again and compare every byte. Slower; \
+             the hash alone is practically certain.",
+        ))
+        .changed();
+    if changed {
+        actions.push(Action::Refresh);
+    }
 }
 
 /// Title, progress or summary, and the buttons to scan again or stop.

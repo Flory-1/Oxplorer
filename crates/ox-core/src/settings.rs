@@ -278,6 +278,8 @@ pub struct Search {
     pub search_as_you_type: bool,
     /// Remember the searches that were run and suggest them again.
     pub remember_searches: bool,
+    /// The text index of documents for `content:` searches.
+    pub fulltext: crate::fulltext::FullTextSettings,
 }
 
 impl Search {
@@ -342,6 +344,7 @@ impl Default for Search {
             index_live: true,
             search_as_you_type: true,
             remember_searches: true,
+            fulltext: Default::default(),
         }
     }
 }
