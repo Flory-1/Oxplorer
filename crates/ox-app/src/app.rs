@@ -199,7 +199,7 @@ pub struct OxApp {
     /// the mouse button go up; tell it on the next frame.
     release_pointer: bool,
     /// The window is transparent, so a backdrop can show through it.
-    see_through: bool,
+    pub(crate) see_through: bool,
     /// Backdrop, dark mode and "no title bar" last given to the window.
     window_style: Option<(Backdrop, bool, bool)>,
     /// Whether the window's title bar was last removed (`Some(true)`) or given back.
@@ -931,6 +931,7 @@ impl eframe::App for OxApp {
         self.pre_frame(&ctx);
         self.style_window(&ctx, frame);
         ui::show(self, ui);
+        ui::preview::place_documents(self, &ctx, frame);
         self.publish_title_bar(&ctx);
         self.drag_out_of_window(&ctx);
         self.drag_tab_out(&ctx);

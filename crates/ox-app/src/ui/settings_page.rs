@@ -518,6 +518,14 @@ fn preview(ui: &mut Ui, s: &mut Settings) {
         );
         p.stop_player_on_select = !keep;
     }
+    if ox_core::preview_handler::supported() {
+        toggle(
+            ui,
+            &mut p.documents,
+            tr("Office documents and mails"),
+            tr("Show Word, Excel, PowerPoint, Outlook and other files with the preview handlers Windows uses in Explorer (the Document tab)."),
+        );
+    }
 }
 
 /// Editors offered on the Developer page: name and command line.

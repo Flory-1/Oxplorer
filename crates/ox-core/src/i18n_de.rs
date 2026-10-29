@@ -893,6 +893,7 @@ mod operations;
 mod picture_tools;
 mod pictures;
 mod player_more;
+mod preview_docs;
 mod search_history;
 mod search_tags;
 mod tabs;
@@ -921,4 +922,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(picture_tools::TABLE)
         .chain(pictures::TABLE)
         .chain(player_more::TABLE)
+        .chain(preview_docs::TABLE)
 }

@@ -1,6 +1,7 @@
 //! Preview pane: shows the selected file (image, text/code) or a summary.
 
 mod animation;
+mod document;
 mod font;
 mod git_graph;
 mod info;
@@ -19,6 +20,8 @@ use player::*;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
+
+pub use document::place_documents;
 
 use crossbeam_channel::Receiver;
 use egui::{ColorImage, RichText, TextureHandle, TextureOptions, Ui};
@@ -87,6 +90,8 @@ pub enum PreviewTab {
     Player,
     /// The items of a folder or archive (Quick Look).
     Contents,
+    /// Shown by the file type's preview handler (Office documents, mails…).
+    Document,
 }
 
 impl PreviewTab {
@@ -103,6 +108,7 @@ impl PreviewTab {
             PreviewTab::Git => tr("🌿 Git"),
             PreviewTab::Player => tr("▶ Player"),
             PreviewTab::Contents => tr("📂 Contents"),
+            PreviewTab::Document => tr("📄 Document"),
         }
     }
 }
@@ -200,6 +206,8 @@ pub struct PreviewState {
     /// SHA-256 and MD5, once asked for.
     checksums: Option<Checksums>,
     play: PlayerState,
+    /// The Document tab's preview handler.
+    document: document::DocumentState,
     /// Quick Look: opens on what the file shows rather than Info, with
     /// sharper pictures, pictures fitted, folder contents and autoplay.
     quick_look: bool,
@@ -485,7 +493,8 @@ fn tabbed(
         ui.spinner();
         return;
     };
-    let tabs = content.tabs();
+    let mut tabs = content.tabs();
+    document::offer(&mut tabs, &mut state.document, content, e);
     // The tab picked last, if this file has it; otherwise Info (Quick
     // Look: what the file shows).
     let first = match state.quick_look {
@@ -519,6 +528,9 @@ fn tabbed(
     if let (PreviewTab::Git, Content::Folder { git: Some(git), .. }) = (tab, content) {
         git_graph(ui, git, date_fmt, actions);
         return;
+    }
+    if tab == PreviewTab::Document {
+        return document::show(ui, &mut state.document, e, actions);
     }
     egui::ScrollArea::vertical()
         .id_salt("preview_tab")
