@@ -634,14 +634,6 @@ fn sidebar(ui: &mut Ui, s: &mut Settings) {
     row(ui, tr("Recent folders shown"), "", |ui| {
         ui.add(egui::Slider::new(&mut sb.recent_count, 1..=20));
     });
-    row(
-        ui,
-        tr("Sidebar width"),
-        tr("You can also drag the sidebar's edge."),
-        |ui| {
-            ui.add(egui::Slider::new(&mut sb.width, super::SIDEBAR_WIDTH).suffix(" px"));
-        },
-    );
 }
 
 fn preview(ui: &mut Ui, s: &mut Settings) {
@@ -660,14 +652,6 @@ fn preview(ui: &mut Ui, s: &mut Settings) {
         &mut p.as_window,
         tr("Open as a window"),
         tr("Show the preview in its own window that you can move and resize, instead of a pane on the right."),
-    );
-    row(
-        ui,
-        tr("Pane width"),
-        tr("You can also drag the pane's edge."),
-        |ui| {
-            ui.add(egui::Slider::new(&mut p.width, super::PREVIEW_WIDTH).suffix(" px"));
-        },
     );
 }
 

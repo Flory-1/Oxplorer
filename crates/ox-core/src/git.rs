@@ -314,6 +314,8 @@ pub fn last_commit(root: &Path, path: &Path) -> io::Result<Option<Commit>> {
     let out = run(
         root,
         &[
+            // `[id].tsx` is a file name, not a pattern.
+            "--literal-pathspecs",
             "log",
             "-1",
             "--format=%H%x1f%P%x1f%an%x1f%ct%x1f%x1f%s%x1e",

@@ -1,12 +1,13 @@
 //! Modal dialogs: rename, delete confirmation, properties, rename tab group.
 
-use egui::{Color32, Context, Id, Key, RichText};
-use ox_core::entry::display_name;
+use egui::{Color32, Context, Id, Key, RichText, Ui};
+use ox_core::entry::{display_name, FileEntry};
 use ox_core::i18n::t as tr;
 use ox_core::rename::{self, Case};
 use ox_core::{format, fsops};
 
-use crate::app::{Action, Dialog, OxApp};
+use super::preview;
+use crate::app::{Action, Dialog, OxApp, Properties};
 
 pub fn show(app: &mut OxApp, ctx: &Context) {
     let Some(mut dialog) = app.dialog.take() else {
@@ -16,10 +17,10 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
     let mut actions = Vec::new();
     let date_fmt = app.settings.browsing.date_format.clone();
 
-    let width = if matches!(dialog, Dialog::BulkRename { .. }) {
-        680.0
-    } else {
-        420.0
+    let width = match dialog {
+        Dialog::BulkRename { .. } => 680.0,
+        Dialog::Properties(_) => 460.0,
+        _ => 420.0,
     };
     let modal = egui::Modal::new(Id::unique("dialog")).show(ctx, |ui| {
         ui.set_width(width);
@@ -314,88 +315,7 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
                 });
             }
             Dialog::Properties(p) => {
-                if let Some(rx) = &p.rx {
-                    if let Ok(t) = rx.try_recv() {
-                        p.totals = Some(t);
-                        p.rx = None;
-                    }
-                }
-                let title = match p.paths.as_slice() {
-                    [one] => display_name(one),
-                    many => ox_core::i18n::count(many.len() as u64, "item"),
-                };
-                ui.heading(ox_core::trf!("ℹ {title}", title = title));
-                ui.add_space(6.0);
-                egui::Grid::new("props")
-                    .num_columns(2)
-                    .spacing([16.0, 6.0])
-                    .show(ui, |ui| {
-                        if let [e] = p.entries.as_slice() {
-                            ui.label(tr("Type"));
-                            ui.label(e.type_label());
-                            ui.end_row();
-                            ui.label(tr("Location"));
-                            ui.label(
-                                e.path
-                                    .parent()
-                                    .map(|x| x.display().to_string())
-                                    .unwrap_or_default(),
-                            );
-                            ui.end_row();
-                        }
-                        ui.label(tr("Size"));
-                        match p.totals {
-                            Some((bytes, files, dirs)) => {
-                                ui.label(ox_core::trf!(
-                                    "{v1} ({bytes} bytes)",
-                                    v1 = format::size(bytes),
-                                    bytes = bytes
-                                ));
-                                ui.end_row();
-                                ui.label(tr("Contains"));
-                                ui.label(ox_core::trf!(
-                                    "{files} files, {dirs} folders",
-                                    files = files,
-                                    dirs = dirs
-                                ));
-                            }
-                            None => {
-                                ui.horizontal(|ui| {
-                                    ui.spinner();
-                                    ui.label(tr("Calculating…"));
-                                });
-                            }
-                        }
-                        ui.end_row();
-                        if let [e] = p.entries.as_slice() {
-                            for (label, t) in
-                                [(tr("Created"), e.created), (tr("Modified"), e.modified)]
-                            {
-                                if let Some(t) = t {
-                                    ui.label(label);
-                                    ui.label(format::time(t, &date_fmt));
-                                    ui.end_row();
-                                }
-                            }
-                            let mut attrs = Vec::new();
-                            if e.readonly {
-                                attrs.push(tr("Read-only"));
-                            }
-                            if e.hidden {
-                                attrs.push(tr("Hidden"));
-                            }
-                            if e.is_symlink {
-                                attrs.push(tr("Link"));
-                            }
-                            if !attrs.is_empty() {
-                                ui.label(tr("Attributes"));
-                                ui.label(attrs.join(", "));
-                                ui.end_row();
-                            }
-                        }
-                    });
-                ui.add_space(8.0);
-                if ui.button(tr("Close")).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
+                if !properties(ui, p, &date_fmt, &mut actions) {
                     p.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
                     keep = false;
                 }
@@ -438,4 +358,185 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
         app.dialog = Some(dialog);
     }
     app.actions.extend(actions);
+}
+
+/// The Properties dialog: what the items are, their size and dates, the
+/// Read-only and Hidden attributes to change, and the details of the type.
+/// Returns whether it stays open.
+fn properties(ui: &mut Ui, p: &mut Properties, date_fmt: &str, actions: &mut Vec<Action>) -> bool {
+    if let Some(t) = p.rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+        p.totals = Some(t);
+        p.rx = None;
+    }
+    if let Some(more) = p.more_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+        p.more = Some(more);
+        p.more_rx = None;
+    }
+    let title = match p.paths.as_slice() {
+        [one] => display_name(one),
+        many => ox_core::i18n::count(many.len() as u64, "item"),
+    };
+    ui.heading(ox_core::trf!("ℹ {title}", title = title));
+    ui.add_space(6.0);
+
+    let details = p.more.as_ref().map(|m| &m.details);
+    let mut rows = match p.entries.as_slice() {
+        [e] => preview::info_rows(e, details, date_fmt),
+        many => {
+            let first = many.first().map(FileEntry::type_label).unwrap_or_default();
+            let same = many.iter().all(|e| e.type_label() == first);
+            let mut rows = vec![(
+                tr("Type"),
+                if same {
+                    first
+                } else {
+                    tr("Various types").to_owned()
+                },
+            )];
+            let parent = many.first().and_then(|e| e.path.parent());
+            if let Some(parent) = parent.filter(|d| many.iter().all(|e| e.path.parent() == Some(d)))
+            {
+                rows.push((tr("Location"), parent.display().to_string()));
+            }
+            rows
+        }
+    };
+    // Folders and several items: the size once it's counted, after the type.
+    let single_file = matches!(p.entries.as_slice(), [e] if !e.is_dir);
+    if let (false, Some((bytes, files, dirs))) = (single_file, p.totals) {
+        let at = rows
+            .iter()
+            .position(|(k, _)| *k == tr("Location"))
+            .unwrap_or(rows.len());
+        rows.insert(
+            at,
+            (
+                tr("Size"),
+                ox_core::trf!(
+                    "{v1} ({bytes} bytes)",
+                    v1 = format::size(bytes),
+                    bytes = bytes
+                ),
+            ),
+        );
+        rows.insert(
+            at + 1,
+            (
+                tr("Contains"),
+                ox_core::trf!("{files} files, {dirs} folders", files = files, dirs = dirs),
+            ),
+        );
+    }
+    grid(ui, "props", &rows);
+    if !single_file && p.totals.is_none() {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(RichText::new(tr("Calculating…")).weak());
+        });
+    }
+
+    ui.separator();
+    // Checked when all items are, empty when none is, mixed otherwise.
+    let initial = |on: fn(&FileEntry) -> bool| {
+        let n = p.entries.iter().filter(|e| on(e)).count();
+        (n == 0 || n == p.entries.len()).then_some(n > 0)
+    };
+    let (readonly0, hidden0) = (initial(|e| e.readonly), initial(|e| e.hidden));
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(tr("Attributes")).weak());
+        ui.add_space(8.0);
+        tri_checkbox(ui, &mut p.readonly, tr("Read-only"));
+        tri_checkbox(ui, &mut p.hidden, tr("Hidden"));
+    });
+    let others: Vec<String> = details
+        .into_iter()
+        .flat_map(preview::other_attributes)
+        .collect();
+    if !others.is_empty() {
+        ui.label(RichText::new(others.join(", ")).weak());
+    }
+
+    // The type's details and Git.
+    let mut more: Vec<(&str, String)> = Vec::new();
+    if let Some(m) = &p.more {
+        more.extend(m.facts.iter().cloned());
+        more.extend(m.details.facts.iter().cloned());
+    }
+    if let Some(state) = p.git {
+        more.push((tr("Git"), state.to_owned()));
+    }
+    if let Some(c) = p.more.as_ref().and_then(|m| m.last_commit.as_ref()) {
+        let when = std::time::SystemTime::UNIX_EPOCH
+            + std::time::Duration::from_secs(c.time.max(0) as u64);
+        more.push((
+            tr("Last commit"),
+            format!(
+                "{} {}\n{}, {}",
+                c.short(),
+                c.subject,
+                c.author,
+                format::time(when, date_fmt)
+            ),
+        ));
+    }
+    if !more.is_empty() {
+        ui.separator();
+        grid(ui, "props_more", &more);
+    } else if p.more_rx.is_some() {
+        ui.spinner();
+    }
+
+    ui.add_space(8.0);
+    let readonly = p.readonly.filter(|_| p.readonly != readonly0);
+    let hidden = p.hidden.filter(|_| p.hidden != hidden0);
+    let changed = readonly.is_some() || hidden.is_some();
+    let mut apply = false;
+    let mut keep = true;
+    ui.horizontal(|ui| {
+        if ui.button(tr("OK")).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
+            apply = true;
+            keep = false;
+        }
+        if ui.button(tr("Cancel")).clicked() {
+            keep = false;
+        }
+        if ui
+            .add_enabled(changed, egui::Button::new(tr("Apply")))
+            .clicked()
+        {
+            apply = true;
+        }
+    });
+    if apply && changed {
+        actions.push(Action::SetAttributes(p.paths.clone(), readonly, hidden));
+        // What the boxes compare against from now on.
+        for e in &mut p.entries {
+            e.readonly = readonly.unwrap_or(e.readonly);
+            e.hidden = hidden.unwrap_or(e.hidden);
+        }
+    }
+    keep
+}
+
+/// A check box that can also show "some are, some aren't" (`None`).
+fn tri_checkbox(ui: &mut Ui, state: &mut Option<bool>, text: &str) {
+    let mut on = state.unwrap_or(false);
+    let box_ = egui::Checkbox::new(&mut on, text).indeterminate(state.is_none());
+    if ui.add(box_).changed() {
+        *state = Some(on);
+    }
+}
+
+/// Two columns: a weak label and its value.
+fn grid(ui: &mut Ui, id: &str, rows: &[(&str, String)]) {
+    egui::Grid::new(id)
+        .num_columns(2)
+        .spacing([16.0, 6.0])
+        .show(ui, |ui| {
+            for (name, value) in rows {
+                ui.label(RichText::new(*name).weak());
+                ui.add(egui::Label::new(value.as_str()).wrap());
+                ui.end_row();
+            }
+        });
 }

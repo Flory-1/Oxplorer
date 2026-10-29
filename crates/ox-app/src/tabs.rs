@@ -95,6 +95,15 @@ impl Location {
         matches!(self, Location::RecycleBin)
     }
 
+    /// Settings, Help and the Recycle Bin: there is one of each, so opening
+    /// one again switches to the tab that already shows it.
+    pub fn is_page(&self) -> bool {
+        matches!(
+            self,
+            Location::Settings | Location::Help | Location::RecycleBin
+        )
+    }
+
     /// Items here can't be changed (inside an archive).
     pub fn is_read_only(&self) -> bool {
         matches!(self, Location::Archive { .. })

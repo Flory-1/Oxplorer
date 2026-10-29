@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "BASH_MAX_OUTPUT_LENGTH": "15000",
+    "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo build:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(wc:*)"
+    ],
+    "deny": [
+      "Artifact",
+      "ArtifactComments",
+      "ArtifactData",
+      "DesignSync",
+      "NotebookEdit",
+      "Workflow",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "ScheduleWakeup",
+      "RemoteTrigger",
+      "PushNotification",
+      "ReportFindings",
+      "ListAgents",
+      "PowerShell",
+      "EnterPlanMode",
+      "EnterWorktree",
+      "ExitWorktree",
+      "mcp__claude-vscode__getDiagnostics",
+      "ListMcpResourcesTool",
+      "ReadMcpResourceTool",
+      "ReadMcpResourceDirTool",
+      "mcp__claude_ai_Claude_Docs",
+      "mcp__deviceapp",
+      "mcp__keyapp",
+      "mcp__ticketapp",
+      "Read(./target/**)",
+      "Read(./Cargo.lock)",
+      "Read(./**/*.ttf)",
+      "Read(./**/*.ico)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/line-budget.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

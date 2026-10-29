@@ -282,8 +282,6 @@ pub struct Sidebar {
     pub show_drives: bool,
     pub show_recent: bool,
     pub recent_count: usize,
-    /// Width in points (also changed by dragging the sidebar's edge).
-    pub width: f32,
 }
 
 impl Default for Sidebar {
@@ -294,28 +292,16 @@ impl Default for Sidebar {
             show_drives: true,
             show_recent: true,
             recent_count: 8,
-            width: 230.0,
         }
     }
 }
 
 /// The preview pane (shown or hidden with `Browsing::show_preview`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Preview {
     /// Show it as a separate window instead of a pane on the right.
     pub as_window: bool,
-    /// Width in points (also changed by dragging the pane's edge).
-    pub width: f32,
-}
-
-impl Default for Preview {
-    fn default() -> Self {
-        Self {
-            as_window: false,
-            width: 320.0,
-        }
-    }
 }
 
 /// Settings → Developer.

@@ -253,7 +253,7 @@ const TOPICS: &[Topic] = &[
             "Files have the same icons as in Explorer.",
             "Show more options (Shift+F10) opens the real Explorer context menu, with \
              entries from 7-Zip, VS Code and other tools.",
-            "Properties and Open with use the Windows dialogs.",
+            "Open with uses the Windows dialog.",
             "The tabs sit in the title bar, as in Windows 11's Explorer. Drag the free space \
              next to them to move the window, double-click it to maximize, and point at the \
              maximize button for the snap layouts. Settings → Appearance → Tabs in the title \
