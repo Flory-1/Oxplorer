@@ -5,6 +5,7 @@
 //! borrow checker happy and makes every user command go through one place.
 
 mod action;
+mod cloud;
 mod compare;
 mod input;
 mod poll;
@@ -185,6 +186,8 @@ pub struct OxApp {
     notices: (Sender<Notice>, Receiver<Notice>),
     /// What Ctrl+Z / Ctrl+Y can undo and redo.
     pub undo: undo::UndoState,
+    /// When the panes were last checked for syncing cloud files.
+    cloud_check: Option<Instant>,
 }
 
 /// What background work started by an action reports back.
@@ -194,6 +197,8 @@ pub enum Notice {
     OpenUrl(String),
     /// Put text on the clipboard and say so.
     Copy(String, String),
+    /// These folders changed: list them again, and show the text if any.
+    Changed(Vec<PathBuf>, Option<String>),
 }
 
 impl OxApp {
@@ -310,6 +315,7 @@ impl OxApp {
             index_force: false,
             index_settings: None,
             undo: Default::default(),
+            cloud_check: None,
         }
     }
 
@@ -375,6 +381,7 @@ impl OxApp {
         self.poll_compare();
         self.poll_folder_sizes();
         self.poll_git();
+        self.poll_cloud();
         self.poll_watcher();
         self.poll_jobs();
         self.poll_undo();

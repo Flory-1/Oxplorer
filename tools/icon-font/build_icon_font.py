@@ -86,6 +86,8 @@ ICONS = {
     "🖥": "monitor",
     "🖳": "square-terminal",
     "🗗": "external-link",
+    "☁": "cloud",
+    "📌": "pin",
     # Views and panels
     "☰": "list",
     "▦": "layout-grid",

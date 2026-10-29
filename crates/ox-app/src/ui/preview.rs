@@ -11,6 +11,7 @@ use std::time::{Duration, Instant, SystemTime};
 use crossbeam_channel::Receiver;
 use egui::{ColorImage, RichText, TextureHandle, TextureOptions, Ui};
 use egui_extras::syntax_highlighting::{highlight, CodeTheme};
+use ox_core::cloud::CloudStatus;
 use ox_core::details::Details;
 use ox_core::dirsize::DirSize;
 use ox_core::entry::{FileEntry, FileKind};
@@ -187,10 +188,13 @@ impl Content {
     }
 }
 
+/// What the preview shows: path, modified time and cloud status.
+type PreviewKey = (PathBuf, Option<SystemTime>, Option<CloudStatus>);
+
 /// The preview of one item, cached until the selection (or the file) changes.
 #[derive(Default)]
 pub struct PreviewState {
-    key: Option<(PathBuf, Option<SystemTime>)>,
+    key: Option<PreviewKey>,
     content: Option<Content>,
     /// The tab last picked; used whenever the file offers it.
     wanted: Option<PreviewTab>,
@@ -291,6 +295,9 @@ fn load(entry: FileEntry, show_hidden: bool) -> Loaded {
             },
             Err(e) => Loaded::Error(e.to_string()),
         };
+    }
+    if std::fs::metadata(&entry.path).is_ok_and(|m| ox_core::cloud::online(&m)) {
+        return Loaded::Nothing; // Online only: reading it would download it.
     }
     if ox_core::archive::kind(&entry.path).is_some() {
         // Archives: what's inside (opening them browses them).
@@ -613,7 +620,7 @@ fn font_info(path: &Path) -> Option<Loaded> {
 impl PreviewState {
     /// Make sure the preview shows `entry`, starting a background load if needed.
     fn update(&mut self, ctx: &egui::Context, entry: &FileEntry, show_hidden: bool) {
-        let key = (entry.path.clone(), entry.modified);
+        let key = (entry.path.clone(), entry.modified, entry.cloud);
         if self.key.as_ref() != Some(&key) {
             self.key = Some(key);
             let (tx, rx) = crossbeam_channel::bounded(1);
@@ -1416,17 +1423,6 @@ fn commit_time(c: &Commit, date_fmt: &str) -> String {
     format::time(t, date_fmt)
 }
 
-/// "1:05" or "1:02:03".
-fn clock(secs: f32) -> String {
-    let s = secs.max(0.0) as u64;
-    let (h, m, s) = (s / 3600, s / 60 % 60, s % 60);
-    if h > 0 {
-        format!("{h}:{m:02}:{s:02}")
-    } else {
-        format!("{m}:{s:02}")
-    }
-}
-
 /// The built-in player: the video (or the cover of audio files), a seek
 /// bar and the buttons. The file is opened when the tab is shown.
 fn player_tab(ui: &mut Ui, state: &mut PlayerState, e: &FileEntry, cover: Option<&TextureHandle>) {
@@ -1513,11 +1509,11 @@ fn player_tab(ui: &mut Ui, state: &mut PlayerState, e: &FileEntry, cover: Option
     let total = st.duration.map_or(0.0, |d| d.as_secs_f32());
     let mut pos = pb.dragging.unwrap_or(st.position.as_secs_f32()).min(total);
     ui.horizontal(|ui| {
-        let time = |t: f32| RichText::new(clock(t)).monospace().size(11.0);
+        let time = |t: f32| RichText::new(format::clock(t)).monospace().size(11.0);
         ui.label(time(pos));
         let right = ui.fonts_mut(|f| {
             f.layout_no_wrap(
-                clock(total),
+                format::clock(total),
                 egui::FontId::monospace(11.0),
                 egui::Color32::WHITE,
             )

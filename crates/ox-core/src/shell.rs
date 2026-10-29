@@ -83,7 +83,22 @@ pub fn thumbnail(path: &Path, size: u32) -> Option<Thumbnail> {
     #[cfg(windows)]
     {
         // SAFETY: COM is set up for the calling thread inside.
-        unsafe { imp::thumbnail(path, size) }
+        unsafe { imp::thumbnail(path, size, false) }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (path, size);
+        None
+    }
+}
+
+/// Like [`thumbnail`], but only from the Shell's thumbnail cache: for
+/// online-only cloud files, which making a thumbnail would download.
+pub fn thumbnail_in_cache(path: &Path, size: u32) -> Option<Thumbnail> {
+    #[cfg(windows)]
+    {
+        // SAFETY: as in `thumbnail`.
+        unsafe { imp::thumbnail(path, size, true) }
     }
     #[cfg(not(windows))]
     {
@@ -240,7 +255,7 @@ mod imp {
         SHOpenWithDialog, SHParseDisplayName, ShellExecuteExW, CMF_EXPLORE, CMF_NORMAL,
         CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX, OAIF_ALLOW_REGISTRATION, OAIF_EXEC, OPENASINFO,
         SEE_MASK_INVOKEIDLIST, SHELLEXECUTEINFOW, SHFILEINFOW, SHGFI_SYSICONINDEX,
-        SHGFI_USEFILEATTRIBUTES, SHIL_EXTRALARGE, SIIGBF_THUMBNAILONLY,
+        SHGFI_USEFILEATTRIBUTES, SHIL_EXTRALARGE, SIIGBF_INCACHEONLY, SIIGBF_THUMBNAILONLY,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu,
@@ -487,7 +502,7 @@ mod imp {
 
     // ---- thumbnails --------------------------------------------------------------
 
-    pub(super) unsafe fn thumbnail(path: &Path, size: u32) -> Option<Thumbnail> {
+    pub(super) unsafe fn thumbnail(path: &Path, size: u32, cached: bool) -> Option<Thumbnail> {
         unsafe {
             // Once per thread; later calls just return S_FALSE.
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
@@ -495,9 +510,12 @@ mod imp {
             let factory: IShellItemImageFactory =
                 SHCreateItemFromParsingName(PCWSTR(name.as_ptr()), None).ok()?;
             let side = size as i32;
-            let bitmap = factory
-                .GetImage(SIZE { cx: side, cy: side }, SIIGBF_THUMBNAILONLY)
-                .ok()?;
+            let flags = if cached {
+                SIIGBF_THUMBNAILONLY | SIIGBF_INCACHEONLY
+            } else {
+                SIIGBF_THUMBNAILONLY
+            };
+            let bitmap = factory.GetImage(SIZE { cx: side, cy: side }, flags).ok()?;
             let result = (|| {
                 let mut bm = BITMAP::default();
                 let n = GetObjectW(

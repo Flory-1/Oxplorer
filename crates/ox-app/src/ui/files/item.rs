@@ -121,7 +121,18 @@ pub(super) fn item_context_menu(
             destinations: &cx.destinations,
             shell: ox_core::shell::supported(),
             dev: cx.dev,
+            cloud: cloud_selection(view),
         };
         super::super::item_menu(ui, &target, actions);
     });
+}
+
+/// For the menu: are selected items in a cloud folder, and are all of them
+/// always kept on this device?
+fn cloud_selection(view: &FolderView) -> Option<bool> {
+    use ox_core::cloud::CloudStatus;
+    let sel = view.selected_entries();
+    sel.iter()
+        .any(|e| e.cloud.is_some())
+        .then(|| sel.iter().all(|e| e.cloud == Some(CloudStatus::AlwaysKeep)))
 }

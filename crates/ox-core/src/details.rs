@@ -25,6 +25,8 @@ pub struct Details {
     pub date_taken: Option<SystemTime>,
     /// A program's version information and a photo's camera details.
     pub facts: Vec<(&'static str, String)>,
+    /// OneDrive/Dropbox status and the provider's name.
+    pub cloud: Option<(crate::cloud::CloudStatus, String)>,
 }
 
 /// Read everything there is to know about `path`. Can take a moment (reads
@@ -39,11 +41,16 @@ pub fn read(path: &Path, is_dir: bool) -> Details {
         attributes: attributes(path),
         ..Default::default()
     };
+    d.cloud = crate::cloud::status_of(path);
     if is_dir {
         return d;
     }
     d.size_on_disk = size_on_disk(path);
     d.opens_with = opens_with(path);
+    // Reading the headers of an online-only file would download it.
+    if fs::metadata(path).is_ok_and(|m| crate::cloud::online(&m)) {
+        return d;
+    }
     let ext = path
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())

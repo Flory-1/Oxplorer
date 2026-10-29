@@ -28,12 +28,16 @@ const MAX_DECODE_BYTES: u64 = 64 * 1024 * 1024;
 struct Job {
     path: PathBuf,
     modified: Option<SystemTime>,
+    /// An online-only cloud file: only the Shell's cached thumbnail, so
+    /// the file isn't downloaded.
+    cache_only: bool,
 }
 
 enum Slot {
     Loading,
     Ready(TextureHandle, Option<SystemTime>),
-    Failed(Option<SystemTime>),
+    /// No thumbnail for this version, and whether only the cache was asked.
+    Failed(Option<SystemTime>, bool),
 }
 
 struct Queue {
@@ -45,6 +49,7 @@ struct Queue {
 struct Done {
     path: PathBuf,
     modified: Option<SystemTime>,
+    cache_only: bool,
     image: Option<ColorImage>,
     dropped: bool,
 }
@@ -119,7 +124,7 @@ impl Thumbnails {
                     loaded.push_back(done.path.clone());
                     Slot::Ready(ctx.load_texture(name, image, options), done.modified)
                 }
-                None => Slot::Failed(done.modified),
+                None => Slot::Failed(done.modified, done.cache_only),
             };
             slots.insert(done.path, slot);
         }
@@ -133,13 +138,17 @@ impl Thumbnails {
     /// The thumbnail of `e` and its size in pixels, if loaded. Asks for it
     /// otherwise (again when the file changed).
     pub fn get(&self, e: &FileEntry) -> Option<(egui::TextureId, Vec2)> {
+        let cache_only = e.cloud == Some(ox_core::cloud::CloudStatus::OnlineOnly);
         if let Some(slot) = self.slots.borrow().get(&e.path) {
             match slot {
                 Slot::Loading => return None,
                 Slot::Ready(tex, modified) if *modified == e.modified => {
                     return Some((tex.id(), tex.size_vec2()));
                 }
-                Slot::Failed(modified) if *modified == e.modified => return None,
+                // Tried again once the file is downloaded.
+                Slot::Failed(modified, c) if *modified == e.modified && *c == cache_only => {
+                    return None
+                }
                 _ => {}
             }
         }
@@ -150,12 +159,14 @@ impl Thumbnails {
         jobs.push(Job {
             path: e.path.clone(),
             modified: e.modified,
+            cache_only,
         });
         if jobs.len() > MAX_QUEUED {
             let old = jobs.remove(0);
             let _ = self.done_tx.send(Done {
                 path: old.path,
                 modified: old.modified,
+                cache_only: old.cache_only,
                 image: None,
                 dropped: true,
             });
@@ -176,10 +187,11 @@ fn worker(queue: &Queue, tx: &Sender<Done>, ctx: &Context) {
                 jobs = queue.ready.wait(jobs).unwrap_or_else(|p| p.into_inner());
             }
         };
-        let image = load(&job.path);
+        let image = load(&job.path, job.cache_only);
         let done = Done {
             path: job.path,
             modified: job.modified,
+            cache_only: job.cache_only,
             image,
             dropped: false,
         };
@@ -190,12 +202,17 @@ fn worker(queue: &Queue, tx: &Sender<Done>, ctx: &Context) {
     }
 }
 
-fn load(path: &Path) -> Option<ColorImage> {
-    if let Some(t) = ox_core::shell::thumbnail(path, SIZE) {
+fn load(path: &Path, cache_only: bool) -> Option<ColorImage> {
+    let shell = if cache_only {
+        ox_core::shell::thumbnail_in_cache(path, SIZE)
+    } else {
+        ox_core::shell::thumbnail(path, SIZE)
+    };
+    if let Some(t) = shell {
         let size = [t.width as usize, t.height as usize];
         return Some(ColorImage::from_rgba_premultiplied(size, &t.rgba));
     }
-    if ox_core::shell::supported() {
+    if ox_core::shell::supported() || cache_only {
         return None;
     }
     let ext = path
@@ -248,8 +265,8 @@ mod tests {
         if ox_core::shell::supported() {
             return; // needs the Shell's thumbnail cache
         }
-        let img = load(&path).unwrap();
+        let img = load(&path, false).unwrap();
         assert_eq!(img.size, [128, 64]);
-        assert!(load(&dir.path().join("missing.png")).is_none());
+        assert!(load(&dir.path().join("missing.png"), false).is_none());
     }
 }

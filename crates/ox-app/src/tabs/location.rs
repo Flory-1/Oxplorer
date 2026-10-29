@@ -105,8 +105,11 @@ pub struct Listing {
 
 impl Listing {
     pub fn folder(path: &Path, show_hidden: bool) -> io::Result<Self> {
+        let mut entries = entry::list_dir(path, show_hidden)?;
+        // Inside OneDrive & co.: "on this device" and "sync pending".
+        ox_core::cloud::refine(path, &mut entries);
         Ok(Self {
-            entries: entry::list_dir(path, show_hidden)?,
+            entries,
             bin: BinListing::default(),
         })
     }

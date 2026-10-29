@@ -144,7 +144,12 @@ fn paint_row(
     let texture = cx
         .icons
         .and_then(|c| c.texture(e, cx.is_bin || cx.read_only));
-    icons::paint_entry(&p, icons::icon_rect(x + 2.0, y, icon_size), e, dim, texture);
+    let icon = icons::icon_rect(x + 2.0, y, icon_size);
+    icons::paint_entry(&p, icon, e, dim, texture);
+    if let Some(status) = e.cloud {
+        crate::ui::cloud::paint_badge(&p, icon, status, dim);
+        crate::ui::cloud::badge_tooltip(resp, icon, status);
+    }
     let name = if e.is_symlink {
         format!("{} ↗", e.display_name(cx.show_ext))
     } else {

@@ -276,6 +276,27 @@ fn entries(app: &OxApp) -> Vec<Entry> {
             &shortcuts::label(Command::Properties),
             act(move || Action::Properties(s3)),
         );
+        if tab
+            .view
+            .selected_entries()
+            .iter()
+            .any(|e| e.cloud.is_some())
+        {
+            use ox_core::cloud::Pin;
+            let (k1, k2) = (selection.clone(), selection.clone());
+            cmd(
+                "📌",
+                tr("Always keep selection on this device"),
+                "",
+                act(move || Action::KeepOnDevice(k1, Pin::Always)),
+            );
+            cmd(
+                "☁",
+                tr("Free up space used by the selection"),
+                "",
+                act(move || Action::KeepOnDevice(k2, Pin::Online)),
+            );
+        }
         let zip = selection.clone();
         cmd(
             "📦",
