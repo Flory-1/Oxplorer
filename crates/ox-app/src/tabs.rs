@@ -247,6 +247,12 @@ impl Tab {
         if let Location::Search { query, .. } = self.location() {
             self.filter = query.clone();
         }
+        if *self.location() == Location::Gallery {
+            // Like Windows' Gallery: large pictures, newest first.
+            self.view_mode = ViewMode::Grid;
+            self.sort_key = SortKey::Modified;
+            self.sort_order = SortOrder::Descending;
+        }
         self.stale = true;
     }
 
@@ -263,8 +269,9 @@ impl Tab {
             folders_first,
         );
         let query = Query::parse(&self.filter, case_sensitive);
+        let here = self.location();
         let filtering =
-            (self.location().folder().is_some() || self.location().is_bin()) && !query.is_empty();
+            (here.folder().is_some() || here.is_bin() || here.is_collection()) && !query.is_empty();
         self.view.visible = self
             .view
             .entries
@@ -561,7 +568,7 @@ impl Tabs {
             let hit = match (dir, t.location()) {
                 (None, _) => true,
                 (Some(d), Location::Folder(p)) => p == d,
-                (_, Location::RecycleBin | Location::Tagged(_)) => true,
+                (_, Location::RecycleBin | Location::Tagged(_) | Location::Library { .. }) => true,
                 _ => false,
             };
             if hit {

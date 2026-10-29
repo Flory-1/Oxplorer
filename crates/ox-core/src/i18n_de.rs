@@ -882,10 +882,15 @@ pub const TABLE: &[(&str, &str)] = &[
 ];
 
 mod cloud;
+mod libraries;
 mod operations;
 
 /// Every entry: [`TABLE`] and the tables of the submodules (split for the
 /// line budget; add new entries to the last one).
 pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> {
-    TABLE.iter().chain(operations::TABLE).chain(cloud::TABLE)
+    TABLE
+        .iter()
+        .chain(operations::TABLE)
+        .chain(cloud::TABLE)
+        .chain(libraries::TABLE)
 }

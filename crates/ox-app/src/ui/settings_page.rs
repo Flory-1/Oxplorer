@@ -480,6 +480,12 @@ fn sidebar(ui: &mut Ui, s: &mut Settings) {
     toggle(ui, &mut sb.show_favorites, tr("Favorites section"), "");
     toggle(ui, &mut sb.show_drives, tr("Drives section"), "");
     toggle(ui, &mut sb.show_recent, tr("Recent folders section"), "");
+    toggle(
+        ui,
+        &mut sb.show_libraries,
+        tr("Libraries section"),
+        tr("The Gallery and the Windows libraries (Documents, Music, Pictures, Videos and your own)"),
+    );
     row(ui, tr("Recent folders shown"), "", |ui| {
         ui.add(egui::Slider::new(&mut sb.recent_count, 1..=20));
     });

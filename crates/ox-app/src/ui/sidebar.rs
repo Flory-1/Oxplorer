@@ -1,4 +1,6 @@
-//! Left sidebar: Home, Favorites, Drives and Recent folders.
+//! Left sidebar: Home, Favorites, Libraries, Drives and Recent folders.
+
+mod libraries;
 
 use ox_core::i18n::t as tr;
 use std::path::Path;
@@ -113,6 +115,8 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                     });
                 }
             }
+
+            libraries::show(app, ui, &current, accent, &mut actions);
 
             if app.settings.sidebar.show_drives {
                 section(ui, tr("This PC"));

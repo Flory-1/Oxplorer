@@ -150,7 +150,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         is_search: matches!(
             app.tabs.active().location(),
             Location::Search { .. } | Location::Tagged(_)
-        ),
+        ) || app.tabs.active().location().is_collection(),
         tags: &app.tags,
         git: git.as_deref(),
         compare: (app.compare.as_ref()).and_then(|c| c.marks_for(app.tabs.active)),
@@ -246,6 +246,15 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                     v1 = cx.tags.label(*c)
                 ),
             );
+        } else if *tab.location() == Location::Gallery {
+            centered_message(
+                ui,
+                "🎞",
+                tr("No pictures or videos in the Pictures library."),
+            );
+        } else if let Location::Library { name, .. } = tab.location() {
+            let text = ox_core::trf!("The library \"{name}\" is empty.", name = name);
+            centered_message(ui, "📚", &text);
         } else if cx.is_search {
             centered_message(ui, "🔍", tr("No results."));
         } else if cx.is_bin && tab.filter.is_empty() {

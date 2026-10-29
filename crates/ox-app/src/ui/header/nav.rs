@@ -148,6 +148,12 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) -> Rect 
                 Location::RecycleBin => {
                     ui.label(tr("🗑  Recycle Bin"));
                 }
+                Location::Library { name, .. } => {
+                    ui.label(format!("📚  {name}"));
+                }
+                Location::Gallery => {
+                    ui.label(tr("🎞  Gallery"));
+                }
                 Location::Archive { archive, inner } => {
                     if let Some(parent) = archive.parent() {
                         breadcrumbs(ui, parent, actions);

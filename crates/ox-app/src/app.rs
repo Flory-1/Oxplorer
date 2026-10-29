@@ -8,6 +8,7 @@ mod action;
 mod cloud;
 mod compare;
 mod input;
+mod library;
 mod poll;
 mod process;
 mod properties;
@@ -188,6 +189,13 @@ pub struct OxApp {
     pub undo: undo::UndoState,
     /// When the panes were last checked for syncing cloud files.
     cloud_check: Option<Instant>,
+    /// The Windows libraries (for the sidebar and drops into a library).
+    pub libraries: Vec<ox_core::library::Library>,
+    /// Reading them in the background, and when they were last read.
+    libraries_rx: Option<Receiver<Vec<ox_core::library::Library>>>,
+    libraries_at: Option<Instant>,
+    /// Running Gallery walks: the tab and the flag that stops it.
+    gallery_walks: Vec<(TabId, Arc<AtomicBool>)>,
 }
 
 /// What background work started by an action reports back.
@@ -316,6 +324,10 @@ impl OxApp {
             index_settings: None,
             undo: Default::default(),
             cloud_check: None,
+            libraries: Vec::new(),
+            libraries_rx: None,
+            libraries_at: None,
+            gallery_walks: Vec::new(),
         }
     }
 
@@ -330,12 +342,14 @@ impl OxApp {
         });
     }
 
+    /// The folder of the active tab; for a library, its save folder (where
+    /// pasted, new and dropped files go).
     pub fn current_folder(&self) -> Option<PathBuf> {
-        self.tabs
-            .active()
-            .location()
-            .folder()
-            .map(Path::to_path_buf)
+        let location = self.tabs.active().location();
+        if let Location::Library { file, .. } = location {
+            return self.library_save_folder(file);
+        }
+        location.folder().map(Path::to_path_buf)
     }
 
     pub fn drives(&mut self) -> &[Drive] {
@@ -382,6 +396,7 @@ impl OxApp {
         self.poll_folder_sizes();
         self.poll_git();
         self.poll_cloud();
+        self.poll_libraries();
         self.poll_watcher();
         self.poll_jobs();
         self.poll_undo();
@@ -488,6 +503,33 @@ impl OxApp {
                     ctx.request_repaint();
                 });
                 tab.view.loading = Some(rx);
+            }
+            Location::Library { file, .. } => {
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                std::thread::spawn(move || {
+                    let _ = tx.send(Listing::library(&file, show_hidden));
+                    ctx.request_repaint();
+                });
+                tab.view.loading = Some(rx);
+            }
+            Location::Gallery => {
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                let cancel = Arc::new(AtomicBool::new(false));
+                let flag = cancel.clone();
+                std::thread::spawn(move || {
+                    let _ = tx.send(Ok(Listing::gallery(show_hidden, &flag)));
+                    ctx.request_repaint();
+                });
+                tab.view.loading = Some(rx);
+                // A walk started earlier for this tab isn't needed any more.
+                self.gallery_walks.retain(|(id, old)| {
+                    let same = *id == tab.id;
+                    if same {
+                        old.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    !same
+                });
+                self.gallery_walks.push((tab.id, cancel));
             }
             Location::Home | Location::Settings | Location::Help => {}
         }
