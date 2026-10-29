@@ -6,15 +6,34 @@
 //! The index is saved to the cache folder, so search works instantly right
 //! after startup while a fresh index is built in the background.
 //!
-//! Building uses a portable parallel directory walk. (Reading the NTFS
-//! master file table directly is planned as a faster builder on Windows.)
+//! Building uses a portable parallel directory walk. On Windows, whole NTFS
+//! drives are read from the master file table instead when Oxplorer runs as
+//! administrator (`mft`), which is many times faster. Between builds, file
+//! changes are applied as they happen (`live`, `patch`): from the NTFS change
+//! journal where the volume can be opened, otherwise from a file watcher.
+
+mod live;
+#[cfg(windows)]
+mod mft;
+// Only used by the Windows reader, but tested everywhere.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod ntfs;
+mod patch;
+mod service;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod tree;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod usn;
+
+pub use live::LiveInfo;
+pub use service::{default_cache_path, IndexService, IndexState};
 
 use std::fs;
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::entry::{self, FileEntry};
 use crate::search::Query;
@@ -23,6 +42,8 @@ const NO_PARENT: u32 = u32::MAX;
 const F_DIR: u8 = 1;
 /// The item or one of its parent folders is hidden.
 const F_HIDDEN: u8 = 2;
+/// Removed by a live update; skipped by queries until the index is compacted.
+const F_DELETED: u8 = 4;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Entry {
@@ -56,11 +77,19 @@ pub struct IndexQuery {
     pub cancel: Option<Arc<AtomicBool>>,
 }
 
+#[derive(Clone)]
 pub struct FileIndex {
     roots: Vec<PathBuf>,
     names: String,
     entries: Vec<Entry>,
     built: SystemTime,
+    /// Entries flagged `F_DELETED`.
+    deleted: usize,
+    /// Entries removed or renamed since the last compaction (dead records
+    /// and names that still take memory).
+    garbage: usize,
+    /// Roots read from the NTFS master file table (not saved).
+    mft_roots: usize,
 }
 
 fn threads(n: usize) -> usize {
@@ -85,22 +114,64 @@ struct Builder {
 
 impl Builder {
     fn push(&mut self, name: &str, parent: u32, flags: u8, size: u64, mtime: u32) -> u32 {
-        // Names longer than u16::MAX bytes can't exist on any common file system.
-        let name = &name[..name.len().min(u16::MAX as usize)];
-        let idx = self.entries.len() as u32;
-        self.entries.push(Entry {
-            size,
-            name_off: self.names.len() as u32,
+        push_entry(
+            &mut self.names,
+            &mut self.entries,
+            name,
             parent,
-            mtime,
-            name_len: name.len() as u16,
             flags,
-        });
-        self.names.push_str(name);
-        idx
+            size,
+            mtime,
+        )
     }
 }
 
+fn push_entry(
+    names: &mut String,
+    entries: &mut Vec<Entry>,
+    name: &str,
+    parent: u32,
+    flags: u8,
+    size: u64,
+    mtime: u32,
+) -> u32 {
+    // Names longer than u16::MAX bytes can't exist on any common file system.
+    let mut len = name.len().min(u16::MAX as usize);
+    while !name.is_char_boundary(len) {
+        len -= 1;
+    }
+    let name = &name[..len];
+    let idx = entries.len() as u32;
+    entries.push(Entry {
+        size,
+        name_off: names.len() as u32,
+        parent,
+        mtime,
+        name_len: name.len() as u16,
+        flags,
+    });
+    names.push_str(name);
+    idx
+}
+
+/// Full path of entry `i`: its name and the names of all its parents.
+fn path_in(names: &str, entries: &[Entry], i: u32) -> PathBuf {
+    let mut chain = Vec::new();
+    let mut cur = i;
+    while cur != NO_PARENT {
+        let e = &entries[cur as usize];
+        let start = e.name_off as usize;
+        chain.push(&names[start..start + e.name_len as usize]);
+        cur = e.parent;
+    }
+    let mut path = PathBuf::new();
+    for part in chain.iter().rev() {
+        path.push(part);
+    }
+    path
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct Child {
     name: String,
     flags: u8,
@@ -108,27 +179,100 @@ struct Child {
     mtime: u32,
 }
 
+impl Child {
+    /// The index record for `name`, or `None` if it is excluded.
+    fn new(
+        name: String,
+        meta: &fs::Metadata,
+        parent_hidden: bool,
+        exclude: &[String],
+    ) -> Option<Self> {
+        if is_excluded(&name, exclude) {
+            return None;
+        }
+        let ft = meta.file_type();
+        // Linked folders are indexed as entries but not followed (no loops, no duplicates).
+        let is_dir = ft.is_dir() && !ft.is_symlink();
+        let hidden = parent_hidden || entry::is_hidden(&name, meta);
+        let mut flags = 0;
+        if is_dir {
+            flags |= F_DIR;
+        }
+        if hidden {
+            flags |= F_HIDDEN;
+        }
+        Some(Child {
+            size: if is_dir { 0 } else { meta.len() },
+            mtime: to_secs(meta.modified().ok()),
+            name,
+            flags,
+        })
+    }
+}
+
+/// `exclude` holds lowercase names.
+fn is_excluded(name: &str, exclude: &[String]) -> bool {
+    !exclude.is_empty() && exclude.contains(&name.to_lowercase())
+}
+
+/// The indexable items in `dir`.
+fn read_children(dir: &Path, parent_hidden: bool, exclude: &[String]) -> Vec<Child> {
+    let Ok(rd) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    rd.flatten()
+        .filter_map(|item| {
+            let name = item.file_name().to_string_lossy().into_owned();
+            // `DirEntry::metadata` doesn't follow links (and needs no extra call on Windows).
+            let meta = item.metadata().ok()?;
+            Child::new(name, &meta, parent_hidden, exclude)
+        })
+        .collect()
+}
+
 impl FileIndex {
     /// Walk all roots in parallel. `progress` counts indexed items; setting
     /// `cancel` stops early (the partial index is returned).
     pub fn build(cfg: &IndexConfig, cancel: &AtomicBool, progress: &AtomicU64) -> FileIndex {
+        Self::build_with(cfg, cancel, progress, false)
+    }
+
+    /// Like [`FileIndex::build`], but roots that are whole NTFS drives are read
+    /// from the master file table when the volume can be opened (Windows, as
+    /// administrator). Everything else is walked as usual.
+    pub fn build_fast(cfg: &IndexConfig, cancel: &AtomicBool, progress: &AtomicU64) -> FileIndex {
+        Self::build_with(cfg, cancel, progress, true)
+    }
+
+    fn build_with(
+        cfg: &IndexConfig,
+        cancel: &AtomicBool,
+        progress: &AtomicU64,
+        fast: bool,
+    ) -> FileIndex {
         let exclude: Vec<String> = cfg.exclude.iter().map(|e| e.to_lowercase()).collect();
-        let builder = Mutex::new(Builder::default());
+        let mut builder = Builder::default();
         let (tx, rx) = crossbeam_channel::unbounded::<(PathBuf, u32, bool)>();
         // Folders queued or being read; the walk is done when it reaches zero.
         let pending = AtomicUsize::new(0);
         let mut roots = Vec::new();
+        let mut mft_roots = 0;
         for root in &cfg.roots {
             if !root.is_dir() {
                 continue;
             }
             let name = root.to_string_lossy();
-            let idx = builder.lock().unwrap().push(&name, NO_PARENT, F_DIR, 0, 0);
+            let idx = builder.push(&name, NO_PARENT, F_DIR, 0, 0);
             roots.push(root.clone());
+            if fast && index_volume(root, idx, &exclude, &mut builder, cancel, progress) {
+                mft_roots += 1;
+                continue;
+            }
             pending.fetch_add(1, Ordering::SeqCst);
             let _ = tx.send((root.clone(), idx, false));
         }
 
+        let builder = Mutex::new(builder);
         std::thread::scope(|scope| {
             for _ in 0..threads(cfg.threads) {
                 let (tx, rx) = (tx.clone(), rx.clone());
@@ -156,15 +300,25 @@ impl FileIndex {
             names: b.names,
             entries: b.entries,
             built: SystemTime::now(),
+            deleted: 0,
+            garbage: 0,
+            mft_roots,
         }
     }
 
+    /// Number of indexed items.
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.entries.len() - self.deleted
     }
 
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.len() == 0
+    }
+
+    /// How many roots were read from the NTFS master file table by the build
+    /// that made this index (0 for an index loaded from the cache).
+    pub fn mft_roots(&self) -> usize {
+        self.mft_roots
     }
 
     pub fn roots(&self) -> &[PathBuf] {
@@ -192,18 +346,7 @@ impl FileIndex {
 
     /// Full path of entry `i`.
     pub fn path_of(&self, i: u32) -> PathBuf {
-        let mut chain = Vec::new();
-        let mut cur = i;
-        while cur != NO_PARENT {
-            let e = &self.entries[cur as usize];
-            chain.push(self.name(e));
-            cur = e.parent;
-        }
-        let mut path = PathBuf::new();
-        for part in chain.iter().rev() {
-            path.push(part);
-        }
-        path
+        path_in(&self.names, &self.entries, i)
     }
 
     /// The entry as shown in the file view.
@@ -229,7 +372,7 @@ impl FileIndex {
         self.entries.iter().enumerate().find_map(|(i, e)| {
             let i = i as u32;
             // Roots are stored under their full path, everything else by name.
-            let candidate = e.flags & F_DIR != 0
+            let candidate = e.flags & (F_DIR | F_DELETED) == F_DIR
                 && (e.parent == NO_PARENT
                     || want.as_ref().is_some_and(|n| self.name(e) == n.as_ref()));
             (candidate && self.path_of(i) == path).then_some(i)
@@ -257,6 +400,11 @@ impl FileIndex {
             None => None,
         };
         let max = opts.max_results.max(1);
+        let skip = if opts.include_hidden {
+            F_DELETED
+        } else {
+            F_DELETED | F_HIDDEN
+        };
         let found = AtomicUsize::new(0);
         let n = threads(0);
         let chunk = self.entries.len().div_ceil(n).max(1);
@@ -279,9 +427,7 @@ impl FileIndex {
                             {
                                 break;
                             }
-                            if e.parent == NO_PARENT
-                                || (!opts.include_hidden && e.flags & F_HIDDEN != 0)
-                            {
+                            if e.parent == NO_PARENT || e.flags & skip != 0 {
                                 continue;
                             }
                             let mtime = (e.mtime > 0)
@@ -431,14 +577,33 @@ impl FileIndex {
             }
             entries.push(e);
         }
+        let deleted = entries.iter().filter(|e| e.flags & F_DELETED != 0).count();
         Ok(FileIndex {
             roots,
             names,
             entries,
             built,
+            deleted,
+            garbage: deleted,
+            mft_roots: 0,
         })
     }
 }
+
+#[cfg(not(windows))]
+fn index_volume(
+    _root: &Path,
+    _idx: u32,
+    _exclude: &[String],
+    _builder: &mut Builder,
+    _cancel: &AtomicBool,
+    _progress: &AtomicU64,
+) -> bool {
+    false
+}
+
+#[cfg(windows)]
+use mft::index_volume;
 
 #[allow(clippy::too_many_arguments)]
 fn index_dir(
@@ -451,32 +616,7 @@ fn index_dir(
     tx: &crossbeam_channel::Sender<(PathBuf, u32, bool)>,
     progress: &AtomicU64,
 ) {
-    let Ok(rd) = fs::read_dir(dir) else { return };
-    let mut children = Vec::new();
-    for item in rd.flatten() {
-        let name = item.file_name().to_string_lossy().into_owned();
-        if !exclude.is_empty() && exclude.contains(&name.to_lowercase()) {
-            continue;
-        }
-        let Ok(ft) = item.file_type() else { continue };
-        let Ok(meta) = item.metadata() else { continue };
-        // Linked folders are indexed as entries but not followed (no loops, no duplicates).
-        let is_dir = ft.is_dir() && !ft.is_symlink();
-        let hidden = parent_hidden || entry::is_hidden(&name, &meta);
-        let mut flags = 0;
-        if is_dir {
-            flags |= F_DIR;
-        }
-        if hidden {
-            flags |= F_HIDDEN;
-        }
-        children.push(Child {
-            size: if is_dir { 0 } else { meta.len() },
-            mtime: to_secs(meta.modified().ok()),
-            name,
-            flags,
-        });
-    }
+    let children = read_children(dir, parent_hidden, exclude);
     progress.fetch_add(children.len() as u64, Ordering::Relaxed);
     let mut subdirs = Vec::new();
     {
@@ -491,156 +631,6 @@ fn index_dir(
     pending.fetch_add(subdirs.len(), Ordering::SeqCst);
     for s in subdirs {
         let _ = tx.send(s);
-    }
-}
-
-/// Where the index is cached between runs.
-pub fn default_cache_path() -> PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(crate::config_dir)
-        .join(crate::APP_NAME)
-        .join("index.bin")
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum IndexState {
-    /// No index yet (or indexing is turned off).
-    Empty,
-    Loading,
-    Building,
-    Ready,
-    Failed(String),
-}
-
-struct Shared {
-    index: RwLock<Option<Arc<FileIndex>>>,
-    state: Mutex<IndexState>,
-    progress: AtomicU64,
-    cancel: AtomicBool,
-    building: AtomicBool,
-    last_build: Mutex<Option<(Instant, Duration)>>,
-    cache: PathBuf,
-    notify: Box<dyn Fn() + Send + Sync>,
-}
-
-/// Owns the current index: loads it from the cache and rebuilds it in the background.
-#[derive(Clone)]
-pub struct IndexService {
-    shared: Arc<Shared>,
-}
-
-impl IndexService {
-    /// Start loading the cached index (if any) in the background.
-    pub fn start(cache: PathBuf, notify: impl Fn() + Send + Sync + 'static) -> Self {
-        let svc = Self {
-            shared: Arc::new(Shared {
-                index: RwLock::new(None),
-                state: Mutex::new(IndexState::Loading),
-                progress: AtomicU64::new(0),
-                cancel: AtomicBool::new(false),
-                building: AtomicBool::new(false),
-                last_build: Mutex::new(None),
-                cache,
-                notify: Box::new(notify),
-            }),
-        };
-        let shared = svc.shared.clone();
-        std::thread::Builder::new()
-            .name("index-load".into())
-            .spawn(move || {
-                let loaded = FileIndex::load(&shared.cache).ok();
-                let ready = loaded.is_some();
-                if let Some(idx) = loaded {
-                    *shared.index.write().unwrap() = Some(Arc::new(idx));
-                }
-                let mut state = shared.state.lock().unwrap();
-                if *state == IndexState::Loading {
-                    *state = if ready {
-                        IndexState::Ready
-                    } else {
-                        IndexState::Empty
-                    };
-                }
-                drop(state);
-                (shared.notify)();
-            })
-            .expect("failed to spawn index thread");
-        svc
-    }
-
-    /// The current index, if one is loaded or built.
-    pub fn index(&self) -> Option<Arc<FileIndex>> {
-        self.shared.index.read().unwrap().clone()
-    }
-
-    pub fn state(&self) -> IndexState {
-        self.shared.state.lock().unwrap().clone()
-    }
-
-    pub fn is_building(&self) -> bool {
-        self.shared.building.load(Ordering::Relaxed)
-    }
-
-    /// Items indexed so far by the running build.
-    pub fn progress(&self) -> u64 {
-        self.shared.progress.load(Ordering::Relaxed)
-    }
-
-    /// When the last build finished and how long it took.
-    pub fn last_build(&self) -> Option<(Instant, Duration)> {
-        *self.shared.last_build.lock().unwrap()
-    }
-
-    /// Build a fresh index in the background (no-op if one is already being built).
-    /// The old index keeps answering queries until the new one is ready.
-    pub fn rebuild(&self, cfg: IndexConfig) {
-        if self.shared.building.swap(true, Ordering::SeqCst) {
-            return;
-        }
-        let shared = self.shared.clone();
-        shared.cancel.store(false, Ordering::Relaxed);
-        shared.progress.store(0, Ordering::Relaxed);
-        *shared.state.lock().unwrap() = IndexState::Building;
-        (shared.notify)();
-        std::thread::Builder::new()
-            .name("index-build".into())
-            .spawn(move || {
-                let start = Instant::now();
-                let idx = FileIndex::build(&cfg, &shared.cancel, &shared.progress);
-                if shared.cancel.load(Ordering::Relaxed) {
-                    let has_index = shared.index.read().unwrap().is_some();
-                    *shared.state.lock().unwrap() = if has_index {
-                        IndexState::Ready
-                    } else {
-                        IndexState::Empty
-                    };
-                } else {
-                    let save = idx.save(&shared.cache);
-                    *shared.index.write().unwrap() = Some(Arc::new(idx));
-                    *shared.last_build.lock().unwrap() = Some((Instant::now(), start.elapsed()));
-                    *shared.state.lock().unwrap() = match save {
-                        Ok(()) => IndexState::Ready,
-                        Err(e) => IndexState::Failed(format!("Couldn't save the index: {e}")),
-                    };
-                }
-                shared.building.store(false, Ordering::SeqCst);
-                (shared.notify)();
-            })
-            .expect("failed to spawn index thread");
-    }
-
-    /// Stop a running build.
-    pub fn cancel(&self) {
-        self.shared.cancel.store(true, Ordering::Relaxed);
-    }
-
-    /// Forget the index and delete the cache (indexing turned off).
-    pub fn clear(&self) {
-        self.cancel();
-        *self.shared.index.write().unwrap() = None;
-        *self.shared.state.lock().unwrap() = IndexState::Empty;
-        let _ = fs::remove_file(&self.shared.cache);
-        (self.shared.notify)();
     }
 }
 
@@ -811,36 +801,5 @@ mod tests {
         assert!(FileIndex::load(&file).is_err());
         fs::write(&file, b"garbage").unwrap();
         assert!(FileIndex::load(&file).is_err());
-    }
-
-    #[test]
-    fn service_builds_and_reloads() {
-        let dir = tempfile::tempdir().unwrap();
-        sample_tree(&dir.path().join("data"));
-        let cache = dir.path().join("index.bin");
-        let wait = |svc: &IndexService| {
-            let start = Instant::now();
-            while svc.state() == IndexState::Loading || svc.is_building() {
-                assert!(start.elapsed() < Duration::from_secs(20));
-                std::thread::sleep(Duration::from_millis(10));
-            }
-        };
-        let svc = IndexService::start(cache.clone(), || {});
-        wait(&svc);
-        assert_eq!(svc.state(), IndexState::Empty);
-        svc.rebuild(IndexConfig {
-            roots: vec![dir.path().join("data")],
-            exclude: vec![],
-            threads: 2,
-        });
-        wait(&svc);
-        assert_eq!(svc.state(), IndexState::Ready);
-        assert!(svc.index().unwrap().len() > 5);
-
-        // A new service picks up the cached index without rebuilding.
-        let again = IndexService::start(cache, || {});
-        wait(&again);
-        assert_eq!(again.state(), IndexState::Ready);
-        assert_eq!(again.index().unwrap().len(), svc.index().unwrap().len());
     }
 }

@@ -702,6 +702,7 @@ impl OxApp {
     fn manage_index(&mut self) {
         let s = &self.settings.search;
         if !s.index_enabled {
+            self.index.set_live(None);
             if self.index.index().is_some() || self.index.is_building() {
                 self.index.clear();
             }
@@ -715,11 +716,14 @@ impl OxApp {
             }
             self.index_settings = Some(wanted);
         }
+        let drives: Vec<PathBuf> = self.drives.iter().map(|d| d.mount.clone()).collect();
+        let config = self.settings.search.index_config(&drives);
+        // Live updates follow the same folders (and restart when they change).
+        let live = self.settings.search.live_config(&config, &self.drives);
+        self.index.set_live(live);
         if self.index.state() == IndexState::Loading || self.index.is_building() {
             return;
         }
-        let drives: Vec<PathBuf> = self.drives.iter().map(|d| d.mount.clone()).collect();
-        let config = self.settings.search.index_config(&drives);
         let minutes = self.settings.search.index_refresh_minutes;
         let interval = Duration::from_secs(u64::from(minutes) * 60);
         if std::mem::take(&mut self.index_force) {

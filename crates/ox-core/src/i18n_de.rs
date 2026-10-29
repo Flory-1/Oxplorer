@@ -887,6 +887,7 @@ mod disk_usage;
 mod flat_links;
 mod help_search;
 mod help_views;
+mod index_live;
 mod libraries;
 mod operations;
 mod search_history;
@@ -913,4 +914,5 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(cleanup::TABLE)
         .chain(disk_usage::TABLE)
         .chain(help_search::TABLE)
+        .chain(index_live::TABLE)
 }
