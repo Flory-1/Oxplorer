@@ -41,6 +41,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("ui/files/details.rs"),
     app!("ui/files/grid.rs"),
     app!("ui/files/item.rs"),
+    app!("ui/files/zoom.rs"),
     app!("ui/header.rs"),
     app!("ui/header/caption.rs"),
     app!("ui/header/command_bar.rs"),

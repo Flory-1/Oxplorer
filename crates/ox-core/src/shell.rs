@@ -60,6 +60,30 @@ impl IconKey {
     }
 }
 
+/// Which of the Shell's icon sizes to load.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IconSize {
+    /// 48 px, used for lists and small grid tiles.
+    Large,
+    /// Up to 256 px, for large grid tiles. Not every icon has one.
+    Jumbo,
+}
+
+/// Icons without a 256 px image come back from the jumbo list as their
+/// small image in the top-left corner of an empty 256 px square. Is
+/// everything visible of `rgba` (`size`² pixels) inside that corner?
+pub fn small_in_corner(rgba: &[u8], size: u32) -> bool {
+    let size = size as usize;
+    if size <= 64 || rgba.len() < size * size * 4 {
+        return false;
+    }
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
+        .enumerate()
+        .all(|(i, p)| p[3] == 0 || (i % size < 64 && i / size < 64))
+}
+
 /// A decoded icon: square RGBA (not premultiplied).
 #[derive(Debug, Clone)]
 pub struct IconImage {
@@ -138,7 +162,7 @@ pub fn supported() -> bool {
 
 #[cfg_attr(not(windows), allow(dead_code))]
 enum Request {
-    Icon(IconKey),
+    Icon(IconKey, IconSize),
     ContextMenu(Vec<PathBuf>),
     Properties(PathBuf),
     OpenWith(PathBuf),
@@ -147,8 +171,8 @@ enum Request {
 /// Handle to the shell thread. Cheap to keep around for the whole app.
 pub struct Shell {
     tx: Option<Sender<Request>>,
-    icons: Receiver<(IconKey, Option<IconImage>)>,
-    requested: std::cell::RefCell<HashSet<IconKey>>,
+    icons: Receiver<(IconKey, IconSize, Option<IconImage>)>,
+    requested: std::cell::RefCell<HashSet<(IconKey, IconSize)>>,
 }
 
 impl Shell {
@@ -180,13 +204,19 @@ impl Shell {
 
     /// Ask for an icon; it arrives later through [`Shell::poll_icons`]. Each key is only loaded once.
     pub fn request_icon(&self, key: &IconKey) {
-        if self.tx.is_some() && self.requested.borrow_mut().insert(key.clone()) {
-            self.send(Request::Icon(key.clone()));
+        self.request_icon_sized(key, IconSize::Large);
+    }
+
+    /// Like [`Shell::request_icon`], in a given size.
+    pub fn request_icon_sized(&self, key: &IconKey, size: IconSize) {
+        if self.tx.is_some() && self.requested.borrow_mut().insert((key.clone(), size)) {
+            self.send(Request::Icon(key.clone(), size));
         }
     }
 
-    /// Icons loaded since the last call (`None` if a lookup failed).
-    pub fn poll_icons(&self) -> Vec<(IconKey, Option<IconImage>)> {
+    /// Icons loaded since the last call (`None` if a lookup failed, or a
+    /// jumbo icon would only be the small one).
+    pub fn poll_icons(&self) -> Vec<(IconKey, IconSize, Option<IconImage>)> {
         self.icons.try_iter().collect()
     }
 
@@ -210,7 +240,7 @@ impl Shell {
 
 #[cfg(windows)]
 mod imp {
-    use super::{IconImage, IconKey, Request, Thumbnail};
+    use super::{IconImage, IconKey, IconSize, Request, Thumbnail};
     use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
     use std::cell::RefCell;
     use std::ffi::c_void;
@@ -240,7 +270,7 @@ mod imp {
         SHOpenWithDialog, SHParseDisplayName, ShellExecuteExW, CMF_EXPLORE, CMF_NORMAL,
         CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX, OAIF_ALLOW_REGISTRATION, OAIF_EXEC, OPENASINFO,
         SEE_MASK_INVOKEIDLIST, SHELLEXECUTEINFOW, SHFILEINFOW, SHGFI_SYSICONINDEX,
-        SHGFI_USEFILEATTRIBUTES, SHIL_EXTRALARGE, SIIGBF_THUMBNAILONLY,
+        SHGFI_USEFILEATTRIBUTES, SHIL_EXTRALARGE, SHIL_JUMBO, SIIGBF_THUMBNAILONLY,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu,
@@ -267,7 +297,7 @@ mod imp {
 
     pub(super) fn run(
         rx: Receiver<Request>,
-        icons: Sender<(IconKey, Option<IconImage>)>,
+        icons: Sender<(IconKey, IconSize, Option<IconImage>)>,
         notify: Box<dyn Fn() + Send>,
     ) {
         // SAFETY: plain COM/Win32 calls on this thread only.
@@ -278,9 +308,9 @@ mod imp {
         loop {
             pump_messages();
             match rx.recv_timeout(Duration::from_millis(30)) {
-                Ok(Request::Icon(key)) => {
-                    let image = unsafe { load_icon(&key) };
-                    let _ = icons.send((key, image));
+                Ok(Request::Icon(key, size)) => {
+                    let image = unsafe { load_icon(&key, size) };
+                    let _ = icons.send((key, size, image));
                     notify();
                 }
                 Ok(Request::ContextMenu(paths)) => {
@@ -371,7 +401,7 @@ mod imp {
 
     // ---- icons ---------------------------------------------------------------
 
-    unsafe fn load_icon(key: &IconKey) -> Option<IconImage> {
+    unsafe fn load_icon(key: &IconKey, size: IconSize) -> Option<IconImage> {
         unsafe {
             let (name, attrs, flags) = match key {
                 IconKey::Folder => (
@@ -400,11 +430,15 @@ mod imp {
             if ok == 0 {
                 return None;
             }
-            let list: IImageList = SHGetImageList(SHIL_EXTRALARGE as i32).ok()?;
+            let list = match size {
+                IconSize::Large => SHIL_EXTRALARGE,
+                IconSize::Jumbo => SHIL_JUMBO,
+            };
+            let list: IImageList = SHGetImageList(list as i32).ok()?;
             let icon = list.GetIcon(info.iIcon, ILD_TRANSPARENT.0).ok()?;
             let image = icon_to_rgba(icon);
             let _ = DestroyIcon(icon);
-            image
+            image.filter(|i| size == IconSize::Large || !super::small_in_corner(&i.rgba, i.size))
         }
     }
 
@@ -754,12 +788,12 @@ mod imp {
 
 #[cfg(not(windows))]
 mod imp {
-    use super::{IconImage, IconKey, Request};
+    use super::{IconImage, IconKey, IconSize, Request};
     use crossbeam_channel::{Receiver, Sender};
 
     pub(super) fn run(
         _rx: Receiver<Request>,
-        _icons: Sender<(IconKey, Option<IconImage>)>,
+        _icons: Sender<(IconKey, IconSize, Option<IconImage>)>,
         _notify: Box<dyn Fn() + Send>,
     ) {
     }
@@ -784,6 +818,24 @@ mod tests {
             IconKey::for_path(Path::new("/a/README"), false),
             IconKey::Extension(String::new())
         );
+    }
+
+    #[test]
+    fn small_icons_in_the_jumbo_list_are_spotted() {
+        let size = 256u32;
+        let mut rgba = vec![0u8; (size * size * 4) as usize];
+        // A 48 px icon drawn in the top-left corner.
+        for y in 0..48 {
+            for x in 0..48 {
+                rgba[((y * size + x) * 4 + 3) as usize] = 255;
+            }
+        }
+        assert!(small_in_corner(&rgba, size));
+        // A real 256 px icon reaches further.
+        rgba[((200 * size + 128) * 4 + 3) as usize] = 255;
+        assert!(!small_in_corner(&rgba, size));
+        // 48 px icons are what they are.
+        assert!(!small_in_corner(&[0; 48 * 48 * 4], 48));
     }
 
     #[test]

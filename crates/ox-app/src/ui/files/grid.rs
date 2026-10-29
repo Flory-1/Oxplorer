@@ -1,6 +1,8 @@
-//! Grid view: icon tiles.
+//! Grid view: icon tiles, sized by Ctrl+mouse wheel or the size slider
+//! (see `ox_core::grid_zoom`).
 
 use super::*;
+use ox_core::grid_zoom::Tile;
 
 pub(super) fn grid(
     ui: &mut Ui,
@@ -9,16 +11,31 @@ pub(super) fn grid(
     cx: &Ctx<'_>,
     actions: &mut Vec<Action>,
 ) {
+    let tile = Tile::new(cx.grid_size);
+    let size = vec2(tile.width, tile.height);
     let width = ui.available_width();
     let gap = 6.0;
-    let cols = (((width - 12.0) / (TILE.x + gap)).floor() as usize).max(1);
+    let cols = (((width - 12.0) / (tile.width + gap)).floor() as usize).max(1);
     ui.data_mut(|d| d.insert_temp(Id::unique(("grid_columns", tab_id)), cols));
     let n = view.visible.len();
     let rows = n.div_ceil(cols);
-    let row_h = TILE.y + gap;
+    let row_h = tile.height + gap;
     let mut area = egui::ScrollArea::vertical()
         .id_salt(("grid", tab_id))
         .auto_shrink([false, false]);
+    // After zooming, keep the row that was at the top in view.
+    let layout_id = Id::unique(("grid_layout", tab_id));
+    let before = ui.data(|d| d.get_temp::<(f32, usize)>(layout_id));
+    ui.data_mut(|d| d.insert_temp(layout_id, (row_h, cols)));
+    if let Some((old_h, old_cols)) = before.filter(|&b| b != (row_h, cols)) {
+        if view.scroll_to.is_none() {
+            let (offset, _) = ui
+                .data(|d| d.get_temp::<(f32, f32)>(Id::unique(("grid", tab_id))))
+                .unwrap_or_default();
+            let top = (offset / old_h).floor() as usize * old_cols;
+            area = area.vertical_scroll_offset((top / cols) as f32 * row_h);
+        }
+    }
     if let Some(target) = view.scroll_to.take() {
         area = scroll_into_view(
             ui,
@@ -40,14 +57,18 @@ pub(super) fn grid(
                         break;
                     }
                     let (rect, resp) =
-                        ui.allocate_exact_size(vec2(TILE.x, row_h), Sense::click_and_drag());
-                    let rect = Rect::from_min_size(rect.min, TILE);
+                        ui.allocate_exact_size(vec2(tile.width, row_h), Sense::click_and_drag());
+                    let rect = Rect::from_min_size(rect.min, size);
                     let Some(entry) = view.visible_entry(i).cloned() else {
                         continue;
                     };
                     let selected = view.selection.contains(&entry.path);
                     let drop_hover = item_interact(view, i, &entry, &resp, cx, actions);
-                    paint_tile(ui, rect, &entry, selected, drop_hover, &resp, cx);
+                    let state = TileState {
+                        selected,
+                        drop_hover,
+                    };
+                    paint_tile(ui, rect, &tile, &entry, state, &resp, cx);
                     item_context_menu(&resp, view, &entry, cx, actions);
                 }
             });
@@ -61,24 +82,31 @@ pub(super) fn grid(
     );
 }
 
+#[derive(Clone, Copy)]
+struct TileState {
+    selected: bool,
+    /// Files are dragged over it.
+    drop_hover: bool,
+}
+
 fn paint_tile(
     ui: &Ui,
     rect: Rect,
+    tile: &Tile,
     e: &FileEntry,
-    selected: bool,
-    drop_hover: bool,
+    state: TileState,
     resp: &Response,
     cx: &Ctx<'_>,
 ) {
     let v = ui.visuals();
-    if selected {
+    if state.selected {
         ui.painter()
             .rect_filled(rect, CornerRadius::same(8), cx.selection_fill);
     } else if resp.hovered() {
         ui.painter()
             .rect_filled(rect, CornerRadius::same(8), v.widgets.hovered.weak_bg_fill);
     }
-    if drop_hover {
+    if state.drop_hover {
         ui.painter().rect_stroke(
             rect,
             CornerRadius::same(8),
@@ -89,18 +117,20 @@ fn paint_tile(
     super::super::compare::paint_mark(ui, rect, cx.compare, &e.path);
     let dim = cx.cut.contains(&e.path) || e.hidden;
     let fade = |c: Color32| if dim { c.gamma_multiply(0.5) } else { c };
+    let ppp = ui.pixels_per_point();
     let icon_rect = Rect::from_center_size(
-        egui::pos2(rect.center().x, rect.top() + 32.0),
-        vec2(48.0, 48.0),
+        egui::pos2(rect.center().x, rect.top() + tile.top + tile.icon / 2.0),
+        vec2(tile.icon, tile.icon),
     );
+    let (area_w, area_h) = tile.thumb_area();
     let thumb = cx
         .thumbs
         .filter(|_| crate::thumbs::wanted(e))
-        .and_then(|t| t.get(e));
+        .and_then(|t| t.get(e, area_w.max(area_h) * ppp));
     if let Some((tex, size)) = thumb {
         let area = Rect::from_center_size(
-            egui::pos2(rect.center().x, rect.top() + 31.0),
-            vec2(rect.width() - 16.0, 52.0),
+            egui::pos2(rect.center().x, icon_rect.center().y - 1.0),
+            vec2(area_w, area_h),
         );
         let r = crate::thumbs::fit(area, size);
         let tint = if dim {
@@ -132,7 +162,7 @@ fn paint_tile(
     } else {
         let texture = cx
             .icons
-            .and_then(|c| c.texture(e, cx.is_bin || cx.read_only));
+            .and_then(|c| c.texture_sized(e, cx.is_bin || cx.read_only, tile.icon * ppp));
         icons::paint_entry(ui.painter(), icon_rect, e, dim, texture);
     }
     // Tag dots in the top-right corner of the icon.
@@ -150,7 +180,7 @@ fn paint_tile(
     }
     let mut job = LayoutJob::single_section(
         e.display_name(cx.show_ext).to_owned(),
-        TextFormat::simple(FontId::proportional(12.5), fade(v.text_color())),
+        TextFormat::simple(FontId::proportional(tile.label), fade(v.text_color())),
     );
     job.wrap.max_width = rect.width() - 10.0;
     job.wrap.max_rows = 2;
@@ -158,7 +188,7 @@ fn paint_tile(
     job.halign = egui::Align::Center;
     let galley = ui.painter().layout_job(job);
     ui.painter().galley(
-        egui::pos2(rect.center().x, rect.top() + 62.0),
+        egui::pos2(rect.center().x, rect.top() + tile.label_top()),
         galley,
         v.text_color(),
     );

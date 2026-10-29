@@ -409,6 +409,18 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         "",
         Box::new(|a: &mut OxApp| a.tabs.active_mut().view_mode = ViewMode::Grid),
     );
+    cmd(
+        "▦",
+        tr("Larger icons"),
+        "",
+        Box::new(|a: &mut OxApp| super::files::zoom(a, 1)),
+    );
+    cmd(
+        "▦",
+        tr("Smaller icons"),
+        "",
+        Box::new(|a: &mut OxApp| super::files::zoom(a, -1)),
+    );
     for (theme, name) in [
         (Theme::Dark, tr("dark")),
         (Theme::Light, tr("light")),
