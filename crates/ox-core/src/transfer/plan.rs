@@ -104,6 +104,7 @@ pub(super) fn build(job: &Job) -> Plan {
         }
         let meta = match fs::symlink_metadata(src) {
             Ok(m) => m,
+            Err(_) if job.journal.already_moved(job, src) => continue,
             Err(e) => {
                 job.push_error(src, e.to_string());
                 continue;
@@ -132,6 +133,7 @@ pub(super) fn build(job: &Job) -> Plan {
                 TransferKind::Move => continue,
             }
         }
+        job.journal.root(src, &mut dst);
 
         // Fast path: a move to a free name on the same volume is just a rename.
         if job.kind == TransferKind::Move && !fsops::exists(&dst) && fs::rename(src, &dst).is_ok() {
@@ -311,6 +313,7 @@ struct FileCtx<'a> {
 fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) {
     let opts = ctx.opts;
     let mut reported = 0u64;
+    job.journal.started(&task.src, &task.dst);
     let result = (|| -> Result<(), CopyError> {
         if task.conflict {
             // We're overwriting: make sure a read-only target doesn't block us.
@@ -364,6 +367,8 @@ fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) {
     match result {
         Ok(()) => {
             job.done_files.fetch_add(1, Ordering::Relaxed);
+            job.journal
+                .finished(&task.src, &task.dst, task.size, task.modified);
         }
         Err(CopyError::Cancelled) => {}
         Err(CopyError::Io(e)) => job.push_file_error(&task.src, Some(&task.dst), describe(&e)),

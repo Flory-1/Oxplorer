@@ -218,6 +218,7 @@ impl Transfer {
             preserve_timestamps: self.preserve_timestamps,
             verify: self.verify,
             speed_limit: u64::from(self.speed_limit_mib) * 1024 * 1024,
+            journal_dir: Some(crate::transfer::journal::default_dir()),
         }
     }
 }

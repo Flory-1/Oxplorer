@@ -10,6 +10,8 @@ use ox_core::transfer::{history, ConflictPolicy, Job, JobState, TransferRequest}
 
 use crate::app::OxApp;
 
+mod resume;
+
 pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let accent = crate::theme::accent(&app.settings);
     let jobs = app.engine.jobs();
@@ -44,6 +46,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
+            resume::interrupted(app, ui);
             for job in jobs.iter().rev() {
                 job_row(ui, job, accent, &mut remove, &mut retries);
                 ui.add_space(6.0);

@@ -879,4 +879,13 @@ pub const TABLE: &[(&str, &str)] = &[
     ("✨ Oxplorer {v1} is available.", "✨ Oxplorer {v1} ist verfügbar."),
     ("What's new", "Neuerungen"),
     ("Don't show this again for this version", "Für diese Version nicht mehr anzeigen"),
+    // Resume transfers, permissions and streams
+    ("This transfer is already being resumed in another window.", "Diese Übertragung wird bereits in einem anderen Fenster fortgesetzt."),
+    ("⚠ Interrupted · {v1} {v2} to {dest}", "⚠ Unterbrochen · {v1} {v2} nach {dest}"),
+    ("Discard", "Verwerfen"),
+    ("Forget this transfer. Files that were already copied stay where they are.", "Diese Übertragung vergessen. Bereits kopierte Dateien bleiben, wo sie sind."),
+    ("Continue where it stopped. Files that were copied completely are skipped, a file that was cut off is copied again.", "Dort weitermachen, wo sie aufgehört hat. Vollständig kopierte Dateien werden übersprungen, eine abgebrochene Datei wird neu kopiert."),
+    ("{v1} ({v2}) already done", "{v1} ({v2}) bereits erledigt"),
+    (" · stopped {v1}", " · unterbrochen am {v1}"),
+    ("\"{v1}\" isn't available. Connect the drive and try again.", "„{v1}“ ist nicht verfügbar. Schließen Sie das Laufwerk an und versuchen Sie es erneut."),
 ];

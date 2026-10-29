@@ -20,6 +20,7 @@
 
 mod copy;
 pub mod history;
+pub mod journal;
 mod plan;
 mod throttle;
 mod verify;
@@ -135,6 +136,8 @@ pub struct EngineConfig {
     pub verify: bool,
     /// Bytes per second per job, `0` = unlimited.
     pub speed_limit: u64,
+    /// Folder for the journals that make jobs resumable; `None` = no journals.
+    pub journal_dir: Option<PathBuf>,
 }
 
 impl Default for EngineConfig {
@@ -148,6 +151,7 @@ impl Default for EngineConfig {
             preserve_timestamps: true,
             verify: false,
             speed_limit: 0,
+            journal_dir: None,
         }
     }
 }
@@ -220,6 +224,7 @@ pub struct Job {
     started: Mutex<Instant>,
     finished: Mutex<Option<Instant>>,
     speed: Mutex<SpeedMeter>,
+    journal: journal::JobJournal,
 }
 
 impl Job {
@@ -250,6 +255,7 @@ impl Job {
             started: Mutex::new(Instant::now()),
             finished: Mutex::new(None),
             speed: Mutex::new(SpeedMeter::default()),
+            journal: Default::default(),
         }
     }
 
@@ -514,6 +520,8 @@ pub struct TransferEngine {
     next_id: AtomicU64,
     scheduler: Arc<(Mutex<Scheduler>, Condvar)>,
     notifier: Arc<RwLock<Option<Notifier>>>,
+    /// Interrupted transfers that can be resumed.
+    journals: Arc<Mutex<Vec<Arc<journal::Pending>>>>,
 }
 
 impl Default for TransferEngine {
@@ -524,7 +532,9 @@ impl Default for TransferEngine {
 
 impl TransferEngine {
     pub fn new(config: EngineConfig) -> Self {
+        let journals = Arc::new(Mutex::new(journal::list(config.journal_dir.as_deref())));
         Self {
+            journals,
             config: Arc::new(RwLock::new(config)),
             jobs: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
@@ -545,8 +555,13 @@ impl TransferEngine {
 
     /// Start a new job and return a handle to it.
     pub fn submit(&self, req: TransferRequest) -> Arc<Job> {
+        self.submit_with(req, None)
+    }
+
+    fn submit_with(&self, req: TransferRequest, resume: Option<Arc<journal::Pending>>) -> Arc<Job> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let job = Arc::new(Job::new(id, &req));
+        journal::setup(&job, resume, &self.journals);
         self.jobs.lock().unwrap().push(job.clone());
 
         let config = self.config.clone();
@@ -623,15 +638,20 @@ impl TransferEngine {
 }
 
 fn run_job(job: &Job, cfg: &EngineConfig, notify: &dyn Fn()) {
+    let _journal = journal::Guard::open(job, cfg.journal_dir.as_deref());
     job.set_state(JobState::Scanning);
     notify();
     let mut plan = plan::build(job);
+    journal::apply_resume(job, &mut plan);
     if job.is_cancelled() {
         job.set_state(JobState::Cancelled);
         return;
     }
 
     let mut policy = job.conflict_policy;
+    if let Some(p) = job.journal.decided_policy() {
+        policy = p;
+    }
     if plan.has_conflicts() && policy == ConflictPolicy::Ask {
         *job.conflicts.lock().unwrap() = plan.conflict_paths();
         job.set_state(JobState::AwaitingDecision);
@@ -644,6 +664,7 @@ fn run_job(job: &Job, cfg: &EngineConfig, notify: &dyn Fn()) {
             }
         }
     }
+    job.journal.record_policy(policy);
     plan.apply_policy(job, policy);
 
     let workers = worker_count(job, cfg);
