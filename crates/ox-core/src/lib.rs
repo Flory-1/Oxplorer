@@ -12,6 +12,7 @@ pub mod default_app;
 pub mod details;
 pub mod dirsize;
 pub mod disk;
+pub mod disk_usage;
 pub mod entry;
 pub mod flat;
 pub mod folder_views;

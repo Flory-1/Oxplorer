@@ -270,6 +270,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         if ui.button(tr("🖳 Open in Terminal")).clicked() {
             actions.push(Action::OpenTerminal(dir.to_path_buf()));
         }
+        disk_usage_button(ui, dir, actions);
     }
     if ui
         .add(
@@ -447,6 +448,7 @@ pub fn background_menu(
     if ui.button(tr("🖳 Open in Terminal")).clicked() {
         actions.push(Action::OpenTerminal(folder.to_path_buf()));
     }
+    disk_usage_button(ui, folder, actions);
     if ui.button(tr("🖥 Open in Windows Explorer")).clicked() {
         actions.push(Action::Reveal(folder.to_path_buf()));
     }
@@ -527,11 +529,25 @@ pub fn folder_link_menu(ui: &mut Ui, path: &Path, pinned: bool, actions: &mut Ve
     if ui.button(tr("🖳 Open in Terminal")).clicked() {
         actions.push(Action::OpenTerminal(path.to_path_buf()));
     }
+    disk_usage_button(ui, path, actions);
     if ui.button(tr("🔗 Copy path")).clicked() {
         actions.push(Action::CopyPathText(vec![path.to_path_buf()]));
     }
     if ui.button(tr("ℹ Properties")).clicked() {
         actions.push(Action::Properties(vec![path.to_path_buf()]));
+    }
+}
+
+/// "Disk usage": what takes up the space in a folder or drive.
+fn disk_usage_button(ui: &mut Ui, folder: &Path, actions: &mut Vec<Action>) {
+    if ui
+        .button(tr("🖴 Disk usage"))
+        .on_hover_text(tr(
+            "What takes up the space in here, as a map of rectangles",
+        ))
+        .clicked()
+    {
+        actions.push(Action::Navigate(Location::DiskUsage(folder.to_path_buf())));
     }
 }
 

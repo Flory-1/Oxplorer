@@ -3,6 +3,7 @@
 pub mod cloud;
 mod compare;
 mod dialogs;
+mod disk_usage;
 mod files;
 pub mod header;
 pub(crate) mod help_page;
@@ -247,6 +248,7 @@ fn content(app: &mut OxApp, ui: &mut Ui) {
         Location::Home => home::show(app, ui),
         Location::Settings => settings_page::show(app, ui),
         Location::Help => help_page::show(app, ui),
+        Location::DiskUsage(_) => disk_usage::show(app, ui),
         Location::Folder(_)
         | Location::Search { .. }
         | Location::RecycleBin

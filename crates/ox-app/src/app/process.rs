@@ -26,7 +26,14 @@ impl OxApp {
             }
             Action::Back => self.tabs.active_mut().back(),
             Action::Forward => self.tabs.active_mut().forward(),
-            Action::Up => self.tabs.active_mut().up(),
+            Action::Up => {
+                if !self.disk_usage_up() {
+                    self.tabs.active_mut().up();
+                }
+            }
+            Action::Refresh if self.in_disk_usage() => {
+                self.disk_usage_action(DiskUsageAction::Rescan);
+            }
             Action::Refresh => {
                 if let Some(folder) = self.current_folder() {
                     self.folder_sizes.invalidate_tree(&folder);
@@ -492,6 +499,7 @@ impl OxApp {
             Action::Compare(a) => self.process_compare(a),
             Action::ToggleFlatView => self.toggle_flat_view(),
             Action::ShowInFolder(path) => self.show_in_folder(path),
+            Action::DiskUsage(a) => self.disk_usage_action(a),
             Action::NewLink(dir, kind) => self.new_link_dialog(dir, kind),
             Action::ShowLinkTarget(link) => self.show_link_target(link),
             Action::Session(a) => self.process_session(a),

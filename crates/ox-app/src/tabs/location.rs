@@ -34,6 +34,8 @@ pub enum Location {
     },
     /// Every picture and video of the Pictures library, newest first.
     Gallery,
+    /// What takes up the space in a folder or drive (a treemap).
+    DiskUsage(PathBuf),
 }
 
 impl Location {
@@ -52,6 +54,9 @@ impl Location {
             },
             Location::Library { name, .. } => name.clone(),
             Location::Gallery => tr("Gallery").into(),
+            Location::DiskUsage(p) => {
+                ox_core::trf!("Disk usage: {name}", name = entry::display_name(p))
+            }
         }
     }
 
@@ -68,6 +73,7 @@ impl Location {
             Location::Archive { .. } => "📦",
             Location::Library { .. } => "📚",
             Location::Gallery => "🎞",
+            Location::DiskUsage(_) => "🖴",
         }
     }
 

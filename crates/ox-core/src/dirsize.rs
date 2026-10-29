@@ -125,6 +125,19 @@ impl FolderSizes {
         self.inner.epoch.load(Ordering::Relaxed)
     }
 
+    /// Sizes measured elsewhere (by a disk usage scan): cache them as if
+    /// measured here.
+    pub fn store(&self, sizes: Vec<(PathBuf, DirSize)>) {
+        let mut cache = self.inner.cache.lock().unwrap();
+        if cache.len() + sizes.len() >= MAX_CACHED {
+            cache.clear();
+        }
+        let now = Instant::now();
+        cache.extend(sizes.into_iter().map(|(dir, size)| (dir, (size, now))));
+        drop(cache);
+        self.inner.version.fetch_add(1, Ordering::Relaxed);
+    }
+
     /// Something inside `path` changed: forget its size and its ancestors'.
     pub fn invalidate(&self, path: &Path) {
         let mut cache = self.inner.cache.lock().unwrap();
