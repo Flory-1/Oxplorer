@@ -9,6 +9,7 @@ pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
     let selection = tab.view.selected_paths();
     let shows_files = tab.location().shows_files();
     let (key, order, mode) = (tab.sort_key, tab.sort_order, tab.view_mode);
+    let (flat, can_flat) = (tab.is_flat(), tab.can_flat());
     let has_sel = !selection.is_empty() && shows_files;
     // The system clipboard is only read on paste, so with it enabled Paste is always offered.
     let can_paste = folder.is_some()
@@ -159,6 +160,21 @@ pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 if m != mode {
                     app.tabs.active_mut().view_mode = m;
                 }
+                let mut on = flat;
+                let flat_box = ui
+                    .add_enabled(
+                        can_flat,
+                        egui::Checkbox::new(
+                            &mut on,
+                            shortcuts::hint(tr("Flat view"), Command::FlatView),
+                        ),
+                    )
+                    .on_hover_text(tr(
+                        "Every file in this folder and its sub-folders in one list",
+                    ));
+                if flat_box.changed() {
+                    actions.push(Action::ToggleFlatView);
+                }
                 ui.separator();
                 let b = &mut app.settings.browsing;
                 let mut changed = ui
@@ -206,6 +222,18 @@ pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                     actions.push(Action::Tab(TabAction::ToggleSplit));
                 }
             });
+            let tip = shortcuts::hint(tr("Flat view"), Command::FlatView);
+            let flat_button = egui::Button::new(RichText::new("🗂").size(13.5))
+                .frame(flat)
+                .selected(flat);
+            if ui
+                .add_enabled(can_flat, flat_button)
+                .on_hover_text(&tip)
+                .on_disabled_hover_text(&tip)
+                .clicked()
+            {
+                actions.push(Action::ToggleFlatView);
+            }
         });
         ui.separator();
         if let Some(f) = &folder {

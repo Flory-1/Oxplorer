@@ -151,3 +151,34 @@ fn session_roundtrip() {
     assert_eq!(*restored.tabs[0].location(), Location::Home);
     assert_eq!(*restored.active().location(), Location::Help);
 }
+
+#[test]
+fn flat_view_is_a_mode_of_a_folder_tab() {
+    let (mut t, s) = tabs();
+    let id = t.open(Location::Folder("/a".into()), None, true, &s);
+    let tab = t.get_mut(id).unwrap();
+    tab.stale = false;
+    tab.set_flat(true);
+    assert!(tab.is_flat() && tab.stale);
+
+    // Changes in a sub-folder reload a flat view, not a normal one.
+    tab.stale = false;
+    t.get_mut(2).unwrap().stale = false;
+    t.mark_stale(Some(Path::new("/a/sub")));
+    assert!(t.get(id).unwrap().stale);
+    assert!(!t.get(2).unwrap().stale);
+
+    // Refreshing keeps it; going somewhere else turns it off.
+    let tab = t.get_mut(id).unwrap();
+    tab.navigate(Location::Folder("/a".into()));
+    assert!(tab.is_flat());
+    tab.navigate(Location::Folder("/a/sub".into()));
+    assert!(!tab.is_flat());
+    tab.back();
+    assert!(!tab.is_flat());
+
+    // Only folders have a flat view.
+    tab.navigate(Location::RecycleBin);
+    tab.set_flat(true);
+    assert!(!tab.is_flat());
+}

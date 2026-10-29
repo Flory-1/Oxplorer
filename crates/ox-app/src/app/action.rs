@@ -101,6 +101,10 @@ pub enum Action {
     MoveToBin(Vec<PathBuf>),
     /// Compare folders (the split view's panes).
     Compare(super::CompareAction),
+    /// Turn the flat view (all files of the sub-folders in one list) on or off.
+    ToggleFlatView,
+    /// Go to the folder an item is in and select it there.
+    ShowInFolder(PathBuf),
 }
 
 pub enum TabAction {

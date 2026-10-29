@@ -881,10 +881,14 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Don't show this again for this version", "Für diese Version nicht mehr anzeigen"),
 ];
 
+mod flat_links;
 mod operations;
 
 /// Every entry: [`TABLE`] and the tables of the submodules (split for the
 /// line budget; add new entries to the last one).
 pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> {
-    TABLE.iter().chain(operations::TABLE)
+    TABLE
+        .iter()
+        .chain(operations::TABLE)
+        .chain(flat_links::TABLE)
 }

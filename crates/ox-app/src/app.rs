@@ -6,6 +6,7 @@
 
 mod action;
 mod compare;
+mod flat;
 mod input;
 mod poll;
 mod process;
@@ -430,6 +431,13 @@ impl OxApp {
         }
         tab.stale = false;
         match tab.location().clone() {
+            Location::Folder(path) if tab.is_flat() => {
+                let opts = ox_core::flat::FlatOptions {
+                    show_hidden,
+                    ..Default::default()
+                };
+                tab.start_flat(path, opts, move || ctx.request_repaint());
+            }
             Location::Folder(path) => {
                 let (tx, rx) = crossbeam_channel::bounded(1);
                 std::thread::spawn(move || {

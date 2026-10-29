@@ -89,6 +89,7 @@ ICONS = {
     # Views and panels
     "☰": "list",
     "▦": "layout-grid",
+    "🗂": "layers",
     "◧": "panel-left",
     "◨": "panel-right",
     "◫": "columns-2",

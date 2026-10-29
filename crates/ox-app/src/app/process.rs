@@ -482,6 +482,8 @@ impl OxApp {
             }
             Action::Tab(t) => self.process_tab(t),
             Action::Compare(a) => self.process_compare(a),
+            Action::ToggleFlatView => self.toggle_flat_view(),
+            Action::ShowInFolder(path) => self.show_in_folder(path),
             Action::Toast(t) => self.toast(t),
             Action::RestoreFromBin(paths) => {
                 let items = self.tabs.active().view.bin.select(&paths);

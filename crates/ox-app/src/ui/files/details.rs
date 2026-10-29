@@ -14,7 +14,7 @@ pub(super) fn details(
     sort_order: ox_core::entry::SortOrder,
 ) {
     let width = ui.available_width();
-    let with_folder = cx.is_search || cx.is_bin;
+    let with_folder = cx.is_search || cx.flat || cx.is_bin;
     let columns = Columns::fit(width, with_folder, cx.git.is_some());
 
     // Column header
@@ -194,20 +194,8 @@ fn paint_row(
             .unwrap_or_default();
         col(x, columns.folder, original, false);
         x += columns.folder;
-    } else if cx.is_search && columns.folder > 0.0 {
-        let parent = e.path.parent().unwrap_or(&e.path);
-        let parent = match &cx.search_root {
-            Some(root) => {
-                let name = ox_core::entry::display_name(root);
-                match parent.strip_prefix(root) {
-                    Ok(rel) if rel.as_os_str().is_empty() => name,
-                    Ok(rel) => format!("{name}{}{}", std::path::MAIN_SEPARATOR, rel.display()),
-                    Err(_) => parent.display().to_string(),
-                }
-            }
-            None => parent.display().to_string(),
-        };
-        col(x, columns.folder, parent, false);
+    } else if (cx.is_search || cx.flat) && columns.folder > 0.0 {
+        col(x, columns.folder, folder_text(e, cx), false);
         x += columns.folder;
     }
     if let (true, Some(git)) = (columns.git > 0.0, cx.git) {
@@ -246,4 +234,21 @@ fn paint_row(
         (true, _) => String::new(),
     };
     col(x, columns.size, size, true);
+}
+
+/// The folder an item is in, relative to the search or flat view's root
+/// (e.g. `Projects\app\src`).
+pub(super) fn folder_text(e: &FileEntry, cx: &Ctx<'_>) -> String {
+    let parent = e.path.parent().unwrap_or(&e.path);
+    match &cx.search_root {
+        Some(root) => {
+            let name = ox_core::entry::display_name(root);
+            match parent.strip_prefix(root) {
+                Ok(rel) if rel.as_os_str().is_empty() => name,
+                Ok(rel) => format!("{name}{}{}", std::path::MAIN_SEPARATOR, rel.display()),
+                Err(_) => parent.display().to_string(),
+            }
+        }
+        None => parent.display().to_string(),
+    }
 }

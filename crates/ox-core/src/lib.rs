@@ -11,6 +11,7 @@ pub mod details;
 pub mod dirsize;
 pub mod disk;
 pub mod entry;
+pub mod flat;
 pub mod format;
 pub mod fsops;
 pub mod fuzzy;
