@@ -5,7 +5,13 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-29
+
 ### Changed
+- **The first tab is always Home**: a small tab with the house icon that can't be closed or
+  moved. Folders, drives and searches opened from it open in a new tab, so Home stays one click
+  away; *Go to Home* in the command palette switches to it. The *Home* entry at the top
+  of the sidebar is gone.
 - **New icons**: the icons in menus, buttons, tabs, the sidebar and Settings are now
   [Lucide](https://lucide.dev)'s line icons, the same on every computer, instead of Windows'
   colourful emoji. Other emoji (e.g. in file names) are shown in black and white.
