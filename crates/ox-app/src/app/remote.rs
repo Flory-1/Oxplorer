@@ -3,6 +3,12 @@
 //! operations of remote folders and their transfers. The protocols live
 //! in `ox_core::remote`, the dialogs in `ui/remote.rs`.
 
+mod edits;
+mod resume;
+mod stream;
+
+pub use edits::EditAnswer;
+
 use super::*;
 use ox_core::entry::FileEntry;
 use ox_core::remote::{
@@ -96,6 +102,9 @@ pub struct RemoteState {
     open_after: Vec<(u64, PathBuf)>,
     /// The remote file in the preview and its downloaded copy.
     preview: Option<(PathBuf, PreviewCopy)>,
+    /// Opened remote files and uploading their changes.
+    pub edits: edits::EditState,
+    resume: resume::ResumeState,
 }
 
 impl Default for RemoteState {
@@ -110,6 +119,8 @@ impl Default for RemoteState {
             seen_jobs: HashSet::new(),
             open_after: Vec::new(),
             preview: None,
+            edits: Default::default(),
+            resume: Default::default(),
         }
     }
 }
@@ -411,6 +422,13 @@ impl OxApp {
         while let Ok(event) = self.remote.rx.try_recv() {
             self.on_remote_event(event);
         }
+        self.poll_remote_edits();
+        self.poll_remote_resume();
+        let folder = match self.tabs.active().location() {
+            Location::Remote(a) if self.settings.appearance.remote_thumbnails => Some(a.clone()),
+            _ => None,
+        };
+        self.thumbs.set_remote_folder(folder, &self.remote.conns);
         // After downloads and uploads: list the remote folders again, open
         // the files that were downloaded to be opened.
         for job in self.engine.jobs() {
@@ -440,9 +458,7 @@ impl OxApp {
                 let (_, local) = self.remote.open_after.remove(i);
                 if job.state() == JobState::Completed && job.error_count() == 0 {
                     match fsops::open_default(&local) {
-                        Ok(()) => self.toast(tr(
-                            "Opened a downloaded copy: changes to it aren't uploaded to the server.",
-                        )),
+                        Ok(()) => self.remote_edit_opened(job.id),
                         Err(e) => self.toast(ox_core::trf!(
                             "Couldn't open {v1}: {e}",
                             v1 = local.display(),
@@ -551,31 +567,50 @@ impl OxApp {
             self.process(Action::Navigate(Location::Remote(addr)));
             return;
         }
+        // A copy of its own, followed to upload its changes.
+        let local = remote::edits::copy_path(&addr);
+        if self.remote_edit_unsent(&local) {
+            // Opened before and changed: not downloaded over.
+            if let Err(e) = fsops::open_default(&local) {
+                self.toast(e.to_string());
+            }
+            return;
+        }
         let Some(fs) = self.remote.conns.cached(&addr) else {
             self.toast(tr(
                 "Not connected to this server any more. Refresh to connect again.",
             ));
             return;
         };
-        let dir = std::env::temp_dir()
-            .join("Oxplorer remote")
-            .join(remote::sanitize(&addr.host));
+        let dir = local.parent().map(Path::to_path_buf).unwrap_or_default();
         if let Err(e) = std::fs::create_dir_all(&dir) {
             self.toast(e.to_string());
             return;
         }
-        let local = dir.join(remote::sanitize(&addr.name()));
+        let entry = self
+            .tabs
+            .active()
+            .view
+            .entries
+            .iter()
+            .find(|e| e.path == path);
+        let stamp = remote::edits::Stamp {
+            size: entry.map_or(0, |e| e.size),
+            modified: entry.and_then(|e| e.modified),
+        };
         let req = TransferRequest {
             remote: Some(RemoteSide::new(fs, &addr)),
+            pairs: vec![(path, local.clone())],
             ..TransferRequest::new(
                 TransferKind::Copy,
-                vec![path],
+                Vec::new(),
                 dir,
                 ox_core::transfer::ConflictPolicy::Overwrite,
             )
         };
         let job = self.engine.submit(req);
-        self.remote.open_after.push((job.id, local));
+        self.remote.open_after.push((job.id, local.clone()));
+        self.remote_edit_download(job.id, local, addr, stamp);
         self.ui.show_transfers = true;
     }
 
@@ -732,16 +767,13 @@ impl OxApp {
     }
 
     /// Between remote folders: a move on one server is a rename there;
-    /// copies between servers aren't supported (yet).
+    /// everything else streams from server to server (one job per server).
     fn remote_to_remote(&mut self, kind: TransferKind, sources: Vec<PathBuf>, dest: &RemoteAddr) {
         let same = sources
             .iter()
             .all(|s| RemoteAddr::from_path(s).is_some_and(|a| a.same_server(dest)));
         if kind != TransferKind::Move || !same {
-            self.toast(tr(
-                "Copying from one server to another isn't supported: download the items first.",
-            ));
-            return;
+            return self.remote_stream(kind, sources, dest);
         }
         let items: Vec<RemoteAddr> = sources
             .iter()

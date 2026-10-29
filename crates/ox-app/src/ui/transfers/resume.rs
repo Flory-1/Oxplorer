@@ -77,7 +77,10 @@ pub(super) fn interrupted(app: &mut OxApp, ui: &mut Ui) {
             });
         ui.add_space(6.0);
         if resume {
-            if req.destination.exists() {
+            if !pending.servers().is_empty() {
+                // Connects to the server(s) first.
+                app.resume_remote_transfer(pending.clone());
+            } else if req.destination.exists() {
                 app.engine.resume(&pending);
             } else {
                 app.toast(ox_core::trf!(

@@ -273,6 +273,12 @@ fn appearance(ui: &mut Ui, app: &mut OxApp) {
         tr("Thumbnails"),
         tr("Show previews of pictures and videos in the grid view."),
     );
+    toggle(
+        ui,
+        &mut a.remote_thumbnails,
+        tr("Thumbnails in remote folders"),
+        tr("Download pictures up to 8 MB from servers in the background to show their thumbnails."),
+    );
     if ox_core::shell::supported() {
         row(
             ui,

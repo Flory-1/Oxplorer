@@ -21,7 +21,7 @@ use russh::MethodKind;
 use russh_sftp::client::error::Error as SftpError;
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::{FileAttributes, OpenFlags, StatusCode};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use super::known_hosts::{self, HostKeyStatus};
 use super::{
@@ -441,8 +441,15 @@ impl RemoteFs for SftpFs {
     }
 
     fn read_to(&self, path: &str, out: &mut dyn Write) -> RemoteResult<u64> {
+        self.read_from(path, 0, out)
+    }
+
+    fn read_from(&self, path: &str, offset: u64, out: &mut dyn Write) -> RemoteResult<u64> {
         let s = self.session()?;
         let mut file = run(s.sftp.open(path))?;
+        if offset > 0 {
+            run(async { file.seek(std::io::SeekFrom::Start(offset)).await })?;
+        }
         let mut buf = vec![0u8; 256 * 1024];
         let mut total = 0u64;
         let result = loop {
@@ -463,23 +470,21 @@ impl RemoteFs for SftpFs {
     }
 
     fn write_from(&self, path: &str, src: &mut dyn Read, _size: u64) -> RemoteResult<()> {
-        let s = self.session()?;
-        let flags = OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE;
-        let mut file = run(s.sftp.open_with_flags(path, flags))?;
-        let mut buf = vec![0u8; 256 * 1024];
-        let result = loop {
-            let n = match src.read(&mut buf) {
-                Ok(0) => break Ok(()),
-                Ok(n) => n,
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => break Err(e.into()),
-            };
-            if let Err(e) = run(file.write_all(&buf[..n])) {
-                break Err(e);
-            }
-        };
-        let closed = run(file.shutdown());
-        result.and(closed)
+        self.write_at(path, None, src)
+    }
+
+    fn can_append(&self) -> bool {
+        true
+    }
+
+    fn append_from(
+        &self,
+        path: &str,
+        offset: u64,
+        src: &mut dyn Read,
+        _size: u64,
+    ) -> RemoteResult<()> {
+        self.write_at(path, Some(offset), src)
     }
 
     fn mkdir(&self, path: &str) -> RemoteResult<()> {
@@ -518,6 +523,36 @@ impl RemoteFs for SftpFs {
             let _ = run(s.sftp.close());
             let _ = run(s.ssh.disconnect(russh::Disconnect::ByApplication, "", "en"));
         }
+    }
+}
+
+impl SftpFs {
+    /// Write `src` to `path`: a new file, or (`offset`) the rest of one,
+    /// keeping its first `offset` bytes.
+    fn write_at(&self, path: &str, offset: Option<u64>, src: &mut dyn Read) -> RemoteResult<()> {
+        let s = self.session()?;
+        let flags = match offset {
+            None => OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE,
+            Some(_) => OpenFlags::WRITE,
+        };
+        let mut file = run(s.sftp.open_with_flags(path, flags))?;
+        if let Some(offset) = offset {
+            run(async { file.seek(std::io::SeekFrom::Start(offset)).await })?;
+        }
+        let mut buf = vec![0u8; 256 * 1024];
+        let result = loop {
+            let n = match src.read(&mut buf) {
+                Ok(0) => break Ok(()),
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => break Err(e.into()),
+            };
+            if let Err(e) = run(file.write_all(&buf[..n])) {
+                break Err(e);
+            }
+        };
+        let closed = run(file.shutdown());
+        result.and(closed)
     }
 }
 

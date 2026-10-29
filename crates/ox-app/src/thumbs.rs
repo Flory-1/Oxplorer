@@ -21,6 +21,8 @@ use ox_core::entry::{FileEntry, FileKind};
 
 use crate::ui::preview::is_picture;
 
+mod remote;
+
 const WORKERS: usize = 2;
 /// Requests beyond this are dropped, oldest first (long scrolled past).
 const MAX_QUEUED: usize = 256;
@@ -73,12 +75,18 @@ pub struct Thumbnails {
     slots: RefCell<HashMap<PathBuf, Slot>>,
     /// Loaded paths, oldest first, with the texture's pixels.
     loaded: RefCell<VecDeque<(PathBuf, usize)>>,
+    /// Pictures in remote folders (see `thumbs/remote.rs`).
+    remote: remote::RemoteThumbs,
 }
 
 /// Files that can have a thumbnail.
 pub fn wanted(e: &FileEntry) -> bool {
     if e.is_dir {
         return false;
+    }
+    if ox_core::remote::is_remote_path(&e.path) {
+        // Downloaded and decoded here (no Shell): small pictures only.
+        return e.size <= ox_core::remote::thumbs::MAX_BYTES && is_picture(&e.extension());
     }
     match e.kind() {
         FileKind::Image => ox_core::shell::supported() || is_picture(&e.extension()),
@@ -104,11 +112,22 @@ impl Thumbnails {
         }
         Self {
             queue,
+            remote: remote::RemoteThumbs::new(done_tx.clone(), ctx.clone()),
             done_tx,
             done,
             slots: RefCell::default(),
             loaded: RefCell::default(),
         }
+    }
+
+    /// The remote folder shown (`None`: none, or no thumbnails there):
+    /// downloads for other folders stop.
+    pub fn set_remote_folder(
+        &self,
+        folder: Option<ox_core::remote::RemoteAddr>,
+        conns: &Arc<ox_core::remote::Connections>,
+    ) {
+        self.remote.set_folder(folder, conns);
     }
 
     /// Upload finished thumbnails. Call once per frame.
@@ -185,6 +204,19 @@ impl Thumbnails {
         };
         let current = old.as_ref().map(shown);
         slots.insert(e.path.clone(), Slot::Loading(old));
+        if ox_core::remote::is_remote_path(&e.path) {
+            let job = Job {
+                path: e.path.clone(),
+                modified: e.modified,
+                size,
+                cache_only,
+            };
+            if !self.remote.request(job, e.size) {
+                // Not the folder shown: asked again when it is.
+                slots.remove(&e.path);
+            }
+            return current;
+        }
         drop(slots);
         let mut jobs = self.queue.jobs.lock().unwrap_or_else(|p| p.into_inner());
         jobs.push(Job {

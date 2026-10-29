@@ -45,7 +45,7 @@ pub use instances::Start;
 pub use picture_tools::{doing as doing_pictures, PictureAction, PictureTools};
 pub use player::{PlayerAction, Session as PlayerSession, RATES};
 pub use properties::Properties;
-pub use remote::{RemoteAction, RemoteDialog, RemotePreview, RemoteState};
+pub use remote::{EditAnswer, RemoteAction, RemoteDialog, RemotePreview, RemoteState};
 pub use search_history::{HistoryAction, RecentSearches};
 pub use select::SelectAction;
 pub use sessions::{SavedSessions, SessionAction};

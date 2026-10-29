@@ -6,12 +6,13 @@
 use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
 
-use suppaftp::types::FileType;
+use suppaftp::types::{Features, FileType};
 use suppaftp::{FtpError, Mode, RustlsConnector, RustlsFtpStream, Status};
 
+use super::checksum::{self, Checksum, HashKind};
 use super::url::{file_name, parent_path};
 use super::{
     ftp_list, tls, Login, Protocol, RemoteEntry, RemoteError, RemoteFs, RemoteResult, TIMEOUT,
@@ -30,6 +31,8 @@ pub(super) struct FtpFs {
     login: Login,
     idle: Mutex<Vec<Conn>>,
     mlsd: AtomicU8,
+    /// What the server lists in `FEAT` (asked once).
+    feat: OnceLock<Features>,
 }
 
 impl FtpFs {
@@ -38,6 +41,7 @@ impl FtpFs {
             login,
             idle: Mutex::new(Vec::new()),
             mlsd: AtomicU8::new(MLSD_UNKNOWN),
+            feat: OnceLock::new(),
         };
         // Log in once now, so wrong passwords show up right away.
         let conn = fs.open()?;
@@ -137,6 +141,31 @@ impl FtpFs {
         }
     }
 
+    /// The server's features (none if it doesn't answer `FEAT`).
+    fn features(&self) -> &Features {
+        self.feat
+            .get_or_init(|| self.with(|c| c.feat()).unwrap_or_default())
+    }
+
+    /// `STOR` (or `REST offset` + `STOR`: the rest of a file).
+    fn store(&self, path: &str, offset: Option<u64>, src: &mut dyn Read) -> RemoteResult<()> {
+        let mut conn = self.take()?;
+        if let Some(offset) = offset {
+            let _ = conn.resume_transfer(offset as usize);
+        }
+        let mut stream = match conn.put_with_stream(path) {
+            Ok(s) => s,
+            Err(e) => {
+                self.put_back(conn);
+                return Err(ftp_error(e));
+            }
+        };
+        io::copy(src, &mut stream)?;
+        stream.finish().map_err(ftp_error)?;
+        self.put_back(conn);
+        Ok(())
+    }
+
     fn list_lines(&self, conn: &mut Conn, dir: &str) -> Result<Vec<RemoteEntry>, FtpError> {
         // `CWD` first: paths with spaces are safe that way on every server.
         conn.cwd(if dir.is_empty() { "/" } else { dir })?;
@@ -232,7 +261,17 @@ impl RemoteFs for FtpFs {
     }
 
     fn read_to(&self, path: &str, out: &mut dyn Write) -> RemoteResult<u64> {
+        self.read_from(path, 0, out)
+    }
+
+    fn read_from(&self, path: &str, offset: u64, out: &mut dyn Write) -> RemoteResult<u64> {
+        if offset > 0 && !self.can_append() {
+            // No `REST STREAM`: from the start, skipping what is there.
+            return super::read_skipping(&|out| self.read_from(path, 0, out), offset, out);
+        }
         let mut conn = self.take()?;
+        // `REST` right before `RETR` (sent by suppaftp with the transfer).
+        let _ = conn.resume_transfer(offset as usize);
         let mut stream = match conn.retr_as_stream(path) {
             Ok(s) => s,
             Err(e) => {
@@ -259,18 +298,65 @@ impl RemoteFs for FtpFs {
     }
 
     fn write_from(&self, path: &str, src: &mut dyn Read, _size: u64) -> RemoteResult<()> {
-        let mut conn = self.take()?;
-        let mut stream = match conn.put_with_stream(path) {
-            Ok(s) => s,
-            Err(e) => {
-                self.put_back(conn);
-                return Err(ftp_error(e));
-            }
+        self.store(path, None, src)
+    }
+
+    fn can_append(&self) -> bool {
+        // `REST STREAM` (RFC 3659) is what `REST` + `STOR` needs.
+        self.features()
+            .get("REST")
+            .is_some_and(|v| v.as_deref().unwrap_or("").contains("STREAM"))
+    }
+
+    fn append_from(
+        &self,
+        path: &str,
+        offset: u64,
+        src: &mut dyn Read,
+        _size: u64,
+    ) -> RemoteResult<()> {
+        self.store(path, Some(offset), src)
+    }
+
+    fn checksum(&self, path: &str) -> RemoteResult<Option<Checksum>> {
+        let Some((kind, old)) = checksum::ftp_hashes(
+            self.features()
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_deref())),
+        )
+        .first()
+        .copied() else {
+            return Ok(None);
         };
-        io::copy(src, &mut stream)?;
-        stream.finish().map_err(ftp_error)?;
-        self.put_back(conn);
-        Ok(())
+        let reply = self.with(|c| {
+            if old {
+                let cmd = match kind {
+                    HashKind::Sha256 => "XSHA256",
+                    HashKind::Sha1 => "XSHA1",
+                    HashKind::Md5 => "XMD5",
+                };
+                c.custom_command(
+                    format!("{cmd} {path}"),
+                    &[Status::File, Status::RequestedFileActionOk],
+                )
+            } else {
+                // The default (marked `*` in `FEAT`) may be another one.
+                let _ = c.custom_command(
+                    format!("OPTS HASH {}", kind.ftp_name()),
+                    &[Status::CommandOk],
+                );
+                c.custom_command(format!("HASH {path}"), &[Status::File])
+            }
+        });
+        match reply {
+            Ok(r) => Ok(checksum::parse_ftp_reply(
+                kind,
+                &String::from_utf8_lossy(&r.body),
+            )),
+            // A server that lists the command but refuses it for this file.
+            Err(RemoteError::Other(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     fn mkdir(&self, path: &str) -> RemoteResult<()> {

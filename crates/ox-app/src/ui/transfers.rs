@@ -130,7 +130,7 @@ fn job_row(
                 t.push_str(tr(" · one at a time (HDD)"));
             }
             if job.is_remote() {
-                t.push_str(tr(" · server transfer (no resume or verify)"));
+                t.push_str(tr(" · server transfer"));
             }
             t
         }
@@ -261,6 +261,18 @@ fn job_row(
                     RichText::new(ox_core::trf!(
                         "✔ {v1} verified",
                         v1 = ox_core::i18n::count(verified, "file")
+                    ))
+                    .small()
+                    .weak(),
+                );
+            }
+            let sized = job.size_checked_files.load(Ordering::Relaxed);
+            if sized > 0 {
+                // The server offers no checksum: only the sizes were compared.
+                ui.label(
+                    RichText::new(ox_core::trf!(
+                        "✔ {v1}: size checked only",
+                        v1 = ox_core::i18n::count(sized, "file")
                     ))
                     .small()
                     .weak(),

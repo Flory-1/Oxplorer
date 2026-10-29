@@ -11,6 +11,7 @@ use ureq::http::{self, Response};
 use ureq::tls::{RootCerts, TlsConfig};
 use ureq::{Agent, Body, SendBody};
 
+use super::checksum::{parse_oc_checksum, Checksum};
 use super::url::normalize_path;
 use super::webdav_auth::{basic, DigestChallenge};
 use super::webdav_xml::{parse_multistatus, PROPFIND_BODY};
@@ -231,7 +232,20 @@ impl RemoteFs for DavFs {
     }
 
     fn read_to(&self, path: &str, out: &mut dyn Write) -> RemoteResult<u64> {
-        let resp = self.send("GET", &self.url(path, false), &[], None)?;
+        self.read_from(path, 0, out)
+    }
+
+    fn read_from(&self, path: &str, offset: u64, out: &mut dyn Write) -> RemoteResult<u64> {
+        let range = [("Range", format!("bytes={offset}-"))];
+        let headers: &[(&str, String)] = if offset > 0 { &range } else { &[] };
+        let resp = self.send("GET", &self.url(path, false), headers, None)?;
+        // `206`: the server sent the rest. `200`: it ignores ranges (no
+        // `Accept-Ranges`): the whole file, of which the start is skipped.
+        let mut skip = if offset > 0 && resp.status() != 206 {
+            offset
+        } else {
+            0
+        };
         let mut reader = resp.into_body().into_reader();
         let mut buf = vec![0u8; 256 * 1024];
         let mut total = 0u64;
@@ -242,27 +256,27 @@ impl RemoteFs for DavFs {
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(e.into()),
             };
-            out.write_all(&buf[..n])?;
-            total += n as u64;
+            let from = (skip.min(n as u64)) as usize;
+            skip -= from as u64;
+            out.write_all(&buf[from..n])?;
+            total += (n - from) as u64;
         }
         Ok(total)
     }
 
+    fn checksum(&self, path: &str) -> RemoteResult<Option<Checksum>> {
+        // ownCloud/Nextcloud tell the checksum they keep for a file.
+        let resp = self.send("HEAD", &self.url(path, false), &[], None)?;
+        Ok(resp
+            .headers()
+            .get_all("oc-checksum")
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .find_map(parse_oc_checksum))
+    }
+
     fn write_from(&self, path: &str, src: &mut dyn Read, size: u64) -> RemoteResult<()> {
-        let url = self.url(path, false);
-        let mut req = http::Request::builder()
-            .method("PUT")
-            .uri(&url)
-            .header("Content-Length", size.to_string())
-            .header("Content-Type", "application/octet-stream");
-        if let Some(auth) = self.auth_header("PUT", &url) {
-            req = req.header("Authorization", auth);
-        }
-        let req = req
-            .body(SendBody::from_reader(src))
-            .map_err(RemoteError::other)?;
-        let resp = self.agent.run(req).map_err(net_error)?;
-        self.check(resp).map(|_| ())
+        self.put(path, src, size)
     }
 
     fn mkdir(&self, path: &str) -> RemoteResult<()> {
@@ -297,6 +311,25 @@ impl RemoteFs for DavFs {
 
     fn parallel(&self) -> usize {
         4
+    }
+}
+
+impl DavFs {
+    fn put(&self, path: &str, src: &mut dyn Read, size: u64) -> RemoteResult<()> {
+        let url = self.url(path, false);
+        let mut req = http::Request::builder()
+            .method("PUT")
+            .uri(&url)
+            .header("Content-Length", size.to_string())
+            .header("Content-Type", "application/octet-stream");
+        if let Some(auth) = self.auth_header("PUT", &url) {
+            req = req.header("Authorization", auth);
+        }
+        let req = req
+            .body(SendBody::from_reader(src))
+            .map_err(RemoteError::other)?;
+        let resp = self.agent.run(req).map_err(net_error)?;
+        self.check(resp).map(|_| ())
     }
 }
 

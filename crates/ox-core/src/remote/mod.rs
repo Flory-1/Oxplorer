@@ -7,11 +7,14 @@
 //! knows the passwords of this session. All calls block, so they run on
 //! background threads, and each network step has a timeout.
 
+pub mod checksum;
 pub mod credentials;
+pub mod edits;
 mod ftp;
 mod ftp_list;
 pub mod known_hosts;
 mod sftp;
+pub mod thumbs;
 mod tls;
 pub mod url;
 mod webdav;
@@ -174,6 +177,32 @@ pub trait RemoteFs: Send + Sync {
     fn read_to(&self, path: &str, out: &mut dyn Write) -> RemoteResult<u64>;
     /// Upload `size` bytes from `src` to `path` (replacing a file there).
     fn write_from(&self, path: &str, src: &mut dyn Read, size: u64) -> RemoteResult<()>;
+    /// Download from byte `offset` on (to continue a download); returns
+    /// the bytes written to `out`. By default the file is read from the
+    /// start and the first `offset` bytes are skipped.
+    fn read_from(&self, path: &str, offset: u64, out: &mut dyn Write) -> RemoteResult<u64> {
+        read_skipping(&|out| self.read_to(path, out), offset, out)
+    }
+    /// Uploads can be continued: [`RemoteFs::append_from`] works.
+    fn can_append(&self) -> bool {
+        false
+    }
+    /// Continue an upload: write the `size` bytes of `src` to `path` from
+    /// byte `offset` on, keeping the bytes before.
+    fn append_from(
+        &self,
+        _path: &str,
+        _offset: u64,
+        _src: &mut dyn Read,
+        _size: u64,
+    ) -> RemoteResult<()> {
+        Err(RemoteError::Other("append isn't supported".into()))
+    }
+    /// The checksum the server computes for a file, where the protocol
+    /// offers one (`Ok(None)`: it doesn't, or not for this file).
+    fn checksum(&self, _path: &str) -> RemoteResult<Option<checksum::Checksum>> {
+        Ok(None)
+    }
     fn mkdir(&self, path: &str) -> RemoteResult<()>;
     fn rename(&self, from: &str, to: &str) -> RemoteResult<()>;
     fn remove_file(&self, path: &str) -> RemoteResult<()>;
@@ -194,6 +223,47 @@ pub trait RemoteFs: Send + Sync {
     }
     /// Close the connection(s).
     fn close(&self) {}
+}
+
+/// Download from the start with `read`, passing on what follows `offset`.
+fn read_skipping(
+    read: &dyn Fn(&mut dyn Write) -> RemoteResult<u64>,
+    offset: u64,
+    out: &mut dyn Write,
+) -> RemoteResult<u64> {
+    if offset == 0 {
+        return read(out);
+    }
+    let mut skip = Skip {
+        inner: out,
+        left: offset,
+        written: 0,
+    };
+    read(&mut skip)?;
+    Ok(skip.written)
+}
+
+/// Drops the first `left` bytes, passes the rest on.
+struct Skip<'a> {
+    inner: &'a mut dyn Write,
+    left: u64,
+    written: u64,
+}
+
+impl Write for Skip<'_> {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        let skip = (self.left.min(data.len() as u64)) as usize;
+        self.left -= skip as u64;
+        if skip < data.len() {
+            self.inner.write_all(&data[skip..])?;
+            self.written += (data.len() - skip) as u64;
+        }
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
 }
 
 /// Remove a file or a folder with everything in it.

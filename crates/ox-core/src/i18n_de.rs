@@ -905,6 +905,7 @@ mod player_more;
 mod preview_docs;
 mod previews_more;
 mod remote;
+mod remote_more;
 mod search_history;
 mod search_tags;
 mod tabs;
@@ -942,6 +943,7 @@ pub fn entries() -> impl Iterator<Item = &'static (&'static str, &'static str)> 
         .chain(commands::TABLE)
         .chain(git_ops::TABLE)
         .chain(remote::TABLE)
+        .chain(remote_more::TABLE)
         .chain(help_tools::TABLE)
         .chain(mirror_undo::TABLE)
         .chain(views_more::TABLE)
