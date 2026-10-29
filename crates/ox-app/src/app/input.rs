@@ -70,7 +70,7 @@ impl OxApp {
             C::ShellMenu => {
                 shows_files && has_sel && !in_bin && !read_only && ox_core::shell::supported()
             }
-            C::Paste | C::NewFolder => shows_files && folder.is_some(),
+            C::Paste | C::NewFolder | C::FlatView => shows_files && folder.is_some(),
             C::OpenInEditor => {
                 shows_files && !in_bin && !read_only && (has_sel || folder.is_some())
             }
@@ -113,6 +113,7 @@ impl OxApp {
                     self.settings.browsing.show_preview = !self.settings.browsing.show_preview;
                     actions.push(Action::SettingsChanged);
                 }
+                C::FlatView => actions.push(Action::ToggleFlatView),
                 C::Settings => actions.push(Action::OpenInNewTab(Location::Settings, true)),
                 C::Help => actions.push(Action::OpenInNewTab(Location::Help, true)),
                 C::SelectAll => actions.push(Action::SelectAll),

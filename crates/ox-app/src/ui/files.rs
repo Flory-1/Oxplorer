@@ -1,6 +1,7 @@
 //! The file view: details list and grid, with selection, drag & drop and context menus.
 
 mod details;
+mod flat;
 mod grid;
 mod item;
 use details::details;
@@ -93,6 +94,8 @@ struct Ctx<'a> {
     accent: Color32,
     selection_fill: Color32,
     is_search: bool,
+    /// Flat view: files from all sub-folders, with a Folder column.
+    flat: bool,
     is_bin: bool,
     /// Inside an archive: items can be opened and copied (extracted) only.
     read_only: bool,
@@ -110,7 +113,7 @@ struct Ctx<'a> {
     compare: Option<&'a std::collections::HashMap<PathBuf, ox_core::compare::Mark>>,
     /// Folder sizes for the Size column (`None` when they are off).
     sizes: Option<&'a ox_core::dirsize::FolderSizes>,
-    /// Root of the current search; result folders are shown relative to it.
+    /// Root of the current search or flat view; folders are shown relative to it.
     search_root: Option<PathBuf>,
     folder: Option<PathBuf>,
     cut: HashSet<PathBuf>,
@@ -132,14 +135,13 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     // Borrowed by the rows while the tab is mutably borrowed; put back at the end.
     let bin = std::mem::take(&mut app.tabs.active_mut().view.bin);
     let git = app.tabs.active().view.git.clone();
-    let tab_view_paths: Vec<PathBuf> = app
-        .tabs
-        .active()
-        .view
-        .entries
-        .iter()
-        .map(|e| e.path.clone())
-        .collect();
+    // Only when something is cut: a flat view may hold 200 000 entries.
+    let tab_view_paths: Vec<PathBuf> = if app.clipboard.has_cut() {
+        let entries = &app.tabs.active().view.entries;
+        entries.iter().map(|e| e.path.clone()).collect()
+    } else {
+        Vec::new()
+    };
     let cx = Ctx {
         show_ext: app.settings.browsing.show_extensions,
         date_format: &app.settings.browsing.date_format.clone(),
@@ -151,6 +153,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             app.tabs.active().location(),
             Location::Search { .. } | Location::Tagged(_)
         ),
+        flat: app.tabs.active().is_flat(),
         tags: &app.tags,
         git: git.as_deref(),
         compare: (app.compare.as_ref()).and_then(|c| c.marks_for(app.tabs.active)),
@@ -168,6 +171,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         .then_some(&app.folder_sizes),
         search_root: match app.tabs.active().location() {
             Location::Search { root, .. } => root.clone(),
+            Location::Folder(p) if app.tabs.active().is_flat() => Some(p.clone()),
             _ => None,
         },
         cut: tab_view_paths
@@ -202,6 +206,9 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     if let Location::Search { root, query } = tab.location().clone() {
         filter_chips(ui, &root, &query, &mut actions);
     }
+    if let Some(state) = &tab.flat {
+        flat::bar(ui, state, tab.view.entries.len(), &mut actions);
+    }
 
     // Background (empty space) interactions. Rows are added later and sit on top.
     let bg_rect = ui.available_rect_before_wrap();
@@ -231,7 +238,8 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     }
 
     if tab.view.visible.is_empty() {
-        let searching = tab.search.as_ref().is_some_and(|s| s.done.is_none());
+        let searching = tab.search.as_ref().is_some_and(|s| s.done.is_none())
+            || tab.flat.as_ref().is_some_and(|f| f.walking());
         if tab.view.loading.is_some() || searching {
             ui.put(
                 Rect::from_center_size(bg_rect.center(), vec2(40.0, 40.0)),
@@ -250,6 +258,12 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             centered_message(ui, "🔍", tr("No results."));
         } else if cx.is_bin && tab.filter.is_empty() {
             centered_message(ui, "🗑", tr("The Recycle Bin is empty."));
+        } else if cx.flat && tab.filter.is_empty() {
+            centered_message(
+                ui,
+                "🗂",
+                tr("There are no files in this folder or its sub-folders."),
+            );
         } else if !tab.filter.is_empty() {
             centered_message(
                 ui,
@@ -326,7 +340,12 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 &mut actions,
             )
         });
-        if super::drop_target(&mut actions, &bg, folder) {
+        // In a flat view, items dropped onto the empty space from the flat
+        // view itself would all land in the top folder: not that.
+        let own_items = cx.flat
+            && egui::DragAndDrop::payload::<DragItems>(ui.ctx())
+                .is_some_and(|d| d.0.iter().all(|p| p.starts_with(folder)));
+        if !own_items && super::drop_target(&mut actions, &bg, folder) {
             ui.painter().rect_stroke(
                 bg_rect.shrink(2.0),
                 CornerRadius::same(6),

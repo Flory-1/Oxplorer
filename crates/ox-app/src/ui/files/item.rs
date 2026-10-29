@@ -104,12 +104,8 @@ pub(super) fn item_context_menu(
             return;
         }
         let single_dir = (selection.len() == 1 && e.is_dir).then_some(e.path.as_path());
-        if cx.is_search {
-            if let Some(parent) = e.path.parent() {
-                if ui.button(tr("📁 Open file location")).clicked() {
-                    actions.push(Action::Navigate(Location::Folder(parent.to_path_buf())));
-                }
-            }
+        if (cx.is_search || cx.flat) && ui.button(tr("📁 Open file location")).clicked() {
+            actions.push(Action::ShowInFolder(e.path.clone()));
         }
         let target = MenuTarget {
             selection: &selection,

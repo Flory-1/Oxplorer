@@ -9,7 +9,8 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
 pub struct DirWatcher {
     watcher: Option<RecommendedWatcher>,
-    current: Option<PathBuf>,
+    /// The watched folder and whether its sub-folders are watched too.
+    current: Option<(PathBuf, bool)>,
     dirty: Arc<AtomicBool>,
     notify: Arc<dyn Fn() + Send + Sync>,
 }
@@ -26,11 +27,18 @@ impl DirWatcher {
 
     /// Watch `dir` (non-recursively), replacing the previous folder. `None` stops watching.
     pub fn watch(&mut self, dir: Option<&Path>) {
-        if self.current.as_deref() == dir {
+        self.watch_tree(dir, false);
+    }
+
+    /// Watch `dir`, with all its sub-folders if `recursive` (for the flat
+    /// view), replacing the previous folder. `None` stops watching.
+    pub fn watch_tree(&mut self, dir: Option<&Path>, recursive: bool) {
+        let wanted = dir.map(|d| (d.to_path_buf(), recursive));
+        if self.current == wanted {
             return;
         }
         self.watcher = None;
-        self.current = dir.map(Path::to_path_buf);
+        self.current = wanted;
         self.dirty.store(false, Ordering::Relaxed);
         let Some(dir) = dir else { return };
 
@@ -45,7 +53,12 @@ impl DirWatcher {
             }
         });
         if let Ok(mut w) = watcher {
-            if w.watch(dir, RecursiveMode::NonRecursive).is_ok() {
+            let mode = if recursive {
+                RecursiveMode::Recursive
+            } else {
+                RecursiveMode::NonRecursive
+            };
+            if w.watch(dir, mode).is_ok() {
                 self.watcher = Some(w);
             }
         }

@@ -16,12 +16,14 @@ use serde::{Deserialize, Serialize};
 pub type TabId = u64;
 pub type GroupId = u64;
 
+mod flat;
 mod groups;
 mod location;
 mod session;
 #[cfg(test)]
 mod tests;
 
+pub use flat::FlatState;
 pub use location::{Listing, Location};
 pub use session::Session;
 
@@ -136,6 +138,8 @@ pub struct Tab {
     pub sort_order: SortOrder,
     /// Listing must be reloaded before the tab is shown again.
     pub stale: bool,
+    /// Flat view is on: the folder's files and those of all its sub-folders.
+    pub flat: Option<FlatState>,
 }
 
 impl Tab {
@@ -157,6 +161,7 @@ impl Tab {
             sort_key: settings.browsing.default_sort,
             sort_order: settings.browsing.default_order,
             stale: true,
+            flat: None,
         }
     }
 
@@ -242,6 +247,7 @@ impl Tab {
     fn on_location_changed(&mut self) {
         self.view = FolderView::default();
         self.search = None;
+        self.flat = None;
         self.filter.clear();
         // The search box shows the query of a search tab.
         if let Location::Search { query, .. } = self.location() {
@@ -560,7 +566,7 @@ impl Tabs {
         for t in &mut self.tabs {
             let hit = match (dir, t.location()) {
                 (None, _) => true,
-                (Some(d), Location::Folder(p)) => p == d,
+                (Some(d), Location::Folder(p)) => p == d || (t.flat.is_some() && d.starts_with(p)),
                 (_, Location::RecycleBin | Location::Tagged(_)) => true,
                 _ => false,
             };

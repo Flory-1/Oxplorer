@@ -49,6 +49,15 @@ pub(super) fn grid(
                     let drop_hover = item_interact(view, i, &entry, &resp, cx, actions);
                     paint_tile(ui, rect, &entry, selected, drop_hover, &resp, cx);
                     item_context_menu(&resp, view, &entry, cx, actions);
+                    if cx.is_search || cx.flat {
+                        // There's no Folder column here.
+                        resp.on_hover_text(format!(
+                            "{}
+{}",
+                            entry.name,
+                            super::details::folder_text(&entry, cx)
+                        ));
+                    }
                 }
             });
         }

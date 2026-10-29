@@ -397,6 +397,14 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         "",
         setting(|a| a.settings.browsing.show_status_bar ^= true),
     );
+    if app.tabs.active().can_flat() {
+        cmd(
+            "🗂",
+            tr("Toggle flat view (all files in sub-folders)"),
+            &shortcuts::label(Command::FlatView),
+            act(|| Action::ToggleFlatView),
+        );
+    }
     cmd(
         "☰",
         tr("Details view"),
