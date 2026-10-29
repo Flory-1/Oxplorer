@@ -5,13 +5,18 @@
 //! borrow checker happy and makes every user command go through one place.
 
 mod action;
+mod compare;
 mod input;
 mod poll;
 mod process;
 mod properties;
+mod transfer_watch;
+mod undo;
 mod window;
 pub use action::{Action, TabAction};
+pub use compare::{CompareAction, CompareState};
 pub use properties::Properties;
+pub use transfer_watch::TransferWatch;
 
 use ox_core::i18n::t as tr;
 use std::collections::HashSet;
@@ -127,6 +132,7 @@ pub struct OxApp {
     refresh_at: [Option<Instant>; 2],
     background: Vec<BackgroundOp>,
     seen_jobs: HashSet<u64>,
+    pub transfer_watch: TransferWatch,
     text_clipboard: Option<arboard::Clipboard>,
     applied_settings: Option<Settings>,
     pub icons: crate::icons::IconCache,
@@ -154,6 +160,8 @@ pub struct OxApp {
     /// Folder the terminal was last sent to (for "follow the folder").
     terminal_dir: Option<PathBuf>,
     pub tags: TagStore,
+    /// Compare folders: the comparison of the split view's panes.
+    pub compare: Option<CompareState>,
     /// (tabs, listing versions, cache epoch) the folder sizes were requested for.
     sizes_key: Option<(Vec<(TabId, u64)>, u64)>,
     /// `folder_sizes.version()` last copied into the listing.
@@ -175,6 +183,8 @@ pub struct OxApp {
     index_settings: Option<(Vec<PathBuf>, Vec<String>)>,
     /// Results of background work started by actions (Git, the editor).
     notices: (Sender<Notice>, Receiver<Notice>),
+    /// What Ctrl+Z / Ctrl+Y can undo and redo.
+    pub undo: undo::UndoState,
 }
 
 /// What background work started by an action reports back.
@@ -263,6 +273,7 @@ impl OxApp {
             refresh_at: [None; 2],
             background: Vec::new(),
             seen_jobs: HashSet::new(),
+            transfer_watch: Default::default(),
             text_clipboard: None,
             applied_settings: None,
             icons: crate::icons::IconCache::new(&cc.egui_ctx),
@@ -279,6 +290,7 @@ impl OxApp {
                 FolderSizes::new(move || repaint.request_repaint())
             },
             tags: TagStore::load(),
+            compare: None,
             keymap: Default::default(),
             themes: ox_core::themes::load_all(),
             themes_changed: false,
@@ -297,6 +309,7 @@ impl OxApp {
             index_next: None,
             index_force: false,
             index_settings: None,
+            undo: Default::default(),
         }
     }
 
@@ -359,10 +372,13 @@ impl OxApp {
             self.tabs.active = focused;
         }
         self.poll_tabs();
+        self.poll_compare();
         self.poll_folder_sizes();
         self.poll_git();
         self.poll_watcher();
         self.poll_jobs();
+        self.poll_undo();
+        self.poll_transfer_watch(ctx);
         self.poll_background();
         self.poll_notices();
         self.poll_dropped_files(ctx);
@@ -379,6 +395,7 @@ impl OxApp {
                 self.push(Action::ToggleTerminal);
             }
         } else if self.dialog.is_none()
+            && !self.compare.as_ref().is_some_and(|c| c.confirm.is_some())
             && !ctx.text_edit_focused()
             // Not while a new shortcut is being recorded in the settings.
             && self.ui.recording.is_none()
@@ -534,12 +551,13 @@ impl OxApp {
         if sources.is_empty() {
             return;
         }
-        self.engine.submit(TransferRequest::new(
-            kind,
-            sources,
-            dest,
-            self.settings.transfer.default_conflict,
-        ));
+        let req =
+            TransferRequest::new(kind, sources, dest, self.settings.transfer.default_conflict);
+        if std::mem::take(&mut self.transfer_watch.run_after_next) {
+            self.engine.submit_after_current(req);
+        } else {
+            self.engine.submit(req);
+        }
         self.ui.show_transfers = true;
     }
 
@@ -684,6 +702,7 @@ impl OxApp {
     }
 
     fn after_create(&mut self, dir: &Path, created: PathBuf) {
+        self.undo.created(&created);
         self.mark_changed(Some(dir));
         self.tabs.active_mut().view.select_after_load = Some(created.clone());
         self.process(Action::Rename(created));

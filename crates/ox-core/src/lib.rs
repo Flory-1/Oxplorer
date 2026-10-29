@@ -5,6 +5,7 @@
 
 pub mod archive;
 pub mod clipboard;
+pub mod compare;
 pub mod default_app;
 pub mod details;
 pub mod dirsize;
@@ -24,6 +25,7 @@ pub mod pathfmt;
 pub mod pdf;
 pub mod places;
 pub mod player;
+pub mod power;
 pub mod recycle;
 pub mod rename;
 pub mod search;
@@ -34,6 +36,7 @@ pub mod textinfo;
 pub mod themes;
 pub mod titlebar;
 pub mod transfer;
+pub mod undo;
 pub mod update;
 pub mod watcher;
 

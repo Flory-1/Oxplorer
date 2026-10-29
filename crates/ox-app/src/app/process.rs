@@ -96,6 +96,11 @@ impl OxApp {
                 }
                 None => self.toast(tr("The clipboard doesn't contain any files.")),
             },
+            Action::PasteAfterCurrent(dest) => {
+                self.transfer_watch.run_after_next = true;
+                self.process(Action::Paste(dest));
+                self.transfer_watch.run_after_next = false;
+            }
             Action::Transfer(kind, sources, dest) => self.start_transfer(kind, sources, dest),
             Action::Drop(sources, dest) => {
                 // Dropping items onto their own folder (or a folder onto itself) is a no-op.
@@ -135,7 +140,15 @@ impl OxApp {
                     .first()
                     .and_then(|p| p.parent())
                     .map(Path::to_path_buf);
-                self.run_background(tr("Delete"), dir, move || fsops::delete(&paths, to_trash));
+                let undo = self.undo.recorder();
+                self.run_background(tr("Delete"), dir, move || {
+                    let since = ox_core::undo::now();
+                    let result = fsops::delete(&paths, to_trash);
+                    if to_trash {
+                        undo.trashed(&paths, since);
+                    }
+                    result
+                });
                 self.tabs.active_mut().view.clear_selection();
             }
             Action::Rename(path) => {
@@ -468,6 +481,7 @@ impl OxApp {
                 self.tabs.mark_stale(None);
             }
             Action::Tab(t) => self.process_tab(t),
+            Action::Compare(a) => self.process_compare(a),
             Action::Toast(t) => self.toast(t),
             Action::RestoreFromBin(paths) => {
                 let items = self.tabs.active().view.bin.select(&paths);
@@ -502,8 +516,12 @@ impl OxApp {
                     .first()
                     .and_then(|p| p.parent())
                     .map(Path::to_path_buf);
+                let undo = self.undo.recorder();
                 self.run_background(tr("Move to Recycle Bin"), dir, move || {
-                    fsops::delete(&paths, true)
+                    let since = ox_core::undo::now();
+                    let result = fsops::delete(&paths, true);
+                    undo.trashed(&paths, since);
+                    result
                 });
             }
         }

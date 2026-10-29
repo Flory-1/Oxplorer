@@ -29,7 +29,7 @@ kamadak-exif = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 clipboard-win = { version = "5", features = ["std"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl"] }
 windows = { version = "0.62", features = [
     "Data_Pdf",
     "Foundation",
@@ -50,6 +50,7 @@ windows = { version = "0.62", features = [
     "Win32_System_Com",
     "Win32_System_LibraryLoader",
     "Win32_System_Ole",
+    "Win32_System_Power",
     "Win32_System_Registry",
     "Win32_System_WinRT_Direct3D11",
     "Win32_UI_Controls",
@@ -65,3 +66,9 @@ tempfile = "3"
 sevenz-rust2 = { version = "0.24", default-features = false, features = ["compress"] }
 sha2 = "0.10"
 md-5 = "0.10"
+
+# Copy benchmark (see README, "Copy benchmark"). `test = true` runs its unit
+# tests with `cargo test`; the benchmark itself only runs with `cargo run --example`.
+[[example]]
+name = "copy_bench"
+test = true

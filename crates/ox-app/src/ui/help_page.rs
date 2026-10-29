@@ -107,6 +107,11 @@ const TOPICS: &[Topic] = &[
                  keep both or replace if newer.",
                 "Pause, resume or cancel a transfer in the panel. Failed files can be retried \
                  with one click.",
+                "When a file fails, the job waits and asks: retry, skip, or skip all errors of \
+                 the job.",
+                "Waiting transfers can be held, moved up or down, or set to run after the \
+                 current ones; \"Paste after current transfers\" queues a paste that way. \
+                 Settings → Copy engine: what happens when all transfers are done.",
                 "Settings → Copy engine: verify copies, limit the speed, and see the history.",
                 "The clipboard is shared with Windows Explorer in both directions.",
             ]),
@@ -154,6 +159,28 @@ const TOPICS: &[Topic] = &[
             "Ctrl+\\ shows two folders side by side. Click a pane or press F6 to work in it, \
              and drag files from one pane to the other to copy or move them.",
         )],
+    },
+    Topic {
+        section: 1,
+        title: "Comparing folders",
+        blocks: &[List(&[
+            "Compare folders (Ctrl+Shift+D, the ⇄ button between the panes or the command \
+             palette) compares the folders of the two panes. Without the split view it opens \
+             it: pick the other folder in the new pane.",
+            "Coloured strips mark the items: green is only on this side, blue is newer, orange \
+             is older, red is different (same date but another size, or a folder with \
+             differences inside). Items without a strip are the same.",
+            "Files count as the same when size and date modified match. Dates up to two \
+             seconds apart count as equal, since FAT and exFAT drives store them that coarsely. \
+             Compare contents checks files of the same size byte by byte instead.",
+            "Sub-folders also compares what's inside folders both sides have. Only differences \
+             hides what's the same.",
+            "Copy missing copies what only one side has to the other side. Copy newer replaces \
+             older files with the newer ones, both ways. You're asked first, and the copies \
+             show in the transfer panel.",
+            "The comparison follows the panes: it's made again when a pane shows another \
+             folder or its files change.",
+        ])],
     },
     Topic {
         section: 1,
@@ -249,6 +276,25 @@ const TOPICS: &[Topic] = &[
     },
     Topic {
         section: 1,
+        title: "Undo and redo",
+        blocks: &[
+            Text(
+                "Ctrl+Z undoes the last file operation, Ctrl+Y (or Ctrl+Shift+Z) redoes it. \
+                 The last 50 operations are remembered until Oxplorer closes.",
+            ),
+            List(&[
+                "Rename and bulk rename: the old names come back.",
+                "Move: the items are moved back.",
+                "Copy, new file: the copies go to the Recycle Bin. New folder: it is removed \
+                 while it's still empty.",
+                "Delete to the Recycle Bin: the items are restored.",
+                "Nothing is undone if the items have been changed, moved or replaced since. \
+                 Permanent deletes can't be undone, and replaced files don't come back.",
+            ]),
+        ],
+    },
+    Topic {
+        section: 1,
         title: "Windows integration",
         blocks: &[List(&[
             "Files have the same icons as in Explorer.",
@@ -318,6 +364,16 @@ const TOPICS: &[Topic] = &[
         blocks: &[Text(
             "Oxplorer copies with its own, faster engine. Progress, speed and time left are \
              in the transfer panel at the bottom of the window.",
+        )],
+    },
+    Topic {
+        section: 4,
+        title: "A copy was cut off. Do I have to start again?",
+        blocks: &[Text(
+            "No. If Oxplorer closed, the computer went to sleep or a USB stick was pulled \
+             during a copy or move, the transfer panel shows it as interrupted. Resume skips \
+             the files that were copied completely and copies the rest; Discard forgets it. \
+             A move only deletes an original once its copy is complete.",
         )],
     },
     Topic {

@@ -100,6 +100,8 @@ struct Ctx<'a> {
     tags: &'a ox_core::tags::TagStore,
     /// Git status when the folder is in a repository.
     git: Option<&'a ox_core::git::RepoStatus>,
+    /// Compare folders: how the items compare with the other pane's.
+    compare: Option<&'a std::collections::HashMap<PathBuf, ox_core::compare::Mark>>,
     /// Folder sizes for the Size column (`None` when they are off).
     sizes: Option<&'a ox_core::dirsize::FolderSizes>,
     /// Root of the current search; result folders are shown relative to it.
@@ -109,6 +111,8 @@ struct Ctx<'a> {
     favorites: HashSet<PathBuf>,
     destinations: Vec<(String, PathBuf)>,
     can_paste: bool,
+    /// Transfers are running, so "Paste after current transfers" makes sense.
+    transfers_running: bool,
     /// The user's entries of the "New" menu.
     new_items: Vec<ox_core::settings::NewItem>,
     /// Developer entries in the menus.
@@ -143,6 +147,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         ),
         tags: &app.tags,
         git: git.as_deref(),
+        compare: (app.compare.as_ref()).and_then(|c| c.marks_for(app.tabs.active)),
         is_bin: app.tabs.active().location().is_bin(),
         read_only: app.tabs.active().location().is_read_only(),
         icons: app.settings.appearance.system_icons.then_some(&app.icons),
@@ -166,6 +171,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         favorites: app.quick.favorites.iter().map(|f| f.path.clone()).collect(),
         destinations: super::quick_destinations(app),
         can_paste: folder.is_some(),
+        transfers_running: app.engine.has_active(),
         new_items: app.settings.new_items.0.clone(),
         dev: app.settings.developer.context_menus,
         folder,
@@ -307,6 +313,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 ui,
                 folder,
                 cx.can_paste,
+                cx.transfers_running,
                 pinned,
                 &cx.new_items,
                 cx.dev,
@@ -552,6 +559,7 @@ fn paint_row(
             egui::StrokeKind::Inside,
         );
     }
+    super::compare::paint_mark(ui, rect, cx.compare, &e.path);
     let dim = cx.cut.contains(&e.path) || e.hidden;
     let fade = |c: Color32| if dim { c.gamma_multiply(0.5) } else { c };
     let text = fade(v.text_color());
@@ -749,6 +757,7 @@ fn paint_tile(
             egui::StrokeKind::Inside,
         );
     }
+    super::compare::paint_mark(ui, rect, cx.compare, &e.path);
     let dim = cx.cut.contains(&e.path) || e.hidden;
     let fade = |c: Color32| if dim { c.gamma_multiply(0.5) } else { c };
     let icon_rect = Rect::from_center_size(

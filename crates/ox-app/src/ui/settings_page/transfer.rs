@@ -3,6 +3,7 @@
 use egui::{RichText, Ui};
 use ox_core::i18n::t as tr;
 use ox_core::settings::Settings;
+use ox_core::transfer::when_done::WhenDone;
 use ox_core::transfer::ConflictPolicy;
 
 use super::{row, toggle};
@@ -111,9 +112,47 @@ pub(super) fn transfer(ui: &mut Ui, s: &mut Settings) {
     );
     toggle(
         ui,
+        &mut t.ask_on_error,
+        tr("Ask when a file fails"),
+        tr("The job waits: retry, skip, or skip all errors of the job. Off: errors are listed when the job ends."),
+    );
+    row(
+        ui,
+        tr("When all transfers are done"),
+        tr("Sleep waits 30 seconds, which you can cancel, and never follows a cancelled transfer."),
+        |ui| {
+            egui::ComboBox::from_id_salt("when_done")
+                .selected_text(t.when_done.label())
+                .show_ui(ui, |ui| {
+                    for w in WhenDone::ALL {
+                        ui.selectable_value(&mut t.when_done, w, w.label());
+                    }
+                });
+        },
+    );
+    toggle(
+        ui,
         &mut t.preserve_timestamps,
         tr("Keep modification dates"),
         "",
+    );
+    toggle(
+        ui,
+        &mut t.keep_folder_dates,
+        tr("Keep folder dates"),
+        tr("Copied folders get the dates of the originals, set once their contents are copied."),
+    );
+    toggle(
+        ui,
+        &mut t.keep_permissions,
+        tr("Keep permissions"),
+        tr("Copy who may open and change each file and folder (ACLs). The owner is kept where Windows allows it, auditing rules aren't copied."),
+    );
+    toggle(
+        ui,
+        &mut t.keep_streams,
+        tr("Keep alternate data streams"),
+        tr("Extra data some programs attach to files and folders (NTFS streams). Off: copies get only the contents, but the \"downloaded from the internet\" mark, which is also a stream, is always kept."),
     );
     toggle(
         ui,

@@ -77,6 +77,11 @@ pub fn list() -> Result<Vec<BinItem>, String> {
     Ok(items)
 }
 
+/// The items in the Recycle Bin, without their sizes (quicker than [`list`]).
+pub fn items() -> Result<Vec<TrashItem>, String> {
+    imp::list()
+}
+
 /// Put items back where they came from. Fails (and restores nothing more)
 /// if something already exists at an original location.
 pub fn restore(items: Vec<TrashItem>) -> Result<(), String> {

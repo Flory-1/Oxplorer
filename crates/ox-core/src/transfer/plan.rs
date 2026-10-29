@@ -7,8 +7,9 @@ use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
 use super::copy::{self, CopyError, CopyOptions};
+use super::metadata;
 use super::throttle::Throttle;
-use super::{verify, ConflictPolicy, EngineConfig, Job, TransferKind};
+use super::{verify, ConflictPolicy, EngineConfig, ErrorChoice, Job, TransferKind};
 use crate::fsops;
 
 #[derive(Debug)]
@@ -28,6 +29,10 @@ pub(super) struct Plan {
     pub files: Vec<FileTask>,
     /// Source folders to remove after a cross-volume move, children before parents.
     pub cleanup_dirs: Vec<PathBuf>,
+    /// Candidates for [`Job::created`](super::Job::created) (source, destination).
+    pub roots: Vec<(PathBuf, PathBuf)>,
+    /// Scanned folders as `(source, target)`, parents before children.
+    pub dir_pairs: Vec<(PathBuf, PathBuf)>,
 }
 
 impl Plan {
@@ -47,6 +52,7 @@ impl Plan {
     pub fn apply_policy(&mut self, job: &Job, policy: ConflictPolicy) {
         let mut skipped_bytes = 0;
         let mut skipped_files = 0;
+        let mut roots = Vec::new();
         self.files.retain_mut(|task| {
             if !task.conflict {
                 return true;
@@ -72,9 +78,13 @@ impl Plan {
             if !keep {
                 skipped_bytes += task.size;
                 skipped_files += 1;
+            } else if policy == ConflictPolicy::KeepBoth || job.kind == TransferKind::Move {
+                // A replaced file can't come back, but a moved one can go back.
+                roots.push((task.src.clone(), task.dst.clone()));
             }
             keep
         });
+        self.roots.extend(roots);
         job.total_bytes.fetch_sub(skipped_bytes, Ordering::Relaxed);
         job.total_files.fetch_sub(skipped_files, Ordering::Relaxed);
         job.skipped_files
@@ -92,7 +102,13 @@ pub(super) fn build(job: &Job) -> Plan {
                 if let Some(parent) = dst.parent() {
                     plan.dirs.push(parent.to_path_buf());
                 }
+                note_new(&mut plan, src, dst);
                 add_file(job, src.clone(), dst.clone(), &meta, &mut plan);
+            }
+            // A whole folder with its exact target (used to undo a move).
+            Ok(meta) if !is_link_dir(&meta) => {
+                let merge = note_new(&mut plan, src, dst);
+                scan_dir(job, src, dst, &mut plan, merge);
             }
             Ok(_) => job.push_error(src, crate::i18n::t("Expected a file but found a folder.")),
             Err(e) => job.push_error(src, e.to_string()),
@@ -104,6 +120,7 @@ pub(super) fn build(job: &Job) -> Plan {
         }
         let meta = match fs::symlink_metadata(src) {
             Ok(m) => m,
+            Err(_) if job.journal.already_moved(job, src) => continue,
             Err(e) => {
                 job.push_error(src, e.to_string());
                 continue;
@@ -132,9 +149,11 @@ pub(super) fn build(job: &Job) -> Plan {
                 TransferKind::Move => continue,
             }
         }
+        job.journal.root(src, &mut dst);
 
         // Fast path: a move to a free name on the same volume is just a rename.
         if job.kind == TransferKind::Move && !fsops::exists(&dst) && fs::rename(src, &dst).is_ok() {
+            job.created.lock().unwrap().push((src.clone(), dst));
             job.total_files.fetch_add(1, Ordering::Relaxed);
             job.done_files.fetch_add(1, Ordering::Relaxed);
             continue;
@@ -150,21 +169,35 @@ pub(super) fn build(job: &Job) -> Plan {
                     continue;
                 }
             }
-            scan_dir(job, src, &dst, &mut plan);
+            let merge = note_new(&mut plan, src, &dst);
+            scan_dir(job, src, &dst, &mut plan, merge);
         } else if meta.is_dir() {
             job.push_error(
                 src,
                 crate::i18n::t("Skipped a linked folder (symbolic link or junction)."),
             );
         } else {
+            note_new(&mut plan, src, &dst);
             add_file(job, src.clone(), dst, &meta, &mut plan);
         }
     }
     plan
 }
 
-fn scan_dir(job: &Job, src: &Path, dst: &Path, plan: &mut Plan) {
+/// Remember `dst` as a new item if it doesn't exist yet. Returns whether it
+/// exists (a folder that is merged into; a file conflict is decided later).
+fn note_new(plan: &mut Plan, src: &Path, dst: &Path) -> bool {
+    let exists = fsops::exists(dst);
+    if !exists {
+        plan.roots.push((src.to_path_buf(), dst.to_path_buf()));
+    }
+    exists
+}
+
+/// `merge`: `dst` already exists, so new items inside it are remembered one by one.
+fn scan_dir(job: &Job, src: &Path, dst: &Path, plan: &mut Plan, merge: bool) {
     plan.dirs.push(dst.to_path_buf());
+    plan.dir_pairs.push((src.to_path_buf(), dst.to_path_buf()));
     job.set_current(src);
     let entries = match fs::read_dir(src) {
         Ok(e) => e,
@@ -193,6 +226,7 @@ fn scan_dir(job: &Job, src: &Path, dst: &Path, plan: &mut Plan) {
             }
         };
         let target = dst.join(entry.file_name());
+        let exists = merge && note_new(plan, &path, &target);
         if meta.is_dir() {
             if is_link_dir(&meta) {
                 job.push_error(
@@ -200,7 +234,7 @@ fn scan_dir(job: &Job, src: &Path, dst: &Path, plan: &mut Plan) {
                     crate::i18n::t("Skipped a linked folder (symbolic link or junction)."),
                 );
             } else {
-                scan_dir(job, &path, &target, plan);
+                scan_dir(job, &path, &target, plan, exists);
             }
         } else {
             add_file(job, path, target, &meta, plan);
@@ -269,6 +303,8 @@ pub(super) fn execute(job: &Job, plan: Plan, cfg: &EngineConfig, workers: usize)
         opts: &opts,
         throttle: throttle.as_ref(),
         verify: cfg.verify,
+        ask: cfg.ask_on_error,
+        keep: metadata::Keep::new(cfg),
     };
     let (tx, rx) = crossbeam_channel::unbounded();
     for task in plan.files {
@@ -286,12 +322,15 @@ pub(super) fn execute(job: &Job, plan: Plan, cfg: &EngineConfig, workers: usize)
                         break;
                     }
                     job.set_current(&task.src);
-                    transfer_file(job, &task, ctx);
+                    while transfer_file(job, &task, ctx) {}
                 }
             });
         }
     });
 
+    if !job.is_cancelled() {
+        metadata::finish_dirs(job, &plan.dir_pairs, &ctx.keep);
+    }
     if job.kind == TransferKind::Move && !job.is_cancelled() {
         // Children were pushed before parents, so plain iteration removes bottom-up.
         // Folders that still hold skipped files are left alone.
@@ -306,11 +345,16 @@ struct FileCtx<'a> {
     opts: &'a CopyOptions,
     throttle: Option<&'a Throttle>,
     verify: bool,
+    /// Ask about failed files instead of only collecting the errors.
+    ask: bool,
+    keep: metadata::Keep,
 }
 
-fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) {
+/// Returns `true` if the file failed and should be tried again.
+fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) -> bool {
     let opts = ctx.opts;
     let mut reported = 0u64;
+    job.journal.started(&task.src, &task.dst);
     let result = (|| -> Result<(), CopyError> {
         if task.conflict {
             // We're overwriting: make sure a read-only target doesn't block us.
@@ -350,6 +394,7 @@ fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) {
             }
             job.verified_files.fetch_add(1, Ordering::Relaxed);
         }
+        metadata::apply_file(job, &task.src, &task.dst, &ctx.keep)?;
         if job.kind == TransferKind::Move {
             fsops::remove_file_forced(&task.src).map_err(CopyError::Io)?;
         }
@@ -364,10 +409,23 @@ fn transfer_file(job: &Job, task: &FileTask, ctx: &FileCtx<'_>) {
     match result {
         Ok(()) => {
             job.done_files.fetch_add(1, Ordering::Relaxed);
+            job.journal
+                .finished(&task.src, &task.dst, task.size, task.modified);
         }
         Err(CopyError::Cancelled) => {}
-        Err(CopyError::Io(e)) => job.push_file_error(&task.src, Some(&task.dst), describe(&e)),
+        Err(CopyError::Io(e)) => {
+            let message = describe(&e);
+            if ctx.ask && job.ask_about_error(&task.src, &task.dst, &message) == ErrorChoice::Retry
+            {
+                // Take this attempt's bytes back; the next one counts them again.
+                job.done_bytes
+                    .fetch_sub(task.size.max(reported), Ordering::Relaxed);
+                return true;
+            }
+            job.push_file_error(&task.src, Some(&task.dst), message)
+        }
     }
+    false
 }
 
 fn describe(e: &io::Error) -> String {

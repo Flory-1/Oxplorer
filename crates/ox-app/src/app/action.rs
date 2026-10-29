@@ -24,6 +24,8 @@ pub enum Action {
     CopyItems(Vec<PathBuf>),
     CutItems(Vec<PathBuf>),
     Paste(PathBuf),
+    /// Paste as a transfer that waits until the current ones are done.
+    PasteAfterCurrent(PathBuf),
     Transfer(TransferKind, Vec<PathBuf>, PathBuf),
     /// Items dropped onto a folder; the kind is decided from modifiers and drives.
     Drop(Vec<PathBuf>, PathBuf),
@@ -97,6 +99,8 @@ pub enum Action {
     PurgeConfirmed(Vec<TrashItem>, bool),
     /// Move items to the Recycle Bin without asking (e.g. dropped onto it).
     MoveToBin(Vec<PathBuf>),
+    /// Compare folders (the split view's panes).
+    Compare(super::CompareAction),
 }
 
 pub enum TabAction {

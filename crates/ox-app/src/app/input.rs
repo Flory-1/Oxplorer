@@ -97,6 +97,7 @@ impl OxApp {
                 C::NextTab => actions.push(Action::Tab(TabAction::Cycle(1))),
                 C::PrevTab => actions.push(Action::Tab(TabAction::Cycle(-1))),
                 C::ToggleSplit => actions.push(Action::Tab(TabAction::ToggleSplit)),
+                C::CompareFolders => actions.push(Action::Compare(super::CompareAction::Start)),
                 C::SwitchPane => actions.push(Action::Tab(TabAction::SwitchPane)),
                 C::Back => actions.push(Action::Back),
                 C::Forward => actions.push(Action::Forward),
@@ -119,6 +120,8 @@ impl OxApp {
                 C::Cut => actions.push(Action::CutItems(selection.clone())),
                 C::CopyPath => actions.push(Action::CopyPathText(selection.clone())),
                 C::Paste => actions.extend(folder.clone().map(Action::Paste)),
+                C::Undo => self.undo_redo(false),
+                C::Redo => self.undo_redo(true),
                 C::NewFolder => actions.extend(folder.clone().map(Action::NewFolder)),
                 C::Delete | C::DeletePermanently if in_bin => {
                     actions.push(Action::PurgeFromBin(selection.clone()));

@@ -1,5 +1,6 @@
 //! All drawing code. Each submodule draws one area of the window.
 
+mod compare;
 mod dialogs;
 mod files;
 pub mod header;
@@ -47,7 +48,9 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             .show(ui, |ui| status_bar(app, ui));
     }
 
-    if app.ui.show_transfers && !app.engine.jobs().is_empty() {
+    if app.ui.show_transfers
+        && (!app.engine.jobs().is_empty() || !app.engine.resumable().is_empty())
+    {
         egui::Panel::bottom("transfers")
             .resizable(true)
             .default_size(150.0)
@@ -125,6 +128,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     dialogs::show(app, ui.ctx());
     palette::show(app, ui.ctx());
     toasts(app, ui.ctx());
+    transfers::countdown(app, ui.ctx());
     drag_preview(ui.ctx());
 }
 
@@ -246,6 +250,7 @@ fn content(app: &mut OxApp, ui: &mut Ui) {
 /// pane is drawn with its tab made active for the moment, and pressing the
 /// mouse in it moves the focus there before any of its actions run.
 fn split_view(app: &mut OxApp, ui: &mut Ui, panes: [TabId; 2]) {
+    compare::bar(app, ui);
     let rect = ui.available_rect_before_wrap();
     let half = (rect.width() - 1.0) / 2.0;
     for (i, id) in panes.into_iter().enumerate() {
@@ -276,6 +281,7 @@ fn split_view(app: &mut OxApp, ui: &mut Ui, panes: [TabId; 2]) {
         }
     }
     let x = rect.left() + half + 0.5;
+    compare::split_button(app, ui, egui::pos2(rect.left() + half, rect.top()));
     ui.painter().vline(
         x,
         rect.y_range(),
@@ -847,10 +853,12 @@ pub fn new_menu(ui: &mut Ui, folder: &Path, new_items: &[NewItem], actions: &mut
 }
 
 /// Context menu for the empty area of a folder.
+#[allow(clippy::too_many_arguments)]
 pub fn background_menu(
     ui: &mut Ui,
     folder: &Path,
     can_paste: bool,
+    transfers_running: bool,
     pinned: bool,
     new_items: &[NewItem],
     dev: bool,
@@ -865,6 +873,17 @@ pub fn background_menu(
         .clicked()
     {
         actions.push(Action::Paste(folder.to_path_buf()));
+    }
+    if transfers_running
+        && ui
+            .add_enabled(
+                can_paste,
+                egui::Button::new(tr("📥 Paste after current transfers")),
+            )
+            .on_hover_text(tr("Starts when the running transfers are done."))
+            .clicked()
+    {
+        actions.push(Action::PasteAfterCurrent(folder.to_path_buf()));
     }
     if ui
         .add(egui::Button::new(tr("🔄 Refresh")).shortcut_text(shortcuts::label(Command::Refresh)))

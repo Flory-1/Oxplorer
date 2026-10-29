@@ -18,13 +18,18 @@
 //! Jobs can be paused, resumed and cancelled at any time and report live
 //! progress through lock-free counters, so the UI can poll them every frame.
 
+mod ask;
 mod copy;
 pub mod history;
+pub mod journal;
+mod metadata;
 mod plan;
+mod queue;
 mod throttle;
 mod verify;
+pub mod when_done;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, RwLock};
@@ -33,6 +38,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+pub use ask::{ErrorChoice, ErrorQuestion};
 pub use copy::CopyOptions;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,6 +141,18 @@ pub struct EngineConfig {
     pub verify: bool,
     /// Bytes per second per job, `0` = unlimited.
     pub speed_limit: u64,
+    /// When a file fails, pause the job and ask (retry / skip / skip all)
+    /// instead of only collecting the error for the end.
+    pub ask_on_error: bool,
+    /// Folder for the journals that make jobs resumable; `None` = no journals.
+    pub journal_dir: Option<PathBuf>,
+    /// Copy the permissions (DACL, and the owner where allowed) on Windows.
+    pub keep_permissions: bool,
+    /// Copy alternate data streams. When off, copies only keep the
+    /// "downloaded from the internet" mark (`Zone.Identifier`).
+    pub keep_streams: bool,
+    /// Give copied folders the dates of the originals.
+    pub keep_folder_dates: bool,
 }
 
 impl Default for EngineConfig {
@@ -148,6 +166,11 @@ impl Default for EngineConfig {
             preserve_timestamps: true,
             verify: false,
             speed_limit: 0,
+            ask_on_error: false,
+            journal_dir: None,
+            keep_permissions: false,
+            keep_streams: false,
+            keep_folder_dates: true,
         }
     }
 }
@@ -220,6 +243,13 @@ pub struct Job {
     started: Mutex<Instant>,
     finished: Mutex<Option<Instant>>,
     speed: Mutex<SpeedMeter>,
+    /// See [`Job::created`].
+    created: Mutex<Vec<(PathBuf, PathBuf)>>,
+    /// The open question about a failed file.
+    prompt: ask::ErrorPrompt,
+    /// Start only after everything ahead in the queue is done.
+    run_after: AtomicBool,
+    journal: journal::JobJournal,
 }
 
 impl Job {
@@ -250,6 +280,10 @@ impl Job {
             started: Mutex::new(Instant::now()),
             finished: Mutex::new(None),
             speed: Mutex::new(SpeedMeter::default()),
+            created: Mutex::new(Vec::new()),
+            prompt: Default::default(),
+            run_after: AtomicBool::new(false),
+            journal: Default::default(),
         }
     }
 
@@ -325,6 +359,15 @@ impl Job {
             conflict: ConflictPolicy::Ask,
             pairs,
         })
+    }
+
+    /// What the job put in place, as (source, destination) pairs: each new
+    /// top-level item (with its final name, e.g. after "keep both"), new
+    /// items inside folders that were merged into existing ones and, for
+    /// moves, replaced files. Skipped items are not listed. Complete once
+    /// the job is finished (used to undo it).
+    pub fn created(&self) -> Vec<(PathBuf, PathBuf)> {
+        self.created.lock().unwrap().clone()
     }
 
     /// Total number of items the job was started with.
@@ -405,9 +448,11 @@ impl Job {
         });
     }
 
-    /// Block while paused. Returns `false` if the job was cancelled.
+    /// Block while paused (or while another worker asks about an error).
+    /// Returns `false` if the job was cancelled.
     fn checkpoint(&self) -> bool {
-        while self.paused.load(Ordering::Relaxed) && !self.is_cancelled() {
+        while (self.paused.load(Ordering::Relaxed) || self.prompt.is_open()) && !self.is_cancelled()
+        {
             thread::sleep(Duration::from_millis(50));
         }
         !self.is_cancelled()
@@ -474,46 +519,15 @@ fn job_volumes(req: &TransferRequest) -> Vec<String> {
     vols
 }
 
-/// Which jobs are running, and on which volumes.
-#[derive(Default)]
-struct Scheduler {
-    running: usize,
-    busy: HashMap<String, usize>,
-}
-
-impl Scheduler {
-    fn can_start(&self, job: &Job, cfg: &EngineConfig) -> bool {
-        self.running < cfg.max_concurrent_jobs.max(1)
-            && (!cfg.per_disk_queue || job.volumes.iter().all(|v| !self.busy.contains_key(v)))
-    }
-
-    fn start(&mut self, job: &Job) {
-        self.running += 1;
-        for v in &job.volumes {
-            *self.busy.entry(v.clone()).or_default() += 1;
-        }
-    }
-
-    fn finish(&mut self, job: &Job) {
-        self.running -= 1;
-        for v in &job.volumes {
-            if let Some(n) = self.busy.get_mut(v) {
-                *n -= 1;
-                if *n == 0 {
-                    self.busy.remove(v);
-                }
-            }
-        }
-    }
-}
-
 /// Owns all transfer jobs. Cheap to share: wrap it in an `Arc` or keep one per app.
 pub struct TransferEngine {
     config: Arc<RwLock<EngineConfig>>,
     jobs: Mutex<Vec<Arc<Job>>>,
     next_id: AtomicU64,
-    scheduler: Arc<(Mutex<Scheduler>, Condvar)>,
+    scheduler: Arc<(Mutex<queue::Scheduler>, Condvar)>,
     notifier: Arc<RwLock<Option<Notifier>>>,
+    /// Interrupted transfers that can be resumed.
+    journals: Arc<Mutex<Vec<Arc<journal::Pending>>>>,
 }
 
 impl Default for TransferEngine {
@@ -524,11 +538,13 @@ impl Default for TransferEngine {
 
 impl TransferEngine {
     pub fn new(config: EngineConfig) -> Self {
+        let journals = Arc::new(Mutex::new(journal::list(config.journal_dir.as_deref())));
         Self {
+            journals,
             config: Arc::new(RwLock::new(config)),
             jobs: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
-            scheduler: Arc::new((Mutex::new(Scheduler::default()), Condvar::new())),
+            scheduler: Arc::new((Mutex::new(queue::Scheduler::default()), Condvar::new())),
             notifier: Arc::new(RwLock::new(None)),
         }
     }
@@ -545,9 +561,21 @@ impl TransferEngine {
 
     /// Start a new job and return a handle to it.
     pub fn submit(&self, req: TransferRequest) -> Arc<Job> {
+        self.submit_job(req, false, None)
+    }
+
+    fn submit_job(
+        &self,
+        req: TransferRequest,
+        run_after: bool,
+        resume: Option<Arc<journal::Pending>>,
+    ) -> Arc<Job> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let job = Arc::new(Job::new(id, &req));
+        job.run_after.store(run_after, Ordering::Relaxed);
+        journal::setup(&job, resume, &self.journals);
         self.jobs.lock().unwrap().push(job.clone());
+        self.scheduler.0.lock().unwrap().enqueue(job.clone());
 
         let config = self.config.clone();
         let scheduler = self.scheduler.clone();
@@ -567,6 +595,7 @@ impl TransferEngine {
                     let mut sched = lock.lock().unwrap();
                     loop {
                         if worker_job.is_cancelled() {
+                            sched.dequeue(worker_job.id);
                             worker_job.set_state(JobState::Cancelled);
                             notify();
                             return;
@@ -623,15 +652,20 @@ impl TransferEngine {
 }
 
 fn run_job(job: &Job, cfg: &EngineConfig, notify: &dyn Fn()) {
+    let _journal = journal::Guard::open(job, cfg.journal_dir.as_deref());
     job.set_state(JobState::Scanning);
     notify();
     let mut plan = plan::build(job);
+    journal::apply_resume(job, &mut plan);
     if job.is_cancelled() {
         job.set_state(JobState::Cancelled);
         return;
     }
 
     let mut policy = job.conflict_policy;
+    if let Some(p) = job.journal.decided_policy() {
+        policy = p;
+    }
     if plan.has_conflicts() && policy == ConflictPolicy::Ask {
         *job.conflicts.lock().unwrap() = plan.conflict_paths();
         job.set_state(JobState::AwaitingDecision);
@@ -644,13 +678,21 @@ fn run_job(job: &Job, cfg: &EngineConfig, notify: &dyn Fn()) {
             }
         }
     }
+    job.journal.record_policy(policy);
     plan.apply_policy(job, policy);
+    let roots = std::mem::take(&mut plan.roots);
 
     let workers = worker_count(job, cfg);
     job.workers.store(workers as u64, Ordering::Relaxed);
     job.set_state(JobState::Running);
     notify();
     plan::execute(job, plan, cfg, workers);
+    // Whatever reached its destination (also when cancelled or partly failed).
+    job.created.lock().unwrap().extend(
+        roots
+            .into_iter()
+            .filter(|(_, dst)| crate::fsops::exists(dst)),
+    );
 
     job.set_state(if job.is_cancelled() {
         JobState::Cancelled
