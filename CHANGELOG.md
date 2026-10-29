@@ -5,6 +5,23 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+### Added
+- **Remote locations**: SFTP, FTP/FTPS and WebDAV servers as places in the sidebar (*Remote
+  locations → Add…*), or type `sftp://`, `ftp://`, `ftps://` or `webdavs://` in the address bar.
+  Browse them like folders, copy and move files to and from them with the copy engine (progress,
+  speed limit, retry and skip), rename, make folders and delete (after asking, as nothing goes to
+  the Recycle Bin). SFTP checks the server's key and warns clearly when it changed; passwords are
+  only kept in the Windows Credential Manager when you ask for it.
+- **Custom commands** (Settings → Custom commands): your own command lines with placeholders
+  (`{path}`, `{paths}`, `{name}`, `{stem}`, `{ext}`, `{parent}`, `{folder}`, `{n}`) in the
+  right-click menu and the command palette, for certain file types, run hidden, in a console or
+  with their output in a window, optionally with a shortcut. A few examples are one click away.
+- **WSL**: your Linux distributions under *This PC* and on Home, with *Open in WSL terminal* and
+  *Copy path as → As Linux path*. Dotfiles count as hidden there. Listing them never starts WSL.
+- **More Git** in the preview's Git tab: stage and unstage files, discard changes (after asking),
+  commit (also amend), switch and create branches (*Stash and switch* when changes are in the
+  way), fetch, pull and push. A **Diff** tab shows what changed in a file, also side by side.
+
 ## [1.0.4] - 2026-10-29
 
 ### Added
