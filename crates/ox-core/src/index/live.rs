@@ -229,9 +229,10 @@ fn run(weak: Weak<Shared>, cfg: IndexConfig, stop: Arc<AtomicBool>, status: Arc<
                 backlog.merge(batch);
             }
             if n > 0 {
+                // Not announced: a drive changes all the time, and only the
+                // count in the settings shows it (they look it up themselves).
                 status.changes.fetch_add(n as u64, Ordering::Relaxed);
                 unsaved = true;
-                (shared.notify)();
             }
         }
         if unsaved && !building && last_save.elapsed() >= SAVE_EVERY {

@@ -305,7 +305,6 @@ fn pass(shared: &Shared, cfg: &FullTextConfig) -> bool {
     (shared.notify)();
     let mut seen: HashSet<String> = HashSet::new();
     let mut last_save = Instant::now();
-    let mut last_notify = Instant::now();
     let mut stopped = false;
     'roots: for root in &cfg.folders {
         let exclude: HashSet<String> = cfg.exclude.iter().map(|e| e.to_lowercase()).collect();
@@ -333,13 +332,11 @@ fn pass(shared: &Shared, cfg: &FullTextConfig) -> bool {
             if let Some(key) = index_file(shared, cfg, entry.path()) {
                 seen.insert(key);
             }
+            // Progress isn't announced: the settings, which show it, look it
+            // up themselves while the pass runs.
             if last_save.elapsed() > SAVE_EVERY {
                 save(shared);
                 last_save = Instant::now();
-            }
-            if last_notify.elapsed() > Duration::from_millis(500) {
-                (shared.notify)();
-                last_notify = Instant::now();
             }
         }
     }

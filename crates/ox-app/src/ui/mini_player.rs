@@ -136,6 +136,7 @@ fn bar(app: &mut OxApp, ui: &mut Ui) {
                 total > 0.0,
                 egui::Slider::new(&mut pos, 0.0..=total.max(0.01)).show_value(false),
             );
+            crate::ui::preview::player::keep_moving(ui, &resp, total, st.playing);
             if resp.dragged() {
                 pb.dragging = Some(pos);
             } else if resp.drag_stopped() || resp.changed() {
