@@ -148,18 +148,18 @@ fn write(path: &Path, stacks: &Stacks) -> io::Result<()> {
 /// This window's records (`ours`) with those of other windows on `disk`
 /// (the ones not in `base`: those this window had and took off are left
 /// out), oldest first, without records older than [`MAX_AGE_DAYS`] and at
-/// most [`LIMIT`] on each stack.
+/// most [`LIMIT`] on each stack. Records of the same millisecond keep the
+/// order they were saved in: the other windows' first, they are on disk.
 pub(super) fn merge(base: &HashSet<u64>, ours: &History, disk: Option<Stacks>, now: i64) -> Stacks {
     let mine = ids(ours);
     let disk = disk.unwrap_or_default();
     let oldest = now - MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
     let stack = |own: Vec<Record>, other: Vec<Record>| -> Vec<Record> {
-        let mut all = own;
-        all.extend(
-            other
-                .into_iter()
-                .filter(|r| !base.contains(&r.id) && !mine.contains(&r.id)),
-        );
+        let mut all: Vec<Record> = other
+            .into_iter()
+            .filter(|r| !base.contains(&r.id) && !mine.contains(&r.id))
+            .collect();
+        all.extend(own);
         all.retain(|r| r.at >= oldest);
         all.sort_by_key(|r| r.at);
         if all.len() > LIMIT {
@@ -331,6 +331,23 @@ mod tests {
         // After a restart, the main window has all of it.
         let h = Store::new(path).load();
         assert_eq!(subjects(&h), (names(&["b1", "b2"]), names(&["a1"])));
+    }
+
+    #[test]
+    fn records_of_the_same_millisecond_keep_the_order_they_were_saved_in() {
+        let now = now_ms();
+        let at = |name| Record {
+            at: now,
+            ..Record::new(folder(name))
+        };
+        let disk = Stacks {
+            undo: vec![at("other")],
+            redo: Vec::new(),
+        };
+        let ours = History::from_records(vec![at("mine")], Vec::new());
+        let stacks = merge(&HashSet::new(), &ours, Some(disk), now);
+        let undo: Vec<_> = stacks.undo.into_iter().map(|r| r.entry.subject).collect();
+        assert_eq!(undo, ["other", "mine"]);
     }
 
     #[test]
