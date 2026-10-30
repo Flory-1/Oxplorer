@@ -4,6 +4,7 @@ mod cleanup;
 pub mod cloud;
 pub(crate) mod commands;
 mod compare;
+pub(crate) mod delete_failed;
 mod dialogs;
 mod disk_usage;
 mod files;

@@ -19,6 +19,7 @@ pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
     let bin_empty = tab.view.entries.is_empty();
     // Where the separator after the edit buttons is: the sidebar's edge.
     let mut sidebar_edge = None;
+    let accent = crate::theme::accent(&app.settings);
 
     ui.horizontal(|ui| {
         let btn = |ui: &mut Ui, enabled: bool, text: &str, tip: &str| {
@@ -275,6 +276,20 @@ pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
             ) {
                 actions.push(Action::OpenInNewTab(Location::Settings, true));
             }
+            if btn(ui, true, "❓", &shortcuts::hint(tr("Help"), Command::Help)) {
+                actions.push(Action::OpenInNewTab(Location::Help, true));
+            }
+            if ox_core::recycle::supported() {
+                recycle_bin_button(ui, accent, &mut actions);
+            }
+            if btn(
+                ui,
+                true,
+                "🔍",
+                &shortcuts::hint(tr("Search"), Command::Search),
+            ) {
+                app.ui.focus_search = true;
+            }
             if keyboard_button(ui)
                 .on_hover_text(shortcuts::hint(tr("Command palette"), Command::Palette))
                 .clicked()
@@ -312,6 +327,32 @@ pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
     });
     app.ui.sidebar_edge = sidebar_edge;
     app.actions.extend(actions);
+}
+
+/// The Recycle Bin: opens it, and files dropped on it are deleted.
+fn recycle_bin_button(ui: &mut Ui, accent: Color32, actions: &mut Vec<Action>) {
+    let bin = ui
+        .add(egui::Button::new(RichText::new("🗑").size(13.5)).frame(false))
+        .on_hover_text(tr(
+            "Recycle Bin\nDrop files here to move them to the Recycle Bin",
+        ));
+    if bin.clicked() {
+        actions.push(Action::Navigate(Location::RecycleBin));
+    }
+    if bin.middle_clicked() {
+        actions.push(Action::OpenInNewTab(Location::RecycleBin, false));
+    }
+    if bin.dnd_hover_payload::<crate::ui::DragItems>().is_some() {
+        ui.painter().rect_stroke(
+            bin.rect.expand(2.0),
+            CornerRadius::same(4),
+            Stroke::new(1.5, accent),
+            egui::StrokeKind::Inside,
+        );
+    }
+    if let Some(items) = bin.dnd_release_payload::<crate::ui::DragItems>() {
+        actions.push(Action::MoveToBin(items.0.clone()));
+    }
 }
 
 /// The command palette button: a small drawn keyboard, as wide as the

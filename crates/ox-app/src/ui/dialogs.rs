@@ -20,7 +20,7 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
 
     let width = match dialog {
         Dialog::BulkRename { .. } => 680.0,
-        Dialog::Properties(_) => 460.0,
+        Dialog::Properties(_) | Dialog::DeleteFailed(_) => 460.0,
         _ => 420.0,
     };
     let modal = egui::Modal::new(Id::unique("dialog")).show(ctx, |ui| {
@@ -328,6 +328,7 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
             }
             Dialog::NewLink(d) => keep = super::link_dialog::show(ui, d, app),
             Dialog::Pictures(d) => keep = super::picture_tools::dialog(ui, d, &mut actions),
+            Dialog::DeleteFailed(d) => keep = super::delete_failed::show(ui, d, &mut actions),
             Dialog::SessionName { old, text, focus } => {
                 keep =
                     super::sessions::name_dialog(ui, &app.sessions, old, text, focus, &mut actions);

@@ -34,9 +34,25 @@ pub fn server_of(path: &Path) -> Option<PathBuf> {
     .then(|| PathBuf::from(format!(r"\\{server}")))
 }
 
-/// Whether `path` can be opened as a folder (a server counts as one).
+/// Whether `path` can be opened as a folder (a server counts as one). A
+/// remembered network drive that isn't connected yet is connected first.
 pub fn is_dir(path: &Path) -> bool {
-    server_name(path).is_some() || path.is_dir()
+    server_name(path).is_some() || path.is_dir() || (reconnect(path) && path.is_dir())
+}
+
+/// Connect `X:\` again if it is a remembered network drive that Windows
+/// hasn't reconnected yet (after logon they stay away until opened).
+/// Returns whether it was connected.
+pub fn reconnect(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        imp::reconnect(path)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        false
+    }
 }
 
 /// The folder above `path`; for a share's root that is its server.
@@ -133,9 +149,10 @@ mod imp {
     use windows::core::{PCWSTR, PWSTR};
     use windows::Win32::Foundation::{ERROR_NO_MORE_ITEMS, HANDLE, HWND, NO_ERROR};
     use windows::Win32::NetworkManagement::WNet::{
-        WNetCloseEnum, WNetConnectionDialog, WNetDisconnectDialog, WNetEnumResourceW,
-        WNetGetConnectionW, WNetOpenEnumW, NETRESOURCEW, RESOURCETYPE_DISK,
-        RESOURCEUSAGE_CONTAINER, RESOURCE_GLOBALNET, WNET_OPEN_ENUM_USAGE,
+        WNetAddConnection2W, WNetCloseEnum, WNetConnectionDialog, WNetDisconnectDialog,
+        WNetEnumResourceW, WNetGetConnectionW, WNetOpenEnumW, NETRESOURCEW, NET_CONNECT_FLAGS,
+        RESOURCETYPE_DISK, RESOURCEUSAGE_CONTAINER, RESOURCE_GLOBALNET, RESOURCE_REMEMBERED,
+        WNET_OPEN_ENUM_USAGE,
     };
     use windows::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
     use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
@@ -210,9 +227,103 @@ mod imp {
         result.map(|()| out)
     }
 
+    /// Remembered network drives (connected or not): drive letter and
+    /// `\\server\share`.
+    fn remembered() -> Vec<(char, String)> {
+        let mut handle = HANDLE::default();
+        // SAFETY: no container; `handle` is closed below.
+        let err = unsafe {
+            WNetOpenEnumW(
+                RESOURCE_REMEMBERED,
+                RESOURCETYPE_DISK,
+                WNET_OPEN_ENUM_USAGE(0),
+                None,
+                &mut handle,
+            )
+        };
+        if err != NO_ERROR {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        // u64s keep the buffer aligned for NETRESOURCEW.
+        let mut buf = vec![0u64; 4096];
+        loop {
+            let mut count = u32::MAX;
+            let mut size = (buf.len() * 8) as u32;
+            // SAFETY: `buf` is `size` bytes long.
+            let err = unsafe {
+                WNetEnumResourceW(handle, &mut count, buf.as_mut_ptr().cast(), &mut size)
+            };
+            if err != NO_ERROR {
+                break;
+            }
+            // SAFETY: the call filled `count` entries at the start of `buf`.
+            let items = unsafe {
+                std::slice::from_raw_parts(buf.as_ptr().cast::<NETRESOURCEW>(), count as usize)
+            };
+            for item in items {
+                let local = from_wide(item.lpLocalName).unwrap_or_default();
+                let letter = local.chars().next().filter(char::is_ascii_alphabetic);
+                if let (Some(letter), Some(remote)) = (letter, from_wide(item.lpRemoteName)) {
+                    out.push((letter.to_ascii_uppercase(), remote));
+                }
+            }
+        }
+        // SAFETY: opened above.
+        let _ = unsafe { WNetCloseEnum(handle) };
+        out
+    }
+
+    fn connected(letter: char) -> bool {
+        // SAFETY: no arguments.
+        let mask = unsafe { GetLogicalDrives() };
+        mask & (1 << (letter as u8 - b'A')) != 0
+    }
+
+    pub(super) fn reconnect(path: &std::path::Path) -> bool {
+        let Some(s) = path.to_str() else {
+            return false;
+        };
+        let letter = match s.as_bytes() {
+            [l, b':'] | [l, b':', b'\\'] if l.is_ascii_alphabetic() => {
+                l.to_ascii_uppercase() as char
+            }
+            _ => return false,
+        };
+        if connected(letter) {
+            return false;
+        }
+        let Some((_, remote)) = remembered().into_iter().find(|(l, _)| *l == letter) else {
+            return false;
+        };
+        let mut local = wide(format!("{letter}:"));
+        let mut remote = wide(remote);
+        let res = NETRESOURCEW {
+            dwType: RESOURCETYPE_DISK,
+            lpLocalName: PWSTR(local.as_mut_ptr()),
+            lpRemoteName: PWSTR(remote.as_mut_ptr()),
+            ..Default::default()
+        };
+        // SAFETY: `res` and its strings outlive the call; the saved
+        // credentials are used.
+        let err = unsafe {
+            WNetAddConnection2W(&res, PCWSTR::null(), PCWSTR::null(), NET_CONNECT_FLAGS(0))
+        };
+        err == NO_ERROR
+    }
+
     pub(super) fn mapped_drives() -> Vec<MappedDrive> {
         // SAFETY: plain Win32 queries with buffers owned here.
         let mask = unsafe { GetLogicalDrives() };
+        // Remembered drives Windows hasn't connected again yet: shown like
+        // Explorer does, and connected when opened.
+        let waiting = remembered()
+            .into_iter()
+            .filter(|(l, _)| mask & (1 << (*l as u8 - b'A')) == 0)
+            .map(|(l, remote)| MappedDrive {
+                mount: PathBuf::from(format!(r"{l}:\")),
+                remote,
+            });
         (0..26u8)
             .filter(|i| mask & (1 << i) != 0)
             .filter_map(|i| {
@@ -240,6 +351,7 @@ mod imp {
                     remote,
                 })
             })
+            .chain(waiting)
             .collect()
     }
 

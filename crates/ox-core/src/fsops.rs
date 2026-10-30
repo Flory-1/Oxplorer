@@ -156,10 +156,36 @@ pub fn rename(path: &Path, new_name: &str) -> io::Result<PathBuf> {
 
 /// Delete items, either to the Recycle Bin or permanently.
 pub fn delete(paths: &[PathBuf], to_trash: bool) -> Result<(), String> {
-    if to_trash {
-        return trash::delete_all(paths).map_err(|e| e.to_string());
+    let failed = delete_each(paths, to_trash);
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        let lines: Vec<String> = failed
+            .iter()
+            .map(|(p, e)| format!("{}: {e}", p.display()))
+            .collect();
+        Err(lines.join("\n"))
     }
-    let mut errors = Vec::new();
+}
+
+/// Delete items; returns those that couldn't be deleted, each with why.
+pub fn delete_each(paths: &[PathBuf], to_trash: bool) -> Vec<(PathBuf, String)> {
+    if to_trash {
+        let Err(all) = trash::delete_all(paths) else {
+            return Vec::new();
+        };
+        // Find out which of them failed, and why.
+        let mut failed: Vec<(PathBuf, String)> = paths
+            .iter()
+            .filter(|p| fs::symlink_metadata(p).is_ok())
+            .filter_map(|p| trash::delete(p).err().map(|e| (p.clone(), e.to_string())))
+            .collect();
+        if failed.is_empty() && paths.iter().any(|p| fs::symlink_metadata(p).is_ok()) {
+            failed.push((paths[0].clone(), all.to_string()));
+        }
+        return failed;
+    }
+    let mut failed = Vec::new();
     for p in paths {
         let result = match fs::symlink_metadata(p) {
             Ok(m) if m.is_dir() => fs::remove_dir_all(p),
@@ -167,14 +193,10 @@ pub fn delete(paths: &[PathBuf], to_trash: bool) -> Result<(), String> {
             Err(e) => Err(e),
         };
         if let Err(e) = result {
-            errors.push(format!("{}: {e}", p.display()));
+            failed.push((p.clone(), e.to_string()));
         }
     }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors.join("\n"))
-    }
+    failed
 }
 
 /// Remove a file, clearing the read-only flag first if needed.

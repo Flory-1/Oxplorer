@@ -1,8 +1,9 @@
 //! Folder sizes for the Size column, computed in the background.
 //!
 //! One worker walks the requested folders, one after another (easy on
-//! HDDs). Every sub-folder it passes is cached too, so opening a folder
-//! whose parent was measured shows its sizes at once. Cached values are
+//! HDDs). The sub-folders it passes near the top are cached too, so opening
+//! a folder whose parent was measured shows its sizes at once (deeper ones
+//! aren't: a walk of a whole drive would keep every folder in memory). Cached values are
 //! reused while fresh and shown (while being refreshed) when older.
 
 use std::collections::{HashMap, VecDeque};
@@ -16,7 +17,9 @@ use std::time::{Duration, Instant};
 /// Values younger than this are not measured again.
 const FRESH: Duration = Duration::from_secs(10 * 60);
 /// Drop the cache when it grows beyond this many folders.
-const MAX_CACHED: usize = 500_000;
+const MAX_CACHED: usize = 100_000;
+/// Sub-folders cached below a requested folder (1 = its children).
+const CACHE_DEPTH: usize = 2;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DirSize {
@@ -175,7 +178,7 @@ impl Inner {
                     q = self.wake.wait(q).unwrap();
                 }
             };
-            if self.walk(&dir).is_some() {
+            if self.walk(&dir, 0).is_some() {
                 self.version.fetch_add(1, Ordering::Relaxed);
                 (self.notify)();
             }
@@ -191,7 +194,7 @@ impl Inner {
     }
 
     /// Size of `dir`, or `None` if the walk was cancelled.
-    fn walk(&self, dir: &Path) -> Option<DirSize> {
+    fn walk(&self, dir: &Path, depth: usize) -> Option<DirSize> {
         if self.cancel.load(Ordering::Relaxed) {
             return None;
         }
@@ -206,7 +209,7 @@ impl Inner {
                 // junctions are neither counted nor entered.
                 if ft.is_dir() {
                     total.folders += 1;
-                    total += self.walk(&item.path())?;
+                    total += self.walk(&item.path(), depth + 1)?;
                 } else if ft.is_file() {
                     if let Ok(m) = item.metadata() {
                         total.files += 1;
@@ -215,11 +218,13 @@ impl Inner {
                 }
             }
         }
-        let mut cache = self.cache.lock().unwrap();
-        if cache.len() >= MAX_CACHED {
-            cache.clear();
+        if depth <= CACHE_DEPTH {
+            let mut cache = self.cache.lock().unwrap();
+            if cache.len() >= MAX_CACHED {
+                cache.clear();
+            }
+            cache.insert(dir.to_path_buf(), (total, Instant::now()));
         }
-        cache.insert(dir.to_path_buf(), (total, Instant::now()));
         Some(total)
     }
 }

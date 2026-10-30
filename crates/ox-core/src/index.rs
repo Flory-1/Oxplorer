@@ -391,6 +391,45 @@ impl FileIndex {
         })
     }
 
+    /// How many items a query over `within` (all of the index if `None`)
+    /// looks at: what a search there reports as scanned.
+    pub fn count_within(&self, within: Option<&Path>, include_hidden: bool) -> usize {
+        let Some(path) = within else {
+            return self.len();
+        };
+        let Some(dir) = self.find_dir(path) else {
+            return 0;
+        };
+        let skip = if include_hidden {
+            F_DELETED
+        } else {
+            F_DELETED | F_HIDDEN
+        };
+        let chunk = self.entries.len().div_ceil(threads(0)).max(1);
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = self
+                .entries
+                .chunks(chunk)
+                .enumerate()
+                .map(|(c, entries)| {
+                    scope.spawn(move || {
+                        let base = c * chunk;
+                        entries
+                            .iter()
+                            .enumerate()
+                            .filter(|(k, e)| {
+                                e.parent != NO_PARENT
+                                    && e.flags & skip == 0
+                                    && self.is_inside((base + k) as u32, dir)
+                            })
+                            .count()
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).sum()
+        })
+    }
+
     fn is_inside(&self, mut i: u32, ancestor: u32) -> bool {
         while i != NO_PARENT {
             i = self.entries[i as usize].parent;
@@ -536,7 +575,9 @@ impl FileIndex {
             if len > limit {
                 return Err(bad("length out of range"));
             }
-            let mut v = Vec::new();
+            // Exactly as big as needed: growing while reading would leave up
+            // to twice the names' size reserved for as long as the index lives.
+            let mut v = Vec::with_capacity(len as usize);
             r.take(len).read_to_end(&mut v)?;
             if v.len() as u64 != len {
                 return Err(bad("truncated"));
@@ -758,6 +799,11 @@ mod tests {
             names(&idx, "*", &within),
             vec!["Taxes 2026", "notes.txt", "receipt.pdf"]
         );
+        // A search in a folder reports that folder's items as scanned.
+        let documents = dir.path().join("Documents");
+        assert_eq!(idx.count_within(Some(&documents), false), 3);
+        assert_eq!(idx.count_within(None, false), idx.len());
+        assert_eq!(idx.count_within(Some(&dir.path().join("nope")), false), 0);
 
         // Searching in an indexed root itself (e.g. the home folder).
         let in_root = IndexQuery {

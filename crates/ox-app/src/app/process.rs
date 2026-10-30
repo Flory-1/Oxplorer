@@ -154,21 +154,15 @@ impl OxApp {
             }
             Action::DeleteConfirmed(paths, permanent) => {
                 let to_trash = !permanent && self.settings.browsing.delete_to_trash;
-                let dir = paths
-                    .first()
-                    .and_then(|p| p.parent())
-                    .map(Path::to_path_buf);
-                let undo = self.undo.recorder();
-                self.run_background(tr("Delete"), dir, move || {
-                    let since = ox_core::undo::now();
-                    let result = fsops::delete(&paths, to_trash);
-                    if to_trash {
-                        undo.trashed(&paths, since);
-                    }
-                    result
-                });
+                self.delete_in_background(paths, to_trash, Vec::new());
                 self.tabs.active_mut().view.clear_selection();
             }
+            Action::RetryDelete {
+                paths,
+                to_trash,
+                end,
+            } => self.delete_in_background(paths, to_trash, end),
+            Action::DeleteAsAdmin(paths) => self.delete_as_admin(paths),
             Action::Rename(path) => {
                 let text = entry::display_name(&path);
                 self.dialog = Some(Dialog::Rename {
@@ -425,6 +419,9 @@ impl OxApp {
                 })
             }
             Action::Git(a) => self.git_action(a),
+            Action::OpenTerminal(dir) if !self.settings.terminal.external => {
+                self.open_terminal_panel(dir)
+            }
             Action::OpenTerminal(dir) => {
                 if let Err(e) = fsops::open_terminal(&dir) {
                     self.toast(ox_core::trf!("Couldn't open a terminal: {e}", e = e));
@@ -554,19 +551,7 @@ impl OxApp {
                 }
                 self.tabs.active_mut().view.clear_selection();
             }
-            Action::MoveToBin(paths) => {
-                let dir = paths
-                    .first()
-                    .and_then(|p| p.parent())
-                    .map(Path::to_path_buf);
-                let undo = self.undo.recorder();
-                self.run_background(tr("Move to Recycle Bin"), dir, move || {
-                    let since = ox_core::undo::now();
-                    let result = fsops::delete(&paths, true);
-                    undo.trashed(&paths, since);
-                    result
-                });
-            }
+            Action::MoveToBin(paths) => self.delete_in_background(paths, true, Vec::new()),
         }
     }
 

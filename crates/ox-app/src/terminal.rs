@@ -51,6 +51,8 @@ pub struct Terminal {
     pub title: String,
     /// Is the shell `cmd.exe` (it needs `cd /d` to change drives)?
     is_cmd: bool,
+    /// Take the keyboard focus on the next frame.
+    pub focus_next: bool,
 }
 
 /// The command for `shell` ("" = the system's default shell).
@@ -119,6 +121,7 @@ impl Terminal {
             size: (cols, lines),
             scroll_rest: 0.0,
             exited: false,
+            focus_next: false,
             title: String::new(),
             is_cmd,
         })
@@ -175,7 +178,7 @@ impl Terminal {
 
         let id = egui::Id::unique("terminal_view");
         let resp = ui.interact(rect, id, Sense::click());
-        if resp.clicked() {
+        if resp.clicked() || std::mem::take(&mut self.focus_next) {
             resp.request_focus();
         }
         let focused = resp.has_focus();

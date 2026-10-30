@@ -368,7 +368,11 @@ impl Default for Search {
 pub struct Sidebar {
     pub visible: bool,
     pub show_favorites: bool,
-    pub show_drives: bool,
+    /// The drives (and WSL) under "This PC".
+    #[serde(alias = "show_drives")]
+    pub show_this_pc: bool,
+    pub show_network: bool,
+    pub show_remote: bool,
     pub show_recent: bool,
     pub recent_count: usize,
     /// The Gallery and the Windows libraries (Documents, Music, …).
@@ -380,7 +384,9 @@ impl Default for Sidebar {
         Self {
             visible: true,
             show_favorites: true,
-            show_drives: true,
+            show_this_pc: true,
+            show_network: true,
+            show_remote: true,
             show_recent: true,
             recent_count: 8,
             show_libraries: true,
@@ -523,6 +529,9 @@ pub struct Terminal {
     pub shell: String,
     /// `cd` into the folder whenever the active tab changes folder.
     pub follow_folder: bool,
+    /// "Open in Terminal" opens a terminal window of its own (Windows
+    /// Terminal) instead of the built-in panel.
+    pub external: bool,
 }
 
 impl Settings {
