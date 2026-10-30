@@ -19,6 +19,8 @@ pub(super) fn item_interact(
                 view.toggle(i);
             } else if m.shift {
                 view.select_range(i, false);
+            } else if click_deselects(view, e, resp) {
+                view.toggle(i);
             } else {
                 view.select_only(i);
             }
@@ -33,6 +35,8 @@ pub(super) fn item_interact(
             view.toggle(i);
         } else if m.shift {
             view.select_range(i, false);
+        } else if !cx.single_click && click_deselects(view, e, resp) {
+            view.toggle(i);
         } else {
             view.select_only(i);
             if cx.single_click {
@@ -63,6 +67,12 @@ pub(super) fn item_interact(
     } else {
         false
     }
+}
+
+/// Clicking the only selected item again selects nothing (the second click
+/// of a double-click opens it instead).
+fn click_deselects(view: &FolderView, e: &FileEntry, resp: &Response) -> bool {
+    !resp.double_clicked() && view.selection.len() == 1 && view.selection.contains(&e.path)
 }
 
 /// A search result found inside an archive (`archives:yes`): read-only, like

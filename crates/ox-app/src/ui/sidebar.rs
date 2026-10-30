@@ -21,58 +21,6 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let current = app.tabs.active().location().clone();
     let accent = crate::theme::accent(&app.settings);
 
-    // Recycle Bin and Settings stay pinned at the bottom of the sidebar.
-    egui::Panel::bottom("sidebar_bottom")
-        .resizable(false)
-        .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(0, 6)))
-        .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 1.0;
-            if ox_core::recycle::supported() {
-                let bin = item(
-                    ui,
-                    Icon::Glyph("🗑"),
-                    tr("Recycle Bin"),
-                    None,
-                    current == Location::RecycleBin,
-                    accent,
-                )
-                .on_hover_text(tr("Drop files here to move them to the Recycle Bin"));
-                if bin.clicked() {
-                    actions.push(Action::Navigate(Location::RecycleBin));
-                }
-                if bin.middle_clicked() {
-                    actions.push(Action::OpenInNewTab(Location::RecycleBin, false));
-                }
-                let hovering = bin.dnd_hover_payload::<super::DragItems>().is_some();
-                if let Some(items) = bin.dnd_release_payload::<super::DragItems>() {
-                    actions.push(Action::MoveToBin(items.0.clone()));
-                }
-                highlight_drop(ui, &bin, hovering, accent);
-            }
-            let settings = item(
-                ui,
-                Icon::Glyph("⚙"),
-                tr("Settings"),
-                None,
-                current == Location::Settings,
-                accent,
-            );
-            if settings.clicked() {
-                actions.push(Action::OpenInNewTab(Location::Settings, true));
-            }
-            let help = item(
-                ui,
-                Icon::Glyph("❓"),
-                tr("Help"),
-                None,
-                current == Location::Help,
-                accent,
-            );
-            if help.clicked() {
-                actions.push(Action::OpenInNewTab(Location::Help, true));
-            }
-        });
-
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
@@ -121,7 +69,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
 
             libraries::show(app, ui, &current, accent, &mut actions);
 
-            if app.settings.sidebar.show_drives {
+            if app.settings.sidebar.show_this_pc {
                 section(ui, tr("This PC"));
                 for drive in app.drives().to_vec() {
                     let selected = current.folder() == Some(drive.mount.as_path());
@@ -170,7 +118,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             remote::show(app, ui, &current, accent, &mut actions);
 
             let servers = network_servers(app);
-            if app.settings.sidebar.show_drives && !servers.is_empty() {
+            if app.settings.sidebar.show_network && !servers.is_empty() {
                 section(ui, tr("Network"));
                 for server in servers {
                     let selected = current.folder() == Some(server.as_path());

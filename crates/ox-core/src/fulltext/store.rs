@@ -227,6 +227,16 @@ impl Store {
         }
     }
 
+    /// Give back the room the word lists grew into while indexing.
+    pub fn shrink(&mut self) {
+        for p in self.words.values_mut() {
+            p.data.shrink_to_fit();
+        }
+        self.words.shrink_to_fit();
+        self.by_path.shrink_to_fit();
+        self.files.shrink_to_fit();
+    }
+
     /// Drop the dead numbers: files and word lists are rebuilt.
     pub fn compact(&mut self) {
         let mut map = vec![u32::MAX; self.files.len()];
@@ -391,7 +401,9 @@ impl Store {
                 alive: true,
             });
         }
-        for _ in 0..get_varint(rest, &mut pos)? {
+        let words = get_varint(rest, &mut pos)? as usize;
+        s.words.reserve(words.min(1 << 24));
+        for _ in 0..words {
             let word = get_str(rest, &mut pos)?;
             let len = u32::try_from(get_varint(rest, &mut pos)?).ok()?;
             let last = u32::try_from(get_varint(rest, &mut pos)?).ok()?;

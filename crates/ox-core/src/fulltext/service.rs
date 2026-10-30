@@ -349,6 +349,7 @@ fn pass(shared: &Shared, cfg: &FullTextConfig) -> bool {
         store.roots = cfg.folders.clone();
         store.complete = true;
         store.compact_if_needed();
+        store.shrink();
     }
     !stopped
 }

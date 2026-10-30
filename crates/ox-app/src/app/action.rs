@@ -31,6 +31,15 @@ pub enum Action {
     Drop(Vec<PathBuf>, PathBuf),
     Delete(Vec<PathBuf>, bool),
     DeleteConfirmed(Vec<PathBuf>, bool),
+    /// Delete again (after the "Couldn't delete" dialog), ending the
+    /// programs with these process ids first.
+    RetryDelete {
+        paths: Vec<PathBuf>,
+        to_trash: bool,
+        end: Vec<u32>,
+    },
+    /// Delete permanently with administrator rights.
+    DeleteAsAdmin(Vec<PathBuf>),
     Rename(PathBuf),
     /// Rename several items at once with a pattern.
     BulkRename(Vec<PathBuf>),

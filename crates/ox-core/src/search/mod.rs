@@ -154,16 +154,20 @@ pub fn start_indexed(
     let handle = SearchHandle {
         events: rx,
         cancel: cancel.clone(),
-        scanned: Arc::new(AtomicU64::new(index.len() as u64)),
+        scanned: Arc::new(AtomicU64::new(0)),
         text_index: Arc::new(AtomicBool::new(false)),
     };
     let text_index = handle.text_index.clone();
+    let scanned = handle.scanned.clone();
     let mut query = query;
     std::thread::Builder::new()
         .name("search-index".into())
         .spawn(move || {
             let started = Instant::now();
             let roots: Vec<PathBuf> = within.iter().cloned().collect();
+            // What is searched: the folder's items, not the whole index.
+            let total = index.count_within(within.as_deref(), opts.include_hidden);
+            scanned.store(total as u64, Ordering::Relaxed);
             text_index.store(query.resolve_text_index(&roots), Ordering::Relaxed);
             let (ids, truncated) = index.search(
                 &query,
@@ -183,7 +187,7 @@ pub fn start_indexed(
             }
             let _ = tx.send(SearchEvent::Done {
                 elapsed: started.elapsed(),
-                scanned: index.len() as u64,
+                scanned: scanned.load(Ordering::Relaxed),
                 truncated,
                 from_index: true,
             });

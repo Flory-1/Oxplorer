@@ -13,7 +13,7 @@ pub(super) fn show(
     actions: &mut Vec<Action>,
 ) {
     let places = &app.settings.remote.0;
-    if !app.settings.sidebar.show_drives && places.is_empty() {
+    if !app.settings.sidebar.show_remote {
         return;
     }
     section(ui, tr("Remote locations"));

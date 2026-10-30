@@ -5,6 +5,11 @@ use super::*;
 
 impl OxApp {
     pub(super) fn load_active_tab(&mut self) {
+        // Hold on to the index only when needed: a live update has to copy
+        // all of it while anyone else holds it.
+        if !self.tabs.active().stale {
+            return;
+        }
         let show_hidden = self.settings.browsing.show_hidden;
         let ctx = self.ctx.clone();
         let search_opts = SearchOptions {

@@ -69,7 +69,8 @@ const TOPICS: &[Topic] = &[
             "The first tab is always Home: your favorites, drives and recently used folders \
              and files. What you open from it opens in a new tab, so Home stays one click away.",
             "The sidebar has Favorites, This PC, Network, Recent, Tags and Saved searches. \
-             Recycle Bin, Settings and Help are at the bottom.",
+             Search, Recycle Bin, Help and Settings are buttons at the right end of the \
+             command bar.",
             "Click a folder name in the address bar to go there, or the › next to it to pick \
              a sub-folder. Click the empty part of the bar to type a path; %USERPROFILE% and ~ \
              work.",
@@ -359,8 +360,10 @@ const TOPICS: &[Topic] = &[
         title: "Recycle Bin",
         blocks: &[Text(
             "Delete moves items to the Recycle Bin; Shift+Delete deletes them for good. Open \
-             the Recycle Bin from the sidebar to restore items or empty it. Drop files on it \
-             to delete them.",
+             the Recycle Bin with its button at the right of the command bar to restore items \
+             or empty it. Drop files on that button to delete them. When something can't be \
+             deleted, a dialog shows exactly why: which programs have it open (with a button \
+             to end them and delete again) or that it needs administrator rights.",
         )],
     },
     Topic {

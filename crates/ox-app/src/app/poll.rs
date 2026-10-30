@@ -92,6 +92,10 @@ impl OxApp {
                     self.ctx.copy_text(text);
                     self.toast(toast);
                 }
+                Notice::DeleteFailed(failed, dir) => {
+                    self.mark_changed(dir.as_deref());
+                    self.dialog = Some(Dialog::DeleteFailed(failed));
+                }
                 Notice::Changed(folders, toast) => {
                     for f in &folders {
                         self.mark_changed(Some(f));

@@ -36,6 +36,7 @@ pub mod index;
 pub mod instance;
 pub mod library;
 pub mod links;
+pub mod locks;
 pub mod logfile;
 pub mod mirror;
 pub mod natural;

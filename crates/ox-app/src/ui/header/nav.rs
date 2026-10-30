@@ -153,83 +153,92 @@ fn address_bar(app: &mut OxApp, ui: &mut Ui, actions: &mut Vec<Action>) -> Rect 
             Location::Tagged(c) => app.tags.label(*c).to_owned(),
             _ => String::new(),
         };
-        ui.horizontal_centered(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            match &location {
-                Location::Tagged(_) => {
-                    ui.label(ox_core::trf!(
-                        "🏷  Items tagged \"{tag_label}\"",
-                        tag_label = tag_label
-                    ));
-                }
-                Location::Folder(p) => breadcrumbs(ui, p, actions),
-                Location::Remote(a) => crate::ui::remote::crumbs(ui, a, actions),
-                Location::Home => {
-                    ui.label(ox_core::trf!("{v1}  Home", v1 = crate::icons::HOME));
-                }
-                Location::Settings => {
-                    ui.label(tr("⚙  Settings"));
-                }
-                Location::Help => {
-                    ui.label(tr("❓  Help"));
-                }
-                Location::RecycleBin => {
-                    ui.label(tr("🗑  Recycle Bin"));
-                }
-                Location::Library { name, .. } => {
-                    ui.label(format!("📚  {name}"));
-                }
-                Location::Gallery => {
-                    ui.label(tr("🎞  Gallery"));
-                }
-                Location::DiskUsage(p) => {
-                    ui.label(ox_core::trf!("🖴  Disk usage of {path}", path = p.display()));
-                }
-                Location::Archive { archive, inner } => {
-                    if let Some(parent) = archive.parent() {
-                        breadcrumbs(ui, parent, actions);
+        // A long path scrolls inside the bar (by mouse wheel, without a
+        // scroll bar) instead of pushing the search box away; it shows the
+        // end, where the current folder is.
+        egui::ScrollArea::horizontal()
+            .id_salt("address_crumbs")
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .stick_to_right(true)
+            .show(ui, |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    match &location {
+                        Location::Tagged(_) => {
+                            ui.label(ox_core::trf!(
+                                "🏷  Items tagged \"{tag_label}\"",
+                                tag_label = tag_label
+                            ));
+                        }
+                        Location::Folder(p) => breadcrumbs(ui, p, actions),
+                        Location::Remote(a) => crate::ui::remote::crumbs(ui, a, actions),
+                        Location::Home => {
+                            ui.label(ox_core::trf!("{v1}  Home", v1 = crate::icons::HOME));
+                        }
+                        Location::Settings => {
+                            ui.label(tr("⚙  Settings"));
+                        }
+                        Location::Help => {
+                            ui.label(tr("❓  Help"));
+                        }
+                        Location::RecycleBin => {
+                            ui.label(tr("🗑  Recycle Bin"));
+                        }
+                        Location::Library { name, .. } => {
+                            ui.label(format!("📚  {name}"));
+                        }
+                        Location::Gallery => {
+                            ui.label(tr("🎞  Gallery"));
+                        }
+                        Location::DiskUsage(p) => {
+                            ui.label(ox_core::trf!("🖴  Disk usage of {path}", path = p.display()));
+                        }
+                        Location::Archive { archive, inner } => {
+                            if let Some(parent) = archive.parent() {
+                                breadcrumbs(ui, parent, actions);
+                            }
+                            archive_crumbs(ui, archive, inner, actions);
+                        }
+                        Location::Cleanup { root, mode } => {
+                            let icon = Location::cleanup_icon(*mode);
+                            let place = root.display();
+                            ui.label(match mode {
+                                ox_core::cleanup::CleanupMode::Duplicates => ox_core::trf!(
+                                    "{icon}  Duplicates in {place}",
+                                    icon = icon,
+                                    place = place
+                                ),
+                                ox_core::cleanup::CleanupMode::EmptyFolders => ox_core::trf!(
+                                    "{icon}  Empty folders in {place}",
+                                    icon = icon,
+                                    place = place
+                                ),
+                            });
+                        }
+                        Location::Search { root, query } => {
+                            let place = root
+                                .as_deref()
+                                .map(|r| app.search_place(r))
+                                .unwrap_or_else(|| tr("This PC").into());
+                            ui.label(ox_core::trf!(
+                                "🔍  Search results for \"{query}\" in {place}",
+                                query = query,
+                                place = place
+                            ));
+                        }
                     }
-                    archive_crumbs(ui, archive, inner, actions);
-                }
-                Location::Cleanup { root, mode } => {
-                    let icon = Location::cleanup_icon(*mode);
-                    let place = root.display();
-                    ui.label(match mode {
-                        ox_core::cleanup::CleanupMode::Duplicates => ox_core::trf!(
-                            "{icon}  Duplicates in {place}",
-                            icon = icon,
-                            place = place
-                        ),
-                        ox_core::cleanup::CleanupMode::EmptyFolders => ox_core::trf!(
-                            "{icon}  Empty folders in {place}",
-                            icon = icon,
-                            place = place
-                        ),
-                    });
-                }
-                Location::Search { root, query } => {
-                    let place = root
-                        .as_deref()
-                        .map(|r| app.search_place(r))
-                        .unwrap_or_else(|| tr("This PC").into());
-                    ui.label(ox_core::trf!(
-                        "🔍  Search results for \"{query}\" in {place}",
-                        query = query,
-                        place = place
-                    ));
-                }
-            }
-            // Clicking the empty part of the bar switches to text editing.
-            let rest = ui.available_size();
-            if ui
-                .allocate_response(rest, Sense::click())
-                .on_hover_cursor(egui::CursorIcon::Text)
-                .clicked()
-            {
-                app.ui.address_editing = true;
-                app.ui.focus_address = true;
-            }
-        });
+                    // Clicking the empty part of the bar switches to text editing.
+                    let rest = ui.available_size();
+                    if ui
+                        .allocate_response(rest, Sense::click())
+                        .on_hover_cursor(egui::CursorIcon::Text)
+                        .clicked()
+                    {
+                        app.ui.address_editing = true;
+                        app.ui.focus_address = true;
+                    }
+                });
+            });
     });
     field.response.rect
 }

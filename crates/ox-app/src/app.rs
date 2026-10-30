@@ -9,6 +9,7 @@ mod cleanup;
 mod cloud;
 mod commands;
 mod compare;
+mod delete;
 mod disk_usage;
 mod flat;
 mod fulltext;
@@ -120,6 +121,8 @@ pub enum Dialog {
     },
     /// Convert or resize pictures.
     Pictures(Box<crate::ui::picture_tools::PictureDialog>),
+    /// Items that couldn't be deleted, and why.
+    DeleteFailed(Box<crate::ui::delete_failed::DeleteFailed>),
 }
 
 /// A file operation running on a helper thread (label, result, folder to refresh).
@@ -284,6 +287,8 @@ pub enum Notice {
     Copy(String, String),
     /// These folders changed: list them again, and show the text if any.
     Changed(Vec<PathBuf>, Option<String>),
+    /// Items couldn't be deleted (the folder they were in changed anyway).
+    DeleteFailed(Box<crate::ui::delete_failed::DeleteFailed>, Option<PathBuf>),
 }
 
 impl OxApp {
@@ -547,6 +552,10 @@ impl OxApp {
     /// tabs showing `dir` (all tabs if `None`) are refreshed.
     fn start_terminal(&mut self) {
         let dir = crate::terminal::start_dir(self.current_folder().as_deref());
+        self.start_terminal_in(dir);
+    }
+
+    fn start_terminal_in(&mut self, dir: PathBuf) {
         match crate::terminal::Terminal::spawn(&self.ctx, &dir, &self.settings.terminal.shell) {
             Ok(t) => {
                 self.terminal = Some(t);
@@ -556,6 +565,22 @@ impl OxApp {
                 self.terminal = None;
                 self.toast(ox_core::trf!("Couldn't start the shell: {e}", e = e));
             }
+        }
+    }
+
+    /// "Open in Terminal" with the built-in panel: show it, in `dir`.
+    fn open_terminal_panel(&mut self, dir: PathBuf) {
+        self.ui.show_terminal = true;
+        match self.terminal.as_ref().filter(|t| !t.exited) {
+            Some(t) if self.terminal_dir.as_ref() != Some(&dir) => {
+                t.cd(&dir);
+                self.terminal_dir = Some(dir);
+            }
+            Some(_) => {}
+            None => self.start_terminal_in(dir),
+        }
+        if let Some(t) = &mut self.terminal {
+            t.focus_next = true;
         }
     }
 

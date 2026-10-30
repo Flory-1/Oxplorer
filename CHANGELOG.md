@@ -5,6 +5,35 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+### Added
+- **Why something can't be deleted**: instead of a short message, a dialog shows the exact
+  error for each item, which programs have it (or files inside it) open with their process
+  ID, a button to end such a program and delete again, *Delete as administrator* for
+  protected folders, and *Copy details*.
+- **Search, Recycle Bin, Help and Settings buttons** at the right of the command bar. The
+  Recycle Bin button takes dropped files like the sidebar entry did.
+- Settings → Sidebar: show or hide *This PC*, *Network* and *Remote locations* separately
+  (instead of one *Drives* switch).
+- Settings → Terminal panel: *Open in Terminal uses a separate window*, for Windows Terminal.
+
+### Changed
+- *Open in Terminal* opens the built-in terminal panel in that folder (turn on the new
+  setting for Windows Terminal).
+- Recycle Bin, Settings and Help are no longer pinned to the bottom of the sidebar (they are
+  in the command bar).
+- Clicking the only selected item again deselects it.
+- A long path scrolls inside the address bar (with the mouse wheel) instead of pushing the
+  search box and the preview pane out of the window.
+- Less memory: the file index no longer keeps unused room after loading (about a third less
+  for a whole drive), folder sizes only remember the folders near the ones you look at, and
+  the text index gives back unused room after indexing.
+
+### Fixed
+- A search in a folder answered from the index said it went through all items of the index
+  (e.g. "2,300,202 items"); it now counts the items in that folder.
+- Mapped network drives that Windows hadn't connected again yet (after signing in) were
+  missing from This PC; they are listed and connected when opened, like in Explorer.
+
 ## [1.1.0] - 2026-10-29
 
 ### Added

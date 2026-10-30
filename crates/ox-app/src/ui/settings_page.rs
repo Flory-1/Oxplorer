@@ -425,6 +425,12 @@ fn browsing(ui: &mut Ui, s: &mut Settings) {
         tr("Follow the current folder"),
         tr("Change the terminal's folder whenever you open another folder."),
     );
+    toggle(
+        ui,
+        &mut t.external,
+        tr("Open in Terminal uses a separate window"),
+        tr("Open Windows Terminal instead of the built-in terminal panel."),
+    );
 }
 
 fn startup(ui: &mut Ui, s: &mut Settings) {
@@ -500,7 +506,9 @@ fn sidebar(ui: &mut Ui, s: &mut Settings) {
     let sb = &mut s.sidebar;
     toggle(ui, &mut sb.visible, tr("Show sidebar"), "");
     toggle(ui, &mut sb.show_favorites, tr("Favorites section"), "");
-    toggle(ui, &mut sb.show_drives, tr("Drives section"), "");
+    toggle(ui, &mut sb.show_this_pc, tr("This PC section"), "");
+    toggle(ui, &mut sb.show_network, tr("Network section"), "");
+    toggle(ui, &mut sb.show_remote, tr("Remote locations section"), "");
     toggle(ui, &mut sb.show_recent, tr("Recent folders section"), "");
     toggle(
         ui,
