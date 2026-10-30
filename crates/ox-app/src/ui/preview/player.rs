@@ -181,6 +181,7 @@ fn seek_bar(ui: &mut Ui, state: &mut PlayerState, st: &ox_core::player::Status) 
             total > 0.0,
             egui::Slider::new(&mut pos, 0.0..=total.max(0.01)).show_value(false),
         );
+        keep_moving(ui, &resp, total, st.playing);
         if resp.dragged() {
             pb.dragging = Some(pos);
         } else if resp.drag_stopped() || resp.changed() {
@@ -192,6 +193,18 @@ fn seek_bar(ui: &mut Ui, state: &mut PlayerState, st: &ox_core::player::Status) 
     if let Some(to) = seek {
         state.with_player(|p| p.seek(to));
     }
+}
+
+/// While playing, draw again as soon as the seek bar's knob has moved about a
+/// pixel, so it glides instead of jumping (at most 60 times a second).
+pub(crate) fn keep_moving(ui: &Ui, bar: &egui::Response, total: f32, playing: bool) {
+    let width = bar.rect.width();
+    if !playing || total <= 0.0 || width < 1.0 {
+        return;
+    }
+    let per_pixel = (total / width).clamp(1.0 / 60.0, 0.25);
+    ui.ctx()
+        .request_repaint_after(Duration::from_secs_f32(per_pixel));
 }
 
 fn big(text: &str) -> egui::Button<'_> {

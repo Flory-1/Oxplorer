@@ -5,6 +5,8 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-30
+
 ### Added
 - **Why something can't be deleted**: instead of a short message, a dialog shows the exact
   error for each item, which programs have it (or files inside it) open with their process
@@ -27,6 +29,9 @@ The release workflow publishes the section of the tagged version as the release 
 - Less memory: the file index no longer keeps unused room after loading (about a third less
   for a whole drive), folder sizes only remember the folders near the ones you look at, and
   the text index gives back unused room after indexing.
+- New app icon: a white folder without a background, like the taskbar icons of other apps.
+- Less drawing while nothing happens: the drive index and the text index no longer wake the
+  window for every change they pick up.
 
 ### Fixed
 - A search in a folder answered from the index said it went through all items of the index
@@ -38,6 +43,8 @@ The release workflow publishes the section of the tagged version as the release 
   started again after a pause. `WGPU_BACKEND` still overrides it.
 - Typing just a drive (`C:`) in the address bar opened the folder Oxplorer was started in on
   that drive instead of the drive itself.
+- The seek bar of the media player (preview and mini player) jumped forward in steps while
+  playing; it now moves smoothly.
 
 ## [1.1.0] - 2026-10-29
 

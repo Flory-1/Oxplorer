@@ -15,7 +15,7 @@ mod info;
 mod large;
 mod load;
 mod picture;
-mod player;
+pub(crate) mod player;
 mod table;
 mod tree;
 use font::*;

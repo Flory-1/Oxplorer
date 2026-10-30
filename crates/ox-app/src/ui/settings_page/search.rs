@@ -277,6 +277,9 @@ fn live_status(ui: &mut Ui, index: &ox_core::index::IndexService, idx: &ox_core:
             ));
         }
         ui.label(RichText::new(text).weak());
+        // The live updates don't wake the window; keep the count current.
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs(1));
     }
     // Whole drives were walked although reading the MFT would be much faster.
     let drives = idx.roots().iter().any(|r| r.parent().is_none());
