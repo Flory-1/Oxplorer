@@ -33,6 +33,11 @@ The release workflow publishes the section of the tagged version as the release 
   (e.g. "2,300,202 items"); it now counts the items in that folder.
 - Mapped network drives that Windows hadn't connected again yet (after signing in) were
   missing from This PC; they are listed and connected when opened, like in Explorer.
+- The window flickered (a blank frame now and then, most visible while scrolling): on Windows
+  Oxplorer now draws with DirectX 12 instead of Vulkan, which showed empty frames when drawing
+  started again after a pause. `WGPU_BACKEND` still overrides it.
+- Typing just a drive (`C:`) in the address bar opened the folder Oxplorer was started in on
+  that drive instead of the drive itself.
 
 ## [1.1.0] - 2026-10-29
 

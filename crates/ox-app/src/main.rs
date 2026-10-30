@@ -99,6 +99,16 @@ fn main() -> eframe::Result {
     if backdrop {
         options.renderer = eframe::Renderer::Glow;
     }
+    // wgpu would pick Vulkan, which (seen with Intel graphics) shows a blank
+    // frame now and then when drawing starts after a pause: the window
+    // flickers. DirectX 12 doesn't. `WGPU_BACKEND` still overrides it.
+    #[cfg(windows)]
+    if std::env::var_os("WGPU_BACKEND").is_none() {
+        if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut options.wgpu_options.wgpu_setup
+        {
+            setup.instance_descriptor.backends = eframe::wgpu::Backends::DX12;
+        }
+    }
     eframe::run_native(
         ox_core::APP_NAME,
         options,
