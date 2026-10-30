@@ -34,6 +34,11 @@ fn expand_with(text: &str, var: &dyn Fn(&str) -> Option<String>) -> String {
             None => from = start + len + 2,
         }
     }
+    // A bare drive ("C:") is its root, as in Explorer, not the folder the
+    // program happens to be in on that drive.
+    if out.len() == 2 && out.as_bytes()[0].is_ascii_alphabetic() && out.ends_with(':') {
+        out.push('\\');
+    }
     out
 }
 
@@ -191,6 +196,10 @@ mod tests {
         assert_eq!(expand_with(r"~\a", &var), format!(r"{home}\a"));
         // Not a home folder: a name that starts with ~.
         assert_eq!(expand_with("~draft", &var), "~draft");
+        // A bare drive is its root.
+        assert_eq!(expand_with("d:", &var), r"d:\");
+        assert_eq!(expand_with(r"C:\", &var), r"C:\");
+        assert_eq!(expand_with("C:x", &var), "C:x");
     }
 
     #[test]
