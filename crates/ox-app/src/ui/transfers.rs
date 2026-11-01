@@ -1,6 +1,7 @@
 //! The transfer panel: replaces the Windows copy dialog.
 
 mod ask;
+pub mod deletes;
 mod queue;
 mod when_done;
 pub use when_done::countdown;
@@ -54,6 +55,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         .auto_shrink([false, false])
         .show(ui, |ui| {
             resume::interrupted(app, ui);
+            deletes::rows(app, ui, accent);
             for (job, place) in &rows {
                 job_row(
                     ui,

@@ -154,14 +154,14 @@ impl OxApp {
             }
             Action::DeleteConfirmed(paths, permanent) => {
                 let to_trash = !permanent && self.settings.browsing.delete_to_trash;
-                self.delete_in_background(paths, to_trash, Vec::new());
+                self.start_delete(paths, to_trash, Vec::new());
                 self.tabs.active_mut().view.clear_selection();
             }
             Action::RetryDelete {
                 paths,
                 to_trash,
                 end,
-            } => self.delete_in_background(paths, to_trash, end),
+            } => self.start_delete(paths, to_trash, end),
             Action::DeleteAsAdmin(paths) => self.delete_as_admin(paths),
             Action::Rename(path) => {
                 let text = entry::display_name(&path);
@@ -551,7 +551,7 @@ impl OxApp {
                 }
                 self.tabs.active_mut().view.clear_selection();
             }
-            Action::MoveToBin(paths) => self.delete_in_background(paths, true, Vec::new()),
+            Action::MoveToBin(paths) => self.start_delete(paths, true, Vec::new()),
         }
     }
 

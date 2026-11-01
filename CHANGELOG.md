@@ -5,6 +5,19 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+### Added
+- **Delete engine**: deleting runs as a job like copying does. Deletes that take more than a
+  moment show in the transfer panel with progress, items found, space freed and the current
+  file, and can be paused or cancelled. Permanent deletes remove files in parallel on SSDs
+  (one at a time on HDDs), clear read-only flags, and remove links and junctions without
+  touching what they point to. Large selections go to the Recycle Bin in batches, so they
+  show progress too.
+
+### Changed
+- When a file inside a folder can't be deleted, the "Couldn't delete" dialog names that file
+  (and the program holding it) instead of only the folder. Everything else in the folder is
+  still deleted.
+
 ## [1.1.1] - 2026-10-30
 
 ### Added

@@ -170,6 +170,8 @@ pub struct OxApp {
     pub settings: Settings,
     pub quick: QuickAccess,
     pub engine: TransferEngine,
+    /// Deletes running as jobs (see `app/delete.rs`).
+    pub deletes: delete::Deletes,
     pub tabs: Tabs,
     pub clipboard: FileClipboard,
     pub drives: Vec<Drive>,
@@ -377,6 +379,7 @@ impl OxApp {
         self.poll_player(ctx);
         self.poll_watcher();
         self.poll_jobs();
+        self.poll_deletes();
         self.poll_undo();
         self.poll_pictures();
         self.poll_transfer_watch(ctx);
@@ -407,7 +410,7 @@ impl OxApp {
             self.handle_shortcuts(ctx);
         }
         self.toasts.retain(|t| t.until > Instant::now());
-        if !self.toasts.is_empty() || self.engine.has_active() {
+        if !self.toasts.is_empty() || self.engine.has_active() || self.deletes.engine.has_active() {
             ctx.request_repaint_after(Duration::from_millis(250));
         }
     }

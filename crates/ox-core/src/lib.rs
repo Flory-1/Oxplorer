@@ -13,6 +13,7 @@ pub mod compare;
 pub mod datatable;
 pub mod datatree;
 pub mod default_app;
+pub mod delete;
 pub mod details;
 pub mod dirsize;
 pub mod disk;

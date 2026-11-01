@@ -20,6 +20,11 @@ impl OxApp {
         let engine = TransferEngine::new(settings.transfer.engine_config());
         let repaint = ctx.clone();
         engine.set_notifier(move || repaint.request_repaint());
+        let deletes = delete::Deletes::default();
+        let repaint = ctx.clone();
+        deletes
+            .engine
+            .set_notifier(move || repaint.request_repaint());
 
         // Tabs handed over by another window, else the start page (only
         // one window restores the saved session).
@@ -53,6 +58,7 @@ impl OxApp {
             settings,
             quick,
             engine,
+            deletes,
             tabs,
             clipboard: FileClipboard::default(),
             drives: places::drives(),

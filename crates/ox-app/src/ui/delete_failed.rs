@@ -13,7 +13,10 @@ use crate::app::Action;
 
 /// Items that couldn't be deleted.
 pub struct DeleteFailed {
+    /// What failed (may be files deep inside the selected items).
     pub items: Vec<Failed>,
+    /// The selected items the failures are in: trying again deletes these.
+    pub retry: Vec<PathBuf>,
     /// They were to go to the Recycle Bin (trying again does the same).
     pub to_trash: bool,
     /// Programs that couldn't be ended.
@@ -28,7 +31,7 @@ pub struct Failed {
 
 impl DeleteFailed {
     fn paths(&self) -> Vec<PathBuf> {
-        self.items.iter().map(|i| i.path.clone()).collect()
+        self.retry.clone()
     }
 
     /// Everything the dialog says, as text for the clipboard.
