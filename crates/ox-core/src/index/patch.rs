@@ -476,6 +476,18 @@ impl FileIndex {
 
     /// Apply planned changes. Returns how many items changed.
     pub(super) fn apply(&mut self, ops: Vec<Op>) -> usize {
+        let (mut entries, mut name_bytes) = (0, 0);
+        for op in &ops {
+            match op {
+                Op::Rename { name, .. } => name_bytes += name.len(),
+                Op::Add { items, .. } => {
+                    entries += items.len();
+                    name_bytes += items.iter().map(|it| it.child.name.len()).sum::<usize>();
+                }
+                _ => {}
+            }
+        }
+        self.make_room(entries, name_bytes);
         let mut changed = 0;
         let mut removed = Vec::new();
         for op in ops {
@@ -569,6 +581,21 @@ impl FileIndex {
     }
 
     /// Enough dead records and names piled up that compacting pays off.
+    /// Room for `entries` more records and `name_bytes` more name bytes.
+    /// The buffers are large and live updates add a few items at a time, so
+    /// they grow by a little headroom: doubling would keep up to the size of
+    /// the whole index reserved and unused.
+    fn make_room(&mut self, entries: usize, name_bytes: usize) {
+        if self.entries.capacity() - self.entries.len() < entries {
+            let more = entries.max(self.entries.len() / 32);
+            self.entries.reserve_exact(more);
+        }
+        if self.names.capacity() - self.names.len() < name_bytes {
+            let more = name_bytes.max(self.names.len() / 32);
+            self.names.reserve_exact(more);
+        }
+    }
+
     pub(super) fn needs_compaction(&self) -> bool {
         self.garbage > 200_000 || (self.garbage > 1000 && self.garbage * 4 > self.entries.len())
     }

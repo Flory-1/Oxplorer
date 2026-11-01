@@ -9,11 +9,15 @@
 //! No word positions are kept: the index narrows a search down to the files
 //! that have all of its words, and the exact matcher confirms them.
 
-use std::collections::HashMap;
 use std::fs;
+use std::hash::BuildHasher;
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use hashbrown::{DefaultHashBuilder, HashTable};
+
+use super::words::{Postings, Words};
 
 /// What the index knows about a file's text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,35 +38,6 @@ pub struct FileRec {
     pub mtime: u64,
     pub text: Text,
     alive: bool,
-}
-
-/// One word's files, delta-coded.
-#[derive(Debug, Default, Clone)]
-struct Postings {
-    last: u32,
-    len: u32,
-    data: Vec<u8>,
-}
-
-impl Postings {
-    fn push(&mut self, id: u32) {
-        let delta = if self.len == 0 { id } else { id - self.last };
-        put_varint(&mut self.data, u64::from(delta));
-        self.last = id;
-        self.len += 1;
-    }
-
-    fn iter(&self) -> impl Iterator<Item = u32> + '_ {
-        let mut pos = 0;
-        let mut cur = 0u32;
-        let mut first = true;
-        std::iter::from_fn(move || {
-            let d = get_varint(&self.data, &mut pos)? as u32;
-            cur = if first { d } else { cur + d };
-            first = false;
-            Some(cur)
-        })
-    }
 }
 
 /// Modification time of `meta` as stored.
@@ -106,8 +81,11 @@ impl Bits {
 #[derive(Debug, Default)]
 pub struct Store {
     files: Vec<FileRec>,
-    by_path: HashMap<String, u32>,
-    words: HashMap<Box<str>, Postings>,
+    /// Numbers into `files` with the hash of their [`path_key`] (the keys
+    /// themselves aren't kept: they would double the memory of the paths).
+    by_path: HashTable<(u64, u32)>,
+    hasher: DefaultHashBuilder,
+    words: Words,
     dead: usize,
     /// The folders the last complete pass went through.
     pub roots: Vec<PathBuf>,
@@ -139,11 +117,25 @@ impl Store {
 
     /// Rough memory use of the word lists in bytes.
     pub fn memory_bytes(&self) -> usize {
-        self.words
-            .iter()
-            .map(|(w, p)| w.len() + p.data.capacity() + 48)
-            .sum::<usize>()
-            + self.files.len() * 96
+        self.words.memory_bytes() + self.files.len() * 80
+    }
+
+    /// The number of the living file with this [`path_key`].
+    fn find(&self, key: &str) -> Option<u32> {
+        let hash = self.hasher.hash_one(key);
+        self.by_path
+            .find(hash, |&(h, id)| {
+                h == hash && path_key(&self.files[id as usize].path) == key
+            })
+            .map(|&(_, id)| id)
+    }
+
+    /// Make `id` findable by its path (which must not be in yet).
+    fn index_path(&mut self, id: u32) {
+        let hash = self
+            .hasher
+            .hash_one(path_key(&self.files[id as usize].path));
+        self.by_path.insert_unique(hash, (hash, id), |&(h, _)| h);
     }
 
     fn living(&self) -> impl Iterator<Item = (u32, &FileRec)> {
@@ -156,7 +148,7 @@ impl Store {
 
     /// What the index has for `path`.
     pub fn get(&self, path: &Path) -> Option<&FileRec> {
-        let id = *self.by_path.get(&path_key(path))?;
+        let id = self.find(&path_key(path))?;
         Some(&self.files[id as usize])
     }
 
@@ -185,19 +177,25 @@ impl Store {
             text,
             alive: true,
         });
-        self.by_path.insert(path_key(path), id);
+        self.index_path(id);
         if text == Text::Words {
             for w in words {
-                self.words.entry(w.into_boxed_str()).or_default().push(id);
+                self.words.entry(&w).push(id);
             }
         }
     }
 
     /// Forget `path`. Returns whether it was known.
     pub fn remove(&mut self, path: &Path) -> bool {
-        let Some(id) = self.by_path.remove(&path_key(path)) else {
+        let key = path_key(path);
+        let hash = self.hasher.hash_one(&key);
+        let files = &self.files;
+        let Ok(entry) = self.by_path.find_entry(hash, |&(h, id)| {
+            h == hash && path_key(&files[id as usize].path) == key
+        }) else {
             return false;
         };
+        let ((_, id), _) = entry.remove();
         self.files[id as usize].alive = false;
         self.dead += 1;
         true
@@ -229,11 +227,8 @@ impl Store {
 
     /// Give back the room the word lists grew into while indexing.
     pub fn shrink(&mut self) {
-        for p in self.words.values_mut() {
-            p.data.shrink_to_fit();
-        }
         self.words.shrink_to_fit();
-        self.by_path.shrink_to_fit();
+        self.by_path.shrink_to_fit(|&(h, _)| h);
         self.files.shrink_to_fit();
     }
 
@@ -248,15 +243,13 @@ impl Store {
             }
         }
         self.files = files;
-        self.by_path = self
-            .files
-            .iter()
-            .enumerate()
-            .map(|(i, f)| (path_key(&f.path), i as u32))
-            .collect();
+        self.by_path = HashTable::with_capacity(self.files.len());
+        for i in 0..self.files.len() {
+            self.index_path(i as u32);
+        }
         self.dead = 0;
         let words = std::mem::take(&mut self.words);
-        for (w, p) in words {
+        for (w, p) in words.iter() {
             let mut new = Postings::default();
             for id in p.iter() {
                 match map.get(id as usize) {
@@ -265,10 +258,10 @@ impl Store {
                 }
             }
             if new.len > 0 {
-                new.data.shrink_to_fit();
-                self.words.insert(w, new);
+                self.words.insert_new(w, new);
             }
         }
+        self.words.shrink_to_fit();
     }
 
     /// The files that may contain a text with these words (see
@@ -281,7 +274,7 @@ impl Store {
         let mut result: Option<Bits> = None;
         for q in query {
             let mut bits = Bits::new(n);
-            for (w, p) in &self.words {
+            for (w, p) in self.words.iter() {
                 if w.contains(q.as_str()) {
                     for id in p.iter() {
                         bits.set(id);
@@ -344,12 +337,12 @@ impl Store {
                 }
             }
             put_varint(&mut buf, self.words.len() as u64);
-            for (word, p) in &self.words {
+            for (word, p) in self.words.iter() {
                 put_str(&mut buf, word);
                 put_varint(&mut buf, u64::from(p.len));
                 put_varint(&mut buf, u64::from(p.last));
-                put_varint(&mut buf, p.data.len() as u64);
-                buf.extend_from_slice(&p.data);
+                put_varint(&mut buf, p.bytes().len() as u64);
+                buf.extend_from_slice(p.bytes());
                 if buf.len() > 1 << 16 {
                     w.write_all(&buf)?;
                     buf.clear();
@@ -381,6 +374,7 @@ impl Store {
         }
         let n = get_varint(rest, &mut pos)? as usize;
         s.files.reserve(n.min(1 << 24));
+        s.by_path.reserve(n.min(1 << 24), |&(h, _)| h);
         for i in 0..n {
             let path = PathBuf::from(get_str(rest, &mut pos)?);
             let size = get_varint(rest, &mut pos)?;
@@ -392,7 +386,6 @@ impl Store {
                 _ => return None,
             };
             pos += 1;
-            s.by_path.insert(path_key(&path), i as u32);
             s.files.push(FileRec {
                 path,
                 size,
@@ -400,6 +393,7 @@ impl Store {
                 text,
                 alive: true,
             });
+            s.index_path(i as u32);
         }
         let words = get_varint(rest, &mut pos)? as usize;
         s.words.reserve(words.min(1 << 24));
@@ -413,25 +407,34 @@ impl Store {
             if last as usize >= n {
                 return None;
             }
-            s.words.insert(word.into(), Postings { last, len, data });
+            s.words.insert_new(&word, Postings::new(last, len, data));
         }
+        s.words.shrink_to_fit();
         (pos == rest.len()).then_some(s)
     }
 }
 
-fn put_varint(buf: &mut Vec<u8>, mut v: u64) {
-    loop {
+/// Write `v` as a varint into `out`; returns how many bytes it took.
+pub(super) fn encode_varint(mut v: u64, out: &mut [u8; 10]) -> usize {
+    for (i, slot) in out.iter_mut().enumerate() {
         let b = (v & 0x7f) as u8;
         v >>= 7;
         if v == 0 {
-            buf.push(b);
-            return;
+            *slot = b;
+            return i + 1;
         }
-        buf.push(b | 0x80);
+        *slot = b | 0x80;
     }
+    out.len()
 }
 
-fn get_varint(data: &[u8], pos: &mut usize) -> Option<u64> {
+fn put_varint(buf: &mut Vec<u8>, v: u64) {
+    let mut tmp = [0; 10];
+    let n = encode_varint(v, &mut tmp);
+    buf.extend_from_slice(&tmp[..n]);
+}
+
+pub(super) fn get_varint(data: &[u8], pos: &mut usize) -> Option<u64> {
     let mut v = 0u64;
     for shift in (0..64).step_by(7) {
         let b = *data.get(*pos)?;

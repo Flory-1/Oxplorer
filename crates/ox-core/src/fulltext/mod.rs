@@ -29,6 +29,7 @@ mod pdf_text;
 pub mod service;
 pub mod store;
 pub mod tokens;
+mod words;
 
 #[cfg(test)]
 mod tests;

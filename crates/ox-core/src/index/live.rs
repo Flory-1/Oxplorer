@@ -7,6 +7,7 @@
 //! scheduled rebuild stays as a safety net: the Windows file watcher can
 //! drop changes silently when a lot happens at once.
 
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
@@ -99,11 +100,17 @@ impl Drop for Live {
 }
 
 /// What a watcher event means for the index.
-fn signals(res: notify::Result<notify::Event>) -> Vec<Signal> {
-    let ev = match res {
+fn signals(res: notify::Result<notify::Event>, roots: &[PathBuf]) -> Vec<Signal> {
+    let mut ev = match res {
         Ok(ev) if !ev.need_rescan() => ev,
         _ => return vec![Signal::Rescan],
     };
+    // The index has the real names: a short one (`%TEMP%` is often written
+    // as `C:\Users\ABCDEF~1\…`) would look like a new folder, and the whole
+    // real folder would be added a second time.
+    for p in &mut ev.paths {
+        *p = real_names(p, roots);
+    }
     match ev.kind {
         EventKind::Access(_) => Vec::new(),
         EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
@@ -123,14 +130,34 @@ fn signals(res: notify::Result<notify::Event>) -> Vec<Signal> {
     }
 }
 
+/// `path` with short names below its root expanded; the root keeps the
+/// form it was given in (the index uses that one).
+fn real_names(path: &Path, roots: &[PathBuf]) -> PathBuf {
+    if !path.as_os_str().to_string_lossy().contains('~') {
+        return path.to_path_buf();
+    }
+    let long = crate::fsops::long_path(path);
+    for root in roots {
+        if let Ok(rest) = long.strip_prefix(crate::fsops::long_path(root)) {
+            return if rest.as_os_str().is_empty() {
+                root.clone()
+            } else {
+                root.join(rest)
+            };
+        }
+    }
+    long
+}
+
 /// Watch `roots` recursively. Returns the watcher and how many roots it watches.
-fn watch(roots: &[std::path::PathBuf], tx: &Sender<Signal>) -> (Option<RecommendedWatcher>, usize) {
+fn watch(roots: &[PathBuf], tx: &Sender<Signal>) -> (Option<RecommendedWatcher>, usize) {
     if roots.is_empty() {
         return (None, 0);
     }
     let tx = tx.clone();
+    let watched = roots.to_vec();
     let watcher = notify::recommended_watcher(move |res| {
-        for s in signals(res) {
+        for s in signals(res, &watched) {
             let _ = tx.send(s);
         }
     });
@@ -303,6 +330,10 @@ mod tests {
 
     use super::*;
 
+    fn signals_(res: notify::Result<notify::Event>) -> Vec<Signal> {
+        signals(res, &[])
+    }
+
     #[test]
     fn watcher_events_become_signals() {
         use notify::event::{AccessKind, CreateKind, Event, Flag};
@@ -314,12 +345,12 @@ mod tests {
             Ok(e)
         };
         assert_eq!(
-            signals(ev(EventKind::Create(CreateKind::File), &["a"])),
+            signals_(ev(EventKind::Create(CreateKind::File), &["a"])),
             vec![Signal::Changed("a".into())]
         );
-        assert!(signals(ev(EventKind::Access(AccessKind::Any), &["a"])).is_empty());
+        assert!(signals_(ev(EventKind::Access(AccessKind::Any), &["a"])).is_empty());
         assert_eq!(
-            signals(ev(
+            signals_(ev(
                 EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
                 &["a", "b"]
             )),
@@ -329,17 +360,61 @@ mod tests {
             ]
         );
         assert_eq!(
-            signals(ev(
+            signals_(ev(
                 EventKind::Modify(ModifyKind::Name(RenameMode::From)),
                 &["a"]
             )),
             vec![Signal::RenamedFrom("a".into())]
         );
         let overflow = Event::new(EventKind::Other).set_flag(Flag::Rescan);
-        assert_eq!(signals(Ok(overflow)), vec![Signal::Rescan]);
+        assert_eq!(signals(Ok(overflow), &[]), vec![Signal::Rescan]);
         assert_eq!(
-            signals(Err(notify::Error::generic("boom"))),
+            signals(Err(notify::Error::generic("boom")), &[]),
             vec![Signal::Rescan]
         );
+    }
+
+    /// A change reported with a short (8.3) name must update the folder the
+    /// index has, not add the whole folder again under the short name.
+    #[cfg(windows)]
+    #[test]
+    fn short_names_dont_add_folders_twice() {
+        use notify::event::{CreateKind, Event};
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        use std::sync::atomic::{AtomicBool, AtomicU64};
+        use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+
+        let tmp = tempfile::tempdir().unwrap();
+        // As given, which may be in short form itself (`%TEMP%`).
+        let root = tmp.path().to_path_buf();
+        let folder = root.join("A folder with a long name");
+        std::fs::create_dir(&folder).unwrap();
+        for i in 0..20 {
+            std::fs::write(folder.join(format!("f{i}.txt")), "x").unwrap();
+        }
+        let cfg = super::super::IndexConfig {
+            roots: vec![root.clone()],
+            exclude: Vec::new(),
+            threads: 1,
+        };
+        let build = || FileIndex::build(&cfg, &AtomicBool::new(false), &AtomicU64::new(0));
+        let mut idx = build();
+
+        let wide: Vec<u16> = folder.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut buf = vec![0u16; 1024];
+        // SAFETY: `wide` is NUL-terminated and `buf` is as long as we say.
+        let n = unsafe { GetShortPathNameW(wide.as_ptr(), buf.as_mut_ptr(), 1024) } as usize;
+        let short = PathBuf::from(std::ffi::OsString::from_wide(&buf[..n]));
+        if n == 0 || !short.to_string_lossy().contains('~') {
+            return; // no short names on this drive
+        }
+        std::fs::write(folder.join("new.txt"), "n").unwrap();
+        let ev = Event::new(EventKind::Create(CreateKind::File)).add_path(short.join("new.txt"));
+        let mut batch = Batch::default();
+        for s in signals(Ok(ev), std::slice::from_ref(&root)) {
+            batch.push(s);
+        }
+        assert_eq!(idx.update(&batch, &[]), 1, "only the new file");
+        assert_eq!(idx.len(), build().len());
     }
 }

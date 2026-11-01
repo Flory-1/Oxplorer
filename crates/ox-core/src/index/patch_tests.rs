@@ -159,6 +159,29 @@ fn live_changes_match_a_fresh_build() {
 }
 
 #[test]
+fn live_additions_dont_double_the_buffers() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("r");
+    fs::create_dir_all(&root).unwrap();
+    for i in 0..400 {
+        fs::write(root.join(format!("file-with-a-long-name-{i}.txt")), "x").unwrap();
+    }
+    let cfg = config(&root);
+    let mut idx = build(&cfg);
+    assert_eq!(idx.entries.capacity(), idx.entries.len(), "built exactly");
+    assert_eq!(idx.names.capacity(), idx.names.len(), "built exactly");
+
+    fs::write(root.join("new.txt"), "n").unwrap();
+    let mut batch = Batch::default();
+    batch.push(Signal::Changed(root.join("new.txt")));
+    assert_eq!(idx.update(&batch, &[]), 1);
+    let (len, names) = (idx.entries.len(), idx.names.len());
+    assert!(idx.entries.capacity() <= len + len / 32 + 1);
+    assert!(idx.names.capacity() <= names + names / 32 + 8);
+    assert_eq!(snapshot(&idx), snapshot(&build(&cfg)));
+}
+
+#[test]
 fn renames_are_patched_in_place() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("r");

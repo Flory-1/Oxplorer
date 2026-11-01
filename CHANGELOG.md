@@ -5,6 +5,8 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-01
+
 ### Added
 - **Delete engine**: deleting runs as a job like copying does. Deletes that take more than a
   moment show in the transfer panel with progress, items found, space freed and the current
@@ -17,6 +19,15 @@ The release workflow publishes the section of the tagged version as the release 
 - When a file inside a folder can't be deleted, the "Couldn't delete" dialog names that file
   (and the program holding it) instead of only the folder. Everything else in the folder is
   still deleted.
+- **About 40% less memory** with a drive index and full-text search turned on (for example
+  440 MB → 255 MB with all of C:\ indexed): the full-text index keeps its words in one block
+  instead of one allocation per word (half the memory), and the file index no longer doubles
+  its reserved room when files are added while it runs.
+
+### Fixed
+- The file index added a whole folder a second time (with duplicate search results) when a
+  change inside it was reported with a short name, like `C:\Users\ABCDEF~1\…`. This happened
+  all the time for the user folder, because `%TEMP%` is often written that way.
 
 ## [1.1.1] - 2026-10-30
 

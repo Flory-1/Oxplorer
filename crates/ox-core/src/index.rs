@@ -306,7 +306,10 @@ impl FileIndex {
             }
         });
 
-        let b = builder.into_inner().unwrap();
+        let mut b = builder.into_inner().unwrap();
+        // The buffers grew by doubling; don't keep the spare room.
+        b.names.shrink_to_fit();
+        b.entries.shrink_to_fit();
         FileIndex {
             roots,
             names: b.names,
