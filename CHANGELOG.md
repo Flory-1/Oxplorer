@@ -5,6 +5,8 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-11-01
+
 ### Changed
 - **Less memory again**: the full-text index is only kept in memory while it is used. It is
   put away two minutes after the last `content:` search or indexing pass and read again in a

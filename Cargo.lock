@@ -3960,7 +3960,7 @@ dependencies = [
 
 [[package]]
 name = "ox-app"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "alacritty_terminal",
  "arboard",
@@ -3984,7 +3984,7 @@ dependencies = [
 
 [[package]]
 name = "ox-core"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -4033,7 +4033,7 @@ dependencies = [
 
 [[package]]
 name = "ox-indexer"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "ox-core",
  "windows-sys 0.61.2",
