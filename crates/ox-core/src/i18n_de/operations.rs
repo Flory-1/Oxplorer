@@ -149,4 +149,12 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Network section", "Bereich „Netzwerk“"),
     ("Remote locations section", "Bereich „Remotespeicherorte“"),
     ("Still there after deleting as administrator: {v1}", "Nach dem Löschen als Administrator noch vorhanden: {v1}"),
+    // Delete jobs in the transfer panel (deletes.rs)
+    ("Deleting cancelled · {v1} of {v2} deleted", "Löschen abgebrochen · {v1} von {v2} gelöscht"),
+    ("Preparing to delete {v1} · {v2} found", "Vorbereitung zum Löschen von {v1} · {v2} gefunden"),
+    ("Moving {v1} to the Recycle Bin", "{v1} werden in den Papierkorb verschoben"),
+    ("Deleting {v1} permanently", "{v1} werden endgültig gelöscht"),
+    ("Paused · {title}", "Angehalten · {title}"),
+    ("{done} of {v1}", "{done} von {v1}"),
+    (" · {v1} of {v2} freed", " · {v1} von {v2} freigegeben"),
 ];
