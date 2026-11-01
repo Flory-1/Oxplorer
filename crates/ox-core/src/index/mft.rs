@@ -384,7 +384,7 @@ fn verify(b: &Builder, from: usize) -> bool {
         };
         checked += 1;
         let e = &b.entries[i as usize];
-        if e.size == meta.len() && e.mtime.abs_diff(to_secs(meta.modified().ok())) <= 2 {
+        if e.size() == meta.len() && e.mtime.abs_diff(to_secs(meta.modified().ok())) <= 2 {
             matched += 1;
         }
     }

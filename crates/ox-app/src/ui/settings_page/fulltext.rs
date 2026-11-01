@@ -117,13 +117,22 @@ fn status(ui: &mut Ui, app: &mut OxApp) {
             if stats.files == 0 {
                 ui.label(tr("Not built yet."));
             } else {
-                let mut text = trf!(
-                    "✔ {files} with text ({size}) · {words} words · {memory} in memory",
-                    files = count(stats.documents as u64, "file"),
-                    size = format::size(stats.bytes),
-                    words = stats.words,
-                    memory = format::size(stats.memory as u64)
-                );
+                let mut text = if stats.loaded {
+                    trf!(
+                        "✔ {files} with text ({size}) · {words} words · {memory} in memory",
+                        files = count(stats.documents as u64, "file"),
+                        size = format::size(stats.bytes),
+                        words = stats.words,
+                        memory = format::size(stats.memory as u64)
+                    )
+                } else {
+                    trf!(
+                        "✔ {files} with text ({size}) · {words} words · loaded when needed",
+                        files = count(stats.documents as u64, "file"),
+                        size = format::size(stats.bytes),
+                        words = stats.words
+                    )
+                };
                 if let Some(bytes) = service.file_size() {
                     text.push_str(&trf!(" · {size} on disk", size = format::size(bytes)));
                 }

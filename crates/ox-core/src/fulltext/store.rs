@@ -356,36 +356,36 @@ impl Store {
 
     /// Read an index written by [`Store::save`].
     pub fn load(path: &Path) -> io::Result<Store> {
-        let mut data = Vec::new();
-        BufReader::new(fs::File::open(path)?).read_to_end(&mut data)?;
-        Self::parse(&data).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad index"))
+        let file = BufReader::with_capacity(1 << 16, fs::File::open(path)?);
+        Self::parse(Input(file))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "bad index"))
     }
 
-    fn parse(data: &[u8]) -> Option<Store> {
-        let rest = data.strip_prefix(Self::MAGIC.as_slice())?;
-        let mut pos = 1;
-        let complete = *rest.first()? == 1;
+    fn parse(mut r: Input<impl Read>) -> Option<Store> {
+        if r.bytes(Self::MAGIC.len())? != Self::MAGIC.as_slice() {
+            return None;
+        }
+        let complete = r.byte()? == 1;
         let mut s = Store {
             complete,
             ..Default::default()
         };
-        for _ in 0..get_varint(rest, &mut pos)? {
-            s.roots.push(PathBuf::from(get_str(rest, &mut pos)?));
+        for _ in 0..r.varint()? {
+            s.roots.push(PathBuf::from(r.str()?));
         }
-        let n = get_varint(rest, &mut pos)? as usize;
+        let n = r.varint()? as usize;
         s.files.reserve(n.min(1 << 24));
         s.by_path.reserve(n.min(1 << 24), |&(h, _)| h);
         for i in 0..n {
-            let path = PathBuf::from(get_str(rest, &mut pos)?);
-            let size = get_varint(rest, &mut pos)?;
-            let mtime = get_varint(rest, &mut pos)?;
-            let text = match *rest.get(pos)? {
+            let path = PathBuf::from(r.str()?);
+            let size = r.varint()?;
+            let mtime = r.varint()?;
+            let text = match r.byte()? {
                 0 => Text::None,
                 1 => Text::Words,
                 2 => Text::Always,
                 _ => return None,
             };
-            pos += 1;
             s.files.push(FileRec {
                 path,
                 size,
@@ -395,22 +395,61 @@ impl Store {
             });
             s.index_path(i as u32);
         }
-        let words = get_varint(rest, &mut pos)? as usize;
+        let words = r.varint()? as usize;
         s.words.reserve(words.min(1 << 24));
         for _ in 0..words {
-            let word = get_str(rest, &mut pos)?;
-            let len = u32::try_from(get_varint(rest, &mut pos)?).ok()?;
-            let last = u32::try_from(get_varint(rest, &mut pos)?).ok()?;
-            let bytes = get_varint(rest, &mut pos)? as usize;
-            let data = rest.get(pos..pos.checked_add(bytes)?)?.to_vec();
-            pos += bytes;
+            let word = r.str()?;
+            let len = u32::try_from(r.varint()?).ok()?;
+            let last = u32::try_from(r.varint()?).ok()?;
+            let bytes = r.varint()? as usize;
+            let data = r.bytes(bytes)?;
             if last as usize >= n {
                 return None;
             }
             s.words.insert_new(&word, Postings::new(last, len, data));
         }
         s.words.shrink_to_fit();
-        (pos == rest.len()).then_some(s)
+        r.at_end().then_some(s)
+    }
+}
+
+/// Reads the saved index piece by piece: the whole file at once would take
+/// that much memory again while loading.
+struct Input<R>(R);
+
+impl<R: Read> Input<R> {
+    fn byte(&mut self) -> Option<u8> {
+        let mut b = [0];
+        self.0.read_exact(&mut b).ok()?;
+        Some(b[0])
+    }
+
+    fn varint(&mut self) -> Option<u64> {
+        let mut v = 0u64;
+        for shift in (0..64).step_by(7) {
+            let b = self.byte()?;
+            v |= u64::from(b & 0x7f) << shift;
+            if b & 0x80 == 0 {
+                return Some(v);
+            }
+        }
+        None
+    }
+
+    fn bytes(&mut self, n: usize) -> Option<Vec<u8>> {
+        // A damaged length must not reserve gigabytes up front.
+        let mut v = Vec::with_capacity(n.min(1 << 20));
+        (&mut self.0).take(n as u64).read_to_end(&mut v).ok()?;
+        (v.len() == n).then_some(v)
+    }
+
+    fn str(&mut self) -> Option<String> {
+        let n = self.varint()? as usize;
+        String::from_utf8(self.bytes(n)?).ok()
+    }
+
+    fn at_end(&mut self) -> bool {
+        self.byte().is_none()
     }
 }
 
@@ -450,11 +489,4 @@ pub(super) fn get_varint(data: &[u8], pos: &mut usize) -> Option<u64> {
 fn put_str(buf: &mut Vec<u8>, s: &str) {
     put_varint(buf, s.len() as u64);
     buf.extend_from_slice(s.as_bytes());
-}
-
-fn get_str(data: &[u8], pos: &mut usize) -> Option<String> {
-    let n = get_varint(data, pos)? as usize;
-    let s = std::str::from_utf8(data.get(*pos..pos.checked_add(n)?)?).ok()?;
-    *pos += n;
-    Some(s.to_owned())
 }

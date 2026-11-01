@@ -378,7 +378,7 @@ impl FileIndex {
                         continue;
                     };
                     if (c.flags ^ e.flags) & (F_DIR | F_HIDDEN) == 0 {
-                        if c.size != e.size || c.mtime != e.mtime {
+                        if c.size.min(Entry::MAX_SIZE) != e.size() || c.mtime != e.mtime {
                             ops.push(Op::Update {
                                 idx: i,
                                 size: c.size,
@@ -495,7 +495,7 @@ impl FileIndex {
                 Op::Remove(i) => removed.push(i),
                 Op::Update { idx, size, mtime } => {
                     let e = &mut self.entries[idx as usize];
-                    e.size = size;
+                    e.set_size(size);
                     e.mtime = mtime;
                     changed += 1;
                 }
@@ -624,11 +624,11 @@ impl FileIndex {
                 self.name(e),
                 parent,
                 e.flags,
-                e.size,
+                e.size(),
                 e.mtime,
             );
         }
-        FileIndex {
+        let mut idx = FileIndex {
             roots: self.roots.clone(),
             names,
             entries,
@@ -636,7 +636,9 @@ impl FileIndex {
             deleted: 0,
             garbage: 0,
             mft_roots: self.mft_roots,
-        }
+        };
+        idx.share_names();
+        idx
     }
 }
 
