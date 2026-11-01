@@ -3960,7 +3960,7 @@ dependencies = [
 
 [[package]]
 name = "ox-app"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "alacritty_terminal",
  "arboard",
@@ -3984,7 +3984,7 @@ dependencies = [
 
 [[package]]
 name = "ox-core"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3992,6 +3992,7 @@ dependencies = [
  "crossbeam-channel",
  "dirs",
  "flate2",
+ "hashbrown 0.17.1",
  "hmac 0.12.1",
  "ignore",
  "image",
@@ -4032,7 +4033,7 @@ dependencies = [
 
 [[package]]
 name = "ox-indexer"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "ox-core",
  "windows-sys 0.61.2",

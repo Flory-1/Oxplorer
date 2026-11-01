@@ -12,6 +12,8 @@ dirs.workspace = true
 chrono.workspace = true
 log.workspace = true
 ignore = "0.4"
+# Compact hash tables for the full-text index (`fulltext/words.rs`).
+hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"] }
 trash = "5"
 sysinfo = "0.39"
 notify = "8"

@@ -336,6 +336,50 @@ pub fn open_in_editor(template: &str, path: &Path) -> io::Result<std::process::C
         .spawn()
 }
 
+/// `path` with Windows short names (8.3, like `FD8DC~1.LAE`) expanded to
+/// the real ones, so it can be compared with paths read from the disk. File
+/// watchers report the form a program used, and `%TEMP%` is often written
+/// with short names. Parts that don't exist (any more) stay as they are.
+pub fn long_path(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    if path.as_os_str().to_string_lossy().contains('~') {
+        // Expand the deepest part that exists; the rest is appended.
+        for existing in path.ancestors() {
+            if let Some(long) = expand_short_names(existing) {
+                return match path.strip_prefix(existing) {
+                    Ok(rest) if !rest.as_os_str().is_empty() => long.join(rest),
+                    _ => long,
+                };
+            }
+        }
+    }
+    path.to_path_buf()
+}
+
+#[cfg(windows)]
+fn expand_short_names(path: &Path) -> Option<PathBuf> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use windows_sys::Win32::Storage::FileSystem::GetLongPathNameW;
+    if path.as_os_str().is_empty() {
+        return None;
+    }
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut buf = vec![0u16; 512];
+    loop {
+        // SAFETY: `wide` is NUL-terminated and `buf` is as long as we say.
+        let n = unsafe { GetLongPathNameW(wide.as_ptr(), buf.as_mut_ptr(), buf.len() as u32) };
+        let n = n as usize;
+        if n == 0 {
+            return None;
+        }
+        if n < buf.len() {
+            buf.truncate(n);
+            return Some(PathBuf::from(std::ffi::OsString::from_wide(&buf)));
+        }
+        buf.resize(n, 0); // too small: `n` is the size needed
+    }
+}
+
 #[cfg(windows)]
 trait NoWindow {
     fn creation_flags_no_window(&mut self) -> &mut Self;
@@ -442,5 +486,38 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(dated.content_for("a.txt"), today);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn short_names_are_expanded() {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+        let dir = tempfile::tempdir().unwrap();
+        let long = dir.path().join("A folder with a long name");
+        fs::create_dir(&long).unwrap();
+        // The temp folder itself may be written with short names too.
+        let expected = expand_short_names(&long).unwrap();
+        assert!(!expected.to_string_lossy().contains('~'));
+        assert_eq!(long_path(&long), expected);
+
+        let wide: Vec<u16> = long.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut buf = vec![0u16; 1024];
+        // SAFETY: `wide` is NUL-terminated and `buf` is as long as we say.
+        let n = unsafe { GetShortPathNameW(wide.as_ptr(), buf.as_mut_ptr(), 1024) } as usize;
+        let short = PathBuf::from(std::ffi::OsString::from_wide(&buf[..n]));
+        if n == 0 || !short.to_string_lossy().contains('~') {
+            return; // no short names on this drive
+        }
+        assert_eq!(long_path(&short), expected);
+        // Gone (deleted, or the old name of a rename): the rest is kept.
+        assert_eq!(
+            long_path(&short.join("gone.txt")),
+            expected.join("gone.txt")
+        );
+        assert_eq!(
+            long_path(Path::new(r"C:\plain")),
+            PathBuf::from(r"C:\plain")
+        );
     }
 }
