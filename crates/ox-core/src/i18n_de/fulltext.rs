@@ -16,6 +16,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("⏸ Paused while files are copied", "⏸ Pausiert, während Dateien kopiert werden"),
     ("Couldn't save the text index: {e}", "Der Textindex konnte nicht gespeichert werden: {e}"),
     ("✔ {files} with text ({size}) · {words} words · {memory} in memory", "✔ {files} mit Text ({size}) · {words} Wörter · {memory} im Speicher"),
+    ("✔ {files} with text ({size}) · {words} words · loaded when needed", "✔ {files} mit Text ({size}) · {words} Wörter · bei Bedarf geladen"),
     (" · {size} on disk", " · {size} auf dem Datenträger"),
     ("Checked {age} ago, took {time}", "Vor {age} geprüft, Dauer {time}"),
     // Duplicates

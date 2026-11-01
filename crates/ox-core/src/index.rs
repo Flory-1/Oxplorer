@@ -25,6 +25,7 @@ mod journal;
 mod live;
 #[cfg(windows)]
 mod mft;
+mod names;
 // Only used by the Windows reader, but tested everywhere.
 #[cfg_attr(not(windows), allow(dead_code))]
 mod ntfs;
@@ -57,15 +58,36 @@ const F_HIDDEN: u8 = 2;
 /// Removed by a live update; skipped by queries until the index is compacted.
 const F_DELETED: u8 = 4;
 
+/// One file or folder: 20 bytes (millions of them are normal).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Entry {
-    size: u64,
+    /// Low 32 bits of the size (see [`Entry::size`]).
+    size_lo: u32,
+    /// Where the name is in the names buffer. Equal names may share one
+    /// place there (see `names.rs`).
     name_off: u32,
     parent: u32,
     /// Seconds since 1970 (0 = unknown).
     mtime: u32,
     name_len: u16,
     flags: u8,
+    /// Bits 32–39 of the size, in what would otherwise be padding.
+    size_hi: u8,
+}
+
+impl Entry {
+    /// Sizes up to 1 TiB are exact; larger ones are stored as this.
+    const MAX_SIZE: u64 = (1 << 40) - 1;
+
+    fn size(&self) -> u64 {
+        u64::from(self.size_hi) << 32 | u64::from(self.size_lo)
+    }
+
+    fn set_size(&mut self, size: u64) {
+        let size = size.min(Self::MAX_SIZE);
+        self.size_lo = size as u32;
+        self.size_hi = (size >> 32) as u8;
+    }
 }
 
 /// What to index.
@@ -154,14 +176,16 @@ fn push_entry(
     }
     let name = &name[..len];
     let idx = entries.len() as u32;
-    entries.push(Entry {
-        size,
+    let mut e = Entry {
         name_off: names.len() as u32,
         parent,
         mtime,
         name_len: name.len() as u16,
         flags,
-    });
+        ..Default::default()
+    };
+    e.set_size(size);
+    entries.push(e);
     names.push_str(name);
     idx
 }
@@ -308,9 +332,8 @@ impl FileIndex {
 
         let mut b = builder.into_inner().unwrap();
         // The buffers grew by doubling; don't keep the spare room.
-        b.names.shrink_to_fit();
         b.entries.shrink_to_fit();
-        FileIndex {
+        let mut idx = FileIndex {
             roots,
             names: b.names,
             entries: b.entries,
@@ -318,7 +341,9 @@ impl FileIndex {
             deleted: 0,
             garbage: 0,
             mft_roots,
-        }
+        };
+        idx.share_names(); // also gives back the spare room of the names
+        idx
     }
 
     /// Number of indexed items.
@@ -372,7 +397,7 @@ impl FileIndex {
             name: self.name(e).to_owned(),
             is_dir: e.flags & F_DIR != 0,
             is_symlink: false,
-            size: e.size,
+            size: e.size(),
             modified: (e.mtime > 0).then(|| UNIX_EPOCH + Duration::from_secs(e.mtime as u64)),
             created: None,
             hidden: e.flags & F_HIDDEN != 0,
@@ -487,7 +512,7 @@ impl FileIndex {
                             let mtime = (e.mtime > 0)
                                 .then(|| UNIX_EPOCH + Duration::from_secs(e.mtime as u64));
                             let is_dir = e.flags & F_DIR != 0;
-                            if !query.matches_meta(self.name(e), is_dir, e.size, mtime) {
+                            if !query.matches_meta(self.name(e), is_dir, e.size(), mtime) {
                                 continue;
                             }
                             let i = (base + k) as u32;
@@ -548,7 +573,7 @@ impl FileIndex {
             w.write_all(self.names.as_bytes())?;
             w.write_all(&(self.entries.len() as u64).to_le_bytes())?;
             for e in &self.entries {
-                w.write_all(&e.size.to_le_bytes())?;
+                w.write_all(&e.size().to_le_bytes())?;
                 w.write_all(&e.name_off.to_le_bytes())?;
                 w.write_all(&e.parent.to_le_bytes())?;
                 w.write_all(&e.mtime.to_le_bytes())?;
@@ -610,31 +635,48 @@ impl FileIndex {
         let names = String::from_utf8(read_bytes(&mut r, names_len, file_len)?)
             .map_err(|_| bad("names"))?;
         let count = read_u64(&mut r)?;
-        let raw = read_bytes(&mut r, count.saturating_mul(23), file_len)?;
+        if count.saturating_mul(23) > file_len {
+            return Err(bad("length out of range"));
+        }
         let mut entries = Vec::with_capacity(count as usize);
-        for b in raw.as_chunks::<23>().0 {
-            let e = Entry {
-                size: u64::from_le_bytes(b[0..8].try_into().unwrap()),
-                name_off: u32::from_le_bytes(b[8..12].try_into().unwrap()),
-                parent: u32::from_le_bytes(b[12..16].try_into().unwrap()),
-                mtime: u32::from_le_bytes(b[16..20].try_into().unwrap()),
-                name_len: u16::from_le_bytes(b[20..22].try_into().unwrap()),
-                flags: b[22],
-            };
-            let end = e.name_off as usize + e.name_len as usize;
-            if end > names.len()
-                || !names.is_char_boundary(e.name_off as usize)
-                || !names.is_char_boundary(end)
-                || (e.parent != NO_PARENT && e.parent as u64 >= count)
-                || (e.parent != NO_PARENT && e.parent as usize >= entries.len())
-            {
-                // Parents always come before their children, which also rules out cycles.
-                return Err(bad("corrupt entry"));
+        // In pieces: the whole raw block would take as much memory again
+        // as the entries while loading.
+        const CHUNK: u64 = 64 * 1024;
+        let mut raw = Vec::new();
+        let mut left = count;
+        while left > 0 {
+            let n = left.min(CHUNK);
+            left -= n;
+            raw.clear();
+            (&mut r).take(n * 23).read_to_end(&mut raw)?;
+            if raw.len() as u64 != n * 23 {
+                return Err(bad("truncated"));
             }
-            entries.push(e);
+            for b in raw.as_chunks::<23>().0 {
+                let mut e = Entry {
+                    name_off: u32::from_le_bytes(b[8..12].try_into().unwrap()),
+                    parent: u32::from_le_bytes(b[12..16].try_into().unwrap()),
+                    mtime: u32::from_le_bytes(b[16..20].try_into().unwrap()),
+                    name_len: u16::from_le_bytes(b[20..22].try_into().unwrap()),
+                    flags: b[22],
+                    ..Default::default()
+                };
+                e.set_size(u64::from_le_bytes(b[0..8].try_into().unwrap()));
+                let end = e.name_off as usize + e.name_len as usize;
+                if end > names.len()
+                    || !names.is_char_boundary(e.name_off as usize)
+                    || !names.is_char_boundary(end)
+                    || (e.parent != NO_PARENT && e.parent as u64 >= count)
+                    || (e.parent != NO_PARENT && e.parent as usize >= entries.len())
+                {
+                    // Parents always come before their children, which also rules out cycles.
+                    return Err(bad("corrupt entry"));
+                }
+                entries.push(e);
+            }
         }
         let deleted = entries.iter().filter(|e| e.flags & F_DELETED != 0).count();
-        Ok(FileIndex {
+        let mut idx = FileIndex {
             roots,
             names,
             entries,
@@ -642,7 +684,11 @@ impl FileIndex {
             deleted,
             garbage: deleted,
             mft_roots: 0,
-        })
+        };
+        if !idx.names_shared() {
+            idx.share_names(); // saved by an older version
+        }
+        Ok(idx)
     }
 }
 

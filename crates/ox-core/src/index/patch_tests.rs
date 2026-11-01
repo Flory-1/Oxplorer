@@ -88,7 +88,7 @@ fn snapshot(idx: &FileIndex) -> Vec<(String, u8, u64, u32)> {
             (
                 idx.path_of(i).to_string_lossy().into_owned(),
                 e.flags & (F_DIR | F_HIDDEN),
-                e.size,
+                e.size(),
                 mtime,
             )
         })

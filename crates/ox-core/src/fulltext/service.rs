@@ -4,7 +4,8 @@
 //!
 //! It runs on one thread with below-normal priority, waits while files are
 //! being copied ([`FullTextService::set_paused`]), never reads online-only
-//! cloud files, and saves the index now and then and after each pass.
+//! cloud files, and saves the index now and then and after each pass. When
+//! nothing used the saved index for [`IDLE`], it is put away (see `lazy.rs`).
 //! (Windows' background mode would lower the I/O priority too, but then
 //! the indexer hardly gets ahead while anything else reads the disk.)
 
@@ -26,6 +27,10 @@ const RESCAN: Duration = Duration::from_secs(20 * 60);
 const SAVE_EVERY: Duration = Duration::from_secs(120);
 /// Changed settings start a pass after this pause.
 const SETTLE: Duration = Duration::from_secs(3);
+/// The saved index is put away after this long without a search or pass.
+const IDLE: Duration = Duration::from_secs(120);
+/// How often the thread checks whether that is due.
+const IDLE_CHECK: Duration = Duration::from_secs(30);
 /// A file with more different words isn't split into words (it is then
 /// read for every search, like without the index).
 const MAX_WORDS_PER_FILE: usize = 200_000;
@@ -77,7 +82,7 @@ struct Shared {
 impl Shared {
     fn new(cache: PathBuf, notify: Arc<dyn Fn() + Send + Sync>) -> Arc<Self> {
         Arc::new(Self {
-            index: Arc::new(FullTextIndex::default()),
+            index: Arc::new(FullTextIndex::new(cache.clone())),
             cache,
             paused: AtomicBool::new(false),
             stop: AtomicBool::new(false),
@@ -215,15 +220,15 @@ fn background_priority() {
 
 fn run(shared: &Shared, rx: &Receiver<Command>) {
     background_priority();
-    if let Ok(store) = Store::load(&shared.cache) {
-        *shared.index.store.write().unwrap() = store;
-    }
+    // Read when first needed (by the first pass, which starts right away).
     shared.loading.store(false, Ordering::Relaxed);
     (shared.notify)();
     let mut cfg: Option<FullTextConfig> = None;
     let mut next = Instant::now();
     loop {
-        let wait = next.saturating_duration_since(Instant::now());
+        let wait = next
+            .saturating_duration_since(Instant::now())
+            .min(IDLE_CHECK);
         let command = if cfg.is_some() {
             rx.recv_timeout(wait)
         } else {
@@ -242,21 +247,22 @@ fn run(shared: &Shared, rx: &Receiver<Command>) {
                 }
             }
             Ok(Command::Rebuild) => {
-                let mut store = shared.index.store.write().unwrap();
-                *store = Store::default();
-                drop(store);
+                shared.index.store.replace(Store::default());
                 next = Instant::now();
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
                 // Turned off: forget the index.
                 if shared.clear.load(Ordering::Relaxed) {
-                    *shared.index.store.write().unwrap() = Store::default();
+                    shared.index.store.replace(Store::default());
                     let _ = fs::remove_file(&shared.cache);
                 }
                 (shared.notify)();
                 return;
             }
+        }
+        if shared.index.store.unload_if_idle(IDLE) {
+            (shared.notify)();
         }
         // Take all commands that are waiting before starting a pass.
         if !rx.is_empty() {
@@ -284,7 +290,7 @@ fn run(shared: &Shared, rx: &Receiver<Command>) {
 }
 
 fn save(shared: &Shared) {
-    let result = shared.index.store.write().unwrap().save(&shared.cache);
+    let result = shared.index.store.save();
     *shared.error.lock().unwrap() = result.err().map(|e| e.to_string());
 }
 
@@ -341,12 +347,13 @@ fn pass(shared: &Shared, cfg: &FullTextConfig) -> bool {
         }
     }
     if !stopped {
-        let mut store = shared.index.store.write().unwrap();
-        store.retain(|f| seen.contains(&path_key(&f.path)));
-        store.roots = cfg.folders.clone();
-        store.complete = true;
-        store.compact_if_needed();
-        store.shrink();
+        shared.index.store.write(|store| {
+            store.retain(|f| seen.contains(&path_key(&f.path)));
+            store.roots = cfg.folders.clone();
+            store.complete = true;
+            store.compact_if_needed();
+            store.shrink();
+        });
     }
     !stopped
 }
@@ -360,13 +367,7 @@ fn index_file(shared: &Shared, cfg: &FullTextConfig, path: &Path) -> Option<Stri
         return None;
     }
     let (size, mtime) = (meta.len(), mtime_of(meta.modified().ok()));
-    if shared
-        .index
-        .store
-        .read()
-        .unwrap()
-        .is_current(path, size, mtime)
-    {
+    if shared.index.store.read(|s| s.is_current(path, size, mtime)) {
         return Some(path_key(path));
     }
     let (text, words) = match extract::extract(path, cfg.max_file_bytes) {
@@ -381,8 +382,6 @@ fn index_file(shared: &Shared, cfg: &FullTextConfig, path: &Path) -> Option<Stri
     shared
         .index
         .store
-        .write()
-        .unwrap()
-        .put(path, size, mtime, text, words);
+        .write(|s| s.put(path, size, mtime, text, words));
     Some(path_key(path))
 }

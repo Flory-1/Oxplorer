@@ -5,6 +5,18 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-11-01
+
+### Changed
+- **Less memory again**: the full-text index is only kept in memory while it is used. It is
+  put away two minutes after the last `content:` search or indexing pass and read again in a
+  fraction of a second when needed (Settings → Search index then says *loaded when needed*).
+- The drive index takes about 30% less memory (116 MB → 81 MB for all of C:\) and its file
+  on disk gets smaller too: equal file names are stored once, and each entry takes 20 bytes
+  instead of 24.
+- Both indexes are read from disk in pieces, so starting Oxplorer needs less memory at its
+  peak.
+
 ## [1.1.2] - 2026-11-01
 
 ### Added

@@ -148,7 +148,7 @@ mod tests {
                 }
                 parts.reverse();
                 let e = &b.entries[i];
-                (parts.join("/"), e.flags, e.size, e.mtime)
+                (parts.join("/"), e.flags, e.size(), e.mtime)
             })
             .collect();
         v.sort();

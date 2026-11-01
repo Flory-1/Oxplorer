@@ -24,6 +24,7 @@
 //!   index is behind.
 
 pub mod extract;
+mod lazy;
 mod office;
 mod pdf_text;
 pub mod service;
@@ -36,7 +37,6 @@ mod tests;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 
@@ -133,10 +133,11 @@ pub fn default_folders() -> Vec<PathBuf> {
     all
 }
 
-/// The text index, shared by the indexer and searches.
+/// The text index, shared by the indexer and searches. In memory only
+/// while it is used (see [`lazy`]).
 #[derive(Debug, Default)]
 pub struct FullTextIndex {
-    store: RwLock<Store>,
+    store: lazy::LazyStore,
 }
 
 /// What the index says about a file for one search.
@@ -175,30 +176,59 @@ pub struct Stats {
     pub files: usize,
     pub words: usize,
     pub memory: usize,
+    /// In memory now (else read again for the next search).
+    pub loaded: bool,
 }
 
 impl FullTextIndex {
-    pub fn stats(&self) -> Stats {
-        let s = self.store.read().unwrap();
-        let (documents, bytes) = s.documents();
-        Stats {
-            documents,
-            bytes,
-            files: s.len(),
-            words: s.word_count(),
-            memory: s.memory_bytes(),
+    fn new(cache: PathBuf) -> Self {
+        Self {
+            store: lazy::LazyStore::new(cache),
         }
     }
 
+    /// Doesn't read the index if it was put away.
+    pub fn stats(&self) -> Stats {
+        let loaded = self.store.peek(|s| {
+            let (documents, bytes) = s.documents();
+            Stats {
+                documents,
+                bytes,
+                files: s.len(),
+                words: s.word_count(),
+                memory: s.memory_bytes(),
+                loaded: true,
+            }
+        });
+        loaded.unwrap_or_else(|| {
+            let m = self.store.summary().unwrap_or_default();
+            Stats {
+                documents: m.documents,
+                bytes: m.bytes,
+                files: m.files,
+                words: m.words,
+                memory: 0,
+                loaded: false,
+            }
+        })
+    }
+
     /// Does the index have folders that overlap `path` (or any, if `None`)?
+    /// Doesn't read the index if it was put away.
     pub fn covers(&self, path: Option<&Path>) -> bool {
-        let s = self.store.read().unwrap();
-        if s.is_empty() {
+        let (files, roots) = match self.store.peek(|s| (s.len(), s.roots.clone())) {
+            Some(known) => known,
+            None => match self.store.summary() {
+                Some(m) => (m.files, m.roots),
+                None => return false,
+            },
+        };
+        if files == 0 {
             return false;
         }
         let Some(path) = path else { return true };
         let key = path_key(path);
-        s.roots.iter().any(|r| {
+        roots.iter().any(|r| {
             let r = path_key(r);
             service::under(&key, std::slice::from_ref(&r))
                 || service::under(&r, std::slice::from_ref(&key))
@@ -220,12 +250,18 @@ impl FullTextIndex {
         }
         let exact = !case_sensitive && tokens::is_exact_word(text);
         let root_keys: Vec<String> = roots.iter().map(|r| path_key(r)).collect();
-        let s = self.store.read().unwrap();
-        let hits = s.candidates(&words);
+        self.store
+            .read(|s| Some(Resolved::of(s, &words, exact, &root_keys)))
+    }
+}
+
+impl Resolved {
+    fn of(s: &Store, words: &[String], exact: bool, root_keys: &[String]) -> Self {
+        let hits = s.candidates(words);
         let mut files = HashMap::new();
         for (id, f) in s.files() {
             let key = path_key(&f.path);
-            if !root_keys.is_empty() && !service::under(&key, &root_keys) {
+            if !root_keys.is_empty() && !service::under(&key, root_keys) {
                 continue;
             }
             let verdict = match f.text {
@@ -245,7 +281,7 @@ impl FullTextIndex {
                 },
             );
         }
-        Some(Resolved { files })
+        Resolved { files }
     }
 }
 
