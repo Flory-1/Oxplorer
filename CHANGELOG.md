@@ -5,6 +5,8 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-11-03
+
 ### Added
 - **Custom commands where you want them**: each command can be placed under an entry of the
   right-click menu (at the top, under Open, Copy, Delete, Tags, Compress to ZIP, Copy path or
