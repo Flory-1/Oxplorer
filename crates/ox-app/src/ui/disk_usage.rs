@@ -2,7 +2,7 @@
 //! of its largest items. Clicking a folder zooms into it; that is a place of
 //! its own, so Back, Up and the breadcrumbs zoom out again.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use egui::ecolor::Hsva;
 use egui::{pos2, vec2, Align2, Color32, CornerRadius, FontId, Rect, RichText, Sense, Stroke, Ui};
@@ -12,6 +12,7 @@ use ox_core::disk_usage::{
 use ox_core::entry::{display_name, FileKind};
 use ox_core::format;
 use ox_core::i18n::{count, t as tr};
+use ox_core::settings::DiskUsageOpen;
 
 use crate::app::{Action, DiskUsageAction, OxApp};
 use crate::icons::{self, Icon};
@@ -21,10 +22,94 @@ use crate::tabs::Location;
 const LIST_WIDTH: f32 = 340.0;
 const ROW_HEIGHT: f32 = 38.0;
 
+/// Where the view is shown: zooming in a tab goes to a place of its own
+/// (Back and Up zoom out), in the window or panel it changes what they show.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Host {
+    Tab,
+    Window,
+    Panel,
+}
+
+impl Host {
+    fn zoom(self, path: PathBuf) -> Action {
+        match self {
+            Host::Tab => Action::Navigate(Location::DiskUsage(path)),
+            _ => Action::DiskUsage(DiskUsageAction::Zoom(path)),
+        }
+    }
+}
+
+/// The page of a tab.
 pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let Location::DiskUsage(path) = app.tabs.active().location().clone() else {
         return;
     };
+    egui::Frame::new()
+        .inner_margin(egui::Margin::symmetric(12, 8))
+        .show(ui, |ui| body(app, ui, &path, Host::Tab));
+}
+
+/// The window, when disk usage opens in one.
+pub fn window(app: &mut OxApp, ctx: &egui::Context) {
+    let Some(path) = app.disk_usage.panel.clone() else {
+        return;
+    };
+    if app.settings.browsing.disk_usage_opens != DiskUsageOpen::Window {
+        return;
+    }
+    let screen = ctx.content_rect();
+    let mut open = true;
+    egui::Window::new(ox_core::trf!(
+        "🖴 Disk usage: {name}",
+        name = folder_name(&path)
+    ))
+    .id(egui::Id::unique("disk_usage_window"))
+    .open(&mut open)
+    .collapsible(false)
+    .resizable(true)
+    .default_size(vec2(
+        (screen.width() * 0.75).min(1100.0),
+        (screen.height() * 0.7).min(720.0),
+    ))
+    .min_size(vec2(360.0, 260.0))
+    .show(ctx, |ui| body(app, ui, &path, Host::Window));
+    if !open {
+        app.push(Action::DiskUsage(DiskUsageAction::Close));
+    }
+}
+
+/// Whether disk usage is shown at the right, in the preview's place.
+pub fn in_panel(app: &OxApp) -> bool {
+    app.disk_usage.panel.is_some()
+        && app.settings.browsing.disk_usage_opens == DiskUsageOpen::Preview
+}
+
+/// The panel at the right, when disk usage opens in the preview's place.
+pub fn panel(app: &mut OxApp, ui: &mut Ui) {
+    let Some(path) = app.disk_usage.panel.clone() else {
+        return;
+    };
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(tr("🖴 Disk usage")).strong().size(15.0));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.small_button("✖").on_hover_text(tr("Close")).clicked() {
+                app.push(Action::DiskUsage(DiskUsageAction::Close));
+            }
+        });
+    });
+    ui.separator();
+    body(app, ui, &path, Host::Panel);
+}
+
+fn folder_name(path: &Path) -> String {
+    match path.file_name() {
+        Some(_) => display_name(path),
+        None => path.display().to_string(),
+    }
+}
+
+fn body(app: &mut OxApp, ui: &mut Ui, path: &Path, host: Host) {
     // Space used on the drive, to show how far the scan of a drive has got.
     let used = app
         .drives()
@@ -33,17 +118,18 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         .map(|d| d.total.saturating_sub(d.available));
     let colors = Colors::new(crate::theme::accent(&app.settings), ui.visuals().dark_mode);
     let mut actions = Vec::new();
-    egui::Frame::new()
-        .inner_margin(egui::Margin::symmetric(12, 8))
-        .show(ui, |ui| match app.disk_usage.for_path(&path) {
-            Some(scan) => view(ui, scan, &path, used, &colors, &mut actions),
-            // The scan starts on the next frame.
-            None => {
-                ui.spinner();
-            }
-        });
+    match app.disk_usage.for_path(path) {
+        Some(scan) => view(ui, scan, path, used, &colors, host, &mut actions),
+        // The scan starts on the next frame.
+        None => {
+            ui.spinner();
+        }
+    }
     app.actions.extend(actions);
 }
+
+/// Below this width the list goes under the map instead of beside it.
+const NARROW: f32 = 620.0;
 
 fn view(
     ui: &mut Ui,
@@ -51,9 +137,11 @@ fn view(
     path: &Path,
     used: Option<u64>,
     colors: &Colors,
+    host: Host,
     actions: &mut Vec<Action>,
 ) {
-    top_bar(ui, scan, path, actions);
+    let narrow = ui.available_width() < NARROW;
+    top_bar(ui, scan, path, host, narrow, actions);
     if let (true, Some(used)) = (scan.is_running(), used) {
         let scanned = scan.tree().node(ROOT).bytes;
         let frac = scanned as f32 / used.max(1) as f32;
@@ -75,24 +163,38 @@ fn view(
         return;
     }
     let full = ui.available_rect_before_wrap();
-    let list_w = LIST_WIDTH.min(full.width() * 0.4);
-    let map = Rect::from_min_max(full.min, pos2(full.max.x - list_w - 10.0, full.max.y));
-    let list = Rect::from_min_max(pos2(full.max.x - list_w, full.min.y), full.max);
-    treemap(ui, map, &tree, id, colors, actions);
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(list));
-    largest(&mut child, &tree, id, colors, actions);
+    let (map, list) = if narrow {
+        let map_h = (full.height() * 0.55).max(120.0).min(full.height());
+        (
+            Rect::from_min_size(full.min, vec2(full.width(), map_h)),
+            Rect::from_min_max(pos2(full.min.x, full.min.y + map_h + 10.0), full.max),
+        )
+    } else {
+        let list_w = LIST_WIDTH.min(full.width() * 0.4);
+        (
+            Rect::from_min_max(full.min, pos2(full.max.x - list_w - 10.0, full.max.y)),
+            Rect::from_min_max(pos2(full.max.x - list_w, full.min.y), full.max),
+        )
+    };
+    treemap(ui, map, &tree, id, colors, host, actions);
+    if list.height() > ROW_HEIGHT {
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(list));
+        largest(&mut child, &tree, id, colors, host, actions);
+    }
     ui.advance_cursor_after_rect(full);
 }
 
 /// Breadcrumbs from the scanned folder to the shown one, how the scan is
-/// going, and Stop / Scan again.
-fn top_bar(ui: &mut Ui, scan: &Scan, path: &Path, actions: &mut Vec<Action>) {
-    let (bytes, files) = {
-        let tree = scan.tree();
-        let root = tree.node(ROOT);
-        (root.bytes, root.files)
-    };
-    ui.horizontal(|ui| {
+/// going, and Stop / Scan again (in a narrow place, on a row of their own).
+fn top_bar(
+    ui: &mut Ui,
+    scan: &Scan,
+    path: &Path,
+    host: Host,
+    narrow: bool,
+    actions: &mut Vec<Action>,
+) {
+    let crumbs = |ui: &mut Ui, actions: &mut Vec<Action>| {
         ui.spacing_mut().item_spacing.x = 2.0;
         let mut parts: Vec<&Path> = path
             .ancestors()
@@ -104,54 +206,79 @@ fn top_bar(ui: &mut Ui, scan: &Scan, path: &Path, actions: &mut Vec<Action>) {
                 ui.label(RichText::new("⏵").weak());
             }
             let last = i + 1 == parts.len();
-            let name = match p.file_name() {
-                Some(_) => display_name(p),
-                None => p.display().to_string(),
-            };
-            let text = RichText::new(name).size(14.0);
+            let text = RichText::new(folder_name(p)).size(14.0);
             let text = if last { text.strong() } else { text };
             if ui.add(egui::Button::new(text).frame(false)).clicked() && !last {
-                actions.push(Action::Navigate(Location::DiskUsage(p.to_path_buf())));
+                actions.push(host.zoom(p.to_path_buf()));
             }
         }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            if scan.is_running() {
-                if ui.button(tr("⏹ Stop")).clicked() {
-                    actions.push(Action::DiskUsage(DiskUsageAction::Stop));
-                }
-                ui.spinner();
-            } else if ui.button(tr("🔄 Scan again")).clicked() {
-                actions.push(Action::DiskUsage(DiskUsageAction::Rescan));
-            }
-            let (files, size) = (count(files, "file"), format::size(bytes));
-            let status = if scan.is_running() {
-                ox_core::trf!("Scanning… {files}, {size}", files = files, size = size)
-            } else if scan.is_done() {
-                ox_core::trf!(
-                    "{files}, {size}, counted in {time}",
-                    files = files,
-                    size = size,
-                    time = format::duration(scan.elapsed())
-                )
-            } else {
-                ox_core::trf!(
-                    "Stopped: {files}, {size} so far",
-                    files = files,
-                    size = size
-                )
-            };
-            ui.label(RichText::new(status).weak());
-            let unreadable = scan.unreadable();
-            if unreadable > 0 {
-                ui.label(RichText::new(ox_core::trf!(
-                    "{folders} couldn't be read",
-                    folders = count(unreadable, "folder")
-                )))
-                .on_hover_text(tr("Their sizes are missing (no permission, or in use)."));
-            }
+    };
+    if narrow {
+        ui.horizontal_wrapped(|ui| crumbs(ui, actions));
+        ui.horizontal_wrapped(|ui| scan_status(ui, scan, path, host, actions));
+    } else {
+        ui.horizontal(|ui| {
+            crumbs(ui, actions);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                scan_status(ui, scan, path, host, actions);
+            });
         });
-    });
+    }
+}
+
+/// The buttons and how far the scan is (laid out right to left when wide).
+fn scan_status(ui: &mut Ui, scan: &Scan, path: &Path, host: Host, actions: &mut Vec<Action>) {
+    let (bytes, files) = {
+        let tree = scan.tree();
+        let root = tree.node(ROOT);
+        (root.bytes, root.files)
+    };
+    ui.spacing_mut().item_spacing.x = 8.0;
+    if host != Host::Tab {
+        if ui.button("📑").on_hover_text(tr("Open in a tab")).clicked() {
+            actions.push(Action::DiskUsage(DiskUsageAction::ToTab));
+        }
+        if let Some(parent) = path.parent() {
+            if ui.button("⬆").on_hover_text(tr("Up")).clicked() {
+                actions.push(host.zoom(parent.to_path_buf()));
+            }
+        }
+    }
+    let target = path.to_path_buf();
+    if scan.is_running() {
+        if ui.button(tr("⏹ Stop")).clicked() {
+            actions.push(Action::DiskUsage(DiskUsageAction::Stop(target)));
+        }
+        ui.spinner();
+    } else if ui.button(tr("🔄 Scan again")).clicked() {
+        actions.push(Action::DiskUsage(DiskUsageAction::Rescan(target)));
+    }
+    let (files, size) = (count(files, "file"), format::size(bytes));
+    let status = if scan.is_running() {
+        ox_core::trf!("Scanning… {files}, {size}", files = files, size = size)
+    } else if scan.is_done() {
+        ox_core::trf!(
+            "{files}, {size}, counted in {time}",
+            files = files,
+            size = size,
+            time = format::duration(scan.elapsed())
+        )
+    } else {
+        ox_core::trf!(
+            "Stopped: {files}, {size} so far",
+            files = files,
+            size = size
+        )
+    };
+    ui.label(RichText::new(status).weak());
+    let unreadable = scan.unreadable();
+    if unreadable > 0 {
+        ui.label(RichText::new(ox_core::trf!(
+            "{folders} couldn't be read",
+            folders = count(unreadable, "folder")
+        )))
+        .on_hover_text(tr("Their sizes are missing (no permission, or in use)."));
+    }
 }
 
 /// Fill colours: one hue per item of the shown folder (from the accent
@@ -232,6 +359,7 @@ fn treemap(
     tree: &UsageTree,
     id: NodeId,
     colors: &Colors,
+    host: Host,
     actions: &mut Vec<Action>,
 ) {
     let resp = ui.interact(rect, ui.scope_id().with("disk-usage-map"), Sense::click());
@@ -273,7 +401,7 @@ fn treemap(
             TileItem::Other { parent, .. } => parent,
         });
         if let Some(f) = folder.filter(|&f| f != id) {
-            actions.push(Action::Navigate(Location::DiskUsage(tree.path(f))));
+            actions.push(host.zoom(tree.path(f)));
         }
     }
     if resp.double_clicked() {
@@ -294,7 +422,7 @@ fn treemap(
     }
     resp.context_menu(
         |ui| match ui.data(|d| d.get_temp::<Option<NodeId>>(menu_id)).flatten() {
-            Some(n) => item_menu(ui, tree, n, actions),
+            Some(n) => item_menu(ui, tree, n, host, actions),
             None => ui.close(),
         },
     );
@@ -401,13 +529,13 @@ fn tooltip(ui: &mut Ui, tree: &UsageTree, t: &Tile, total: u64, shown: NodeId) {
 }
 
 /// Context menu of an item in the treemap or the list.
-fn item_menu(ui: &mut Ui, tree: &UsageTree, n: NodeId, actions: &mut Vec<Action>) {
+fn item_menu(ui: &mut Ui, tree: &UsageTree, n: NodeId, host: Host, actions: &mut Vec<Action>) {
     let node = tree.node(n);
     let path = tree.path(n);
     match node.kind {
         NodeKind::Folder => {
             if ui.button(tr("🖴 Zoom in")).clicked() {
-                actions.push(Action::Navigate(Location::DiskUsage(path.clone())));
+                actions.push(host.zoom(path.clone()));
             }
             if ui.button(tr("📂 Open")).clicked() {
                 actions.push(Action::Navigate(Location::Folder(path.clone())));
@@ -449,7 +577,14 @@ fn item_menu(ui: &mut Ui, tree: &UsageTree, n: NodeId, actions: &mut Vec<Action>
 }
 
 /// The items of the shown folder, largest first, with their share.
-fn largest(ui: &mut Ui, tree: &UsageTree, id: NodeId, colors: &Colors, actions: &mut Vec<Action>) {
+fn largest(
+    ui: &mut Ui,
+    tree: &UsageTree,
+    id: NodeId,
+    colors: &Colors,
+    host: Host,
+    actions: &mut Vec<Action>,
+) {
     ui.label(RichText::new(tr("Largest items")).size(14.0).strong());
     ui.add_space(4.0);
     let kids: Vec<NodeId> = tree
@@ -462,7 +597,7 @@ fn largest(ui: &mut Ui, tree: &UsageTree, id: NodeId, colors: &Colors, actions: 
         .auto_shrink([false, false])
         .show_rows(ui, ROW_HEIGHT, kids.len(), |ui, range| {
             for i in range {
-                row(ui, tree, kids[i], i, total, colors, actions);
+                row(ui, tree, kids[i], i, total, colors, host, actions);
             }
         });
 }
@@ -475,6 +610,7 @@ fn row(
     index: usize,
     total: u64,
     colors: &Colors,
+    host: Host,
     actions: &mut Vec<Action>,
 ) {
     let node = tree.node(n);
@@ -547,11 +683,11 @@ fn row(
     );
 
     if resp.clicked() && node.kind == NodeKind::Folder {
-        actions.push(Action::Navigate(Location::DiskUsage(tree.path(n))));
+        actions.push(host.zoom(tree.path(n)));
     }
     if resp.double_clicked() && node.kind == NodeKind::File {
         actions.push(Action::Open(tree.path(n)));
     }
-    resp.context_menu(|ui| item_menu(ui, tree, n, actions));
+    resp.context_menu(|ui| item_menu(ui, tree, n, host, actions));
     resp.on_hover_text(tree.path(n).display().to_string());
 }

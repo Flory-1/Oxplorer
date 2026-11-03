@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::app::SelectAction;
+use ox_core::commands::MenuPlace;
 use ox_core::links::LinkKind;
 
 /// Context information for the item context menu.
@@ -124,6 +125,10 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         return super::remote::item_menu(ui, t, actions);
     }
     let sel = t.selection.to_vec();
+    let commands = |ui: &mut Ui, place, actions: &mut Vec<Action>| {
+        super::commands::item_menu(ui, &sel, place, actions)
+    };
+    commands(ui, MenuPlace::Top, actions);
     if let Some(dir) = t.single_dir {
         if ui.button(tr("📂 Open")).clicked() {
             actions.push(Action::Open(dir.to_path_buf()));
@@ -157,6 +162,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
         actions.push(Action::QuickLook);
     }
     super::mini_player::item_menu(ui, &sel, actions);
+    commands(ui, MenuPlace::Open, actions);
     ui.separator();
     if ui
         .add(egui::Button::new(tr("✂ Cut")).shortcut_text(shortcuts::label(Command::Cut)))
@@ -202,6 +208,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
             }
         });
     }
+    commands(ui, MenuPlace::Copy, actions);
     ui.separator();
     if sel.len() == 1
         && ui
@@ -235,8 +242,10 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     {
         actions.push(Action::Delete(sel.clone(), true));
     }
+    commands(ui, MenuPlace::Delete, actions);
     ui.separator();
     ui.menu_button(tr("🏷 Tags"), |ui| tag_menu(ui, t.tags, &sel, actions));
+    commands(ui, MenuPlace::Tags, actions);
     if sel.len() == 1 && ox_core::archive::is_archive(&sel[0]) {
         let name = ox_core::archive::base_name(&sel[0]);
         if ui
@@ -260,7 +269,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     }
     super::picture_tools::menu(ui, &sel, actions);
     super::text_compare::menu(ui, &sel, actions);
-    super::commands::item_menu(ui, &sel, actions);
+    commands(ui, MenuPlace::Tools, actions);
     let theme_file = sel.len() == 1
         && sel[0]
             .extension()
@@ -294,6 +303,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     {
         actions.push(Action::CopyPathText(sel.clone()));
     }
+    commands(ui, MenuPlace::CopyPath, actions);
     if sel.len() == 1 && ui.button(tr("🖥 Show in Windows Explorer")).clicked() {
         actions.push(Action::Reveal(sel[0].clone()));
     }
@@ -315,6 +325,7 @@ pub fn item_menu(ui: &mut Ui, t: &MenuTarget<'_>, actions: &mut Vec<Action>) {
     {
         actions.push(Action::Properties(sel.clone()));
     }
+    commands(ui, MenuPlace::Bottom, actions);
     if t.shell {
         ui.separator();
         if ui
@@ -419,7 +430,12 @@ pub fn background_menu(
     if ox_core::remote::is_remote_path(folder) {
         return super::remote::background_menu(ui, folder, can_paste, actions);
     }
+    let commands = |ui: &mut Ui, place, actions: &mut Vec<Action>| {
+        super::commands::background_menu(ui, folder, place, actions)
+    };
+    commands(ui, MenuPlace::Top, actions);
     ui.menu_button(tr("➕ New"), |ui| new_menu(ui, folder, new_items, actions));
+    commands(ui, MenuPlace::Open, actions);
     if ui
         .add_enabled(
             can_paste,
@@ -440,6 +456,7 @@ pub fn background_menu(
     {
         actions.push(Action::PasteAfterCurrent(folder.to_path_buf()));
     }
+    commands(ui, MenuPlace::Copy, actions);
     if ui
         .add(egui::Button::new(tr("🔄 Refresh")).shortcut_text(shortcuts::label(Command::Refresh)))
         .clicked()
@@ -457,6 +474,7 @@ pub fn background_menu(
         actions.push(Action::SelectAll);
     }
     select_menu(ui, actions);
+    commands(ui, MenuPlace::Delete, actions);
     ui.separator();
     if pinned {
         if ui.button(tr("☆ Unpin from Favorites")).clicked() {
@@ -474,7 +492,7 @@ pub fn background_menu(
         actions.push(Action::Reveal(folder.to_path_buf()));
     }
     super::cleanup::menu(ui, folder, actions);
-    super::commands::background_menu(ui, folder, actions);
+    commands(ui, MenuPlace::Tools, actions);
     if dev {
         ui.separator();
         dev_menu(ui, &[folder.to_path_buf()], actions);
@@ -483,6 +501,7 @@ pub fn background_menu(
     if ui.button(tr("ℹ Properties")).clicked() {
         actions.push(Action::Properties(vec![folder.to_path_buf()]));
     }
+    commands(ui, MenuPlace::Bottom, actions);
 }
 
 /// Context menu for a folder link (sidebar, home page cards).
@@ -571,7 +590,9 @@ fn disk_usage_button(ui: &mut Ui, folder: &Path, actions: &mut Vec<Action>) {
         ))
         .clicked()
     {
-        actions.push(Action::Navigate(Location::DiskUsage(folder.to_path_buf())));
+        actions.push(Action::DiskUsage(crate::app::DiskUsageAction::Open(
+            folder.to_path_buf(),
+        )));
     }
 }
 

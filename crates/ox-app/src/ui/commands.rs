@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
 use egui::{Context, Id, RichText, Ui};
-use ox_core::commands::{CustomCommand, Target};
+use ox_core::commands::{menu_groups, CustomCommand, MenuGroup, MenuPlace, Target};
 use ox_core::i18n::t as tr;
 use ox_core::trf;
 
@@ -14,8 +14,9 @@ use crate::app::{Action, CommandAction, OxApp};
 
 /// Icons a command can have (all in the icon font).
 pub const ICONS: &[&str] = &[
-    "▶", "⚡", "🛠", "📝", "🖳", "📋", "🔐", "🔍", "🔗", "🌐", "🌿", "📦", "🖼", "🎵", "🎬", "📄",
-    "📁", "💾", "🗂", "📜", "⚙", "🚀", "✨", "🗔",
+    "▶", "⚡", "🚀", "✨", "🛠", "⚙", "🖳", "⌨", "📝", "✏", "📄", "📜", "📋", "📥", "📤", "📁", "📂",
+    "🗂", "🗃", "📦", "💾", "🖴", "🔐", "🔍", "👁", "🔗", "🌐", "☁", "🖧", "🖥", "🗔", "🗗", "🌿", "🖼",
+    "🎞", "🎵", "🎬", "🔊", "🔤", "🏷", "⭐", "📌", "🔄", "⇄", "✂", "🗑", "🎨", "ℹ", "⚠", "✔",
 ];
 
 /// The icon of `c` (the first of [`ICONS`] if it has none or another one).
@@ -26,9 +27,6 @@ pub fn icon(c: &CustomCommand) -> &'static str {
         .copied()
         .unwrap_or(ICONS[0])
 }
-
-/// Up to this many commands are listed in the menu itself, more in a submenu.
-const TOP_LEVEL: usize = 3;
 
 static CURRENT: RwLock<Vec<CustomCommand>> = RwLock::new(Vec::new());
 
@@ -54,67 +52,96 @@ fn with_kinds(paths: &[PathBuf]) -> Vec<(PathBuf, bool)> {
     })
 }
 
-/// The commands for `target`, with their index in the settings.
-fn matching(target: Target<'_>) -> Vec<(usize, CustomCommand)> {
-    CURRENT
+/// The commands for `target` listed at `place` of the item menu (or of the
+/// background's, which lacks some places), by their index in the settings.
+fn at_place(target: Target<'_>, place: MenuPlace) -> Vec<MenuGroup<(usize, CustomCommand)>> {
+    let background = matches!(target, Target::Background);
+    let shown: Vec<(usize, CustomCommand)> = CURRENT
         .read()
         .unwrap()
         .iter()
         .enumerate()
         .filter(|(_, c)| c.applies(target))
-        .map(|(i, c)| (i, c.clone()))
-        .collect()
+        .map(|(i, c)| {
+            let mut c = c.clone();
+            if background {
+                c.menu_place = c.menu_place.on_background();
+            }
+            (i, c)
+        })
+        .collect();
+    let list = shown.iter().map(|(i, c)| (c, (*i, c.clone())));
+    menu_groups(list, place, tr("Commands"))
 }
 
 fn entries(
     ui: &mut Ui,
-    commands: &[(usize, CustomCommand)],
+    groups: &[MenuGroup<(usize, CustomCommand)>],
     run: impl Fn(usize) -> CommandAction,
     actions: &mut Vec<Action>,
 ) {
-    let mut list = |ui: &mut Ui| {
-        for (i, c) in commands {
-            let shortcut = crate::app::shortcut_of(c)
-                .map(|k| crate::shortcuts::display(&k))
-                .unwrap_or_default();
-            let button =
-                egui::Button::new(format!("{}  {}", icon(c), c.name)).shortcut_text(shortcut);
-            if ui.add(button).clicked() {
-                actions.push(Action::Command(run(*i)));
-            }
+    let entry = |ui: &mut Ui, (i, c): &(usize, CustomCommand), actions: &mut Vec<Action>| {
+        let shortcut = crate::app::shortcut_of(c)
+            .map(|k| crate::shortcuts::display(&k))
+            .unwrap_or_default();
+        let button = egui::Button::new(format!("{}  {}", icon(c), c.name)).shortcut_text(shortcut);
+        if ui.add(button).clicked() {
+            actions.push(Action::Command(run(*i)));
         }
     };
-    if commands.len() <= TOP_LEVEL {
-        list(ui);
-    } else {
-        ui.menu_button(tr("⚡ Commands"), list);
+    for g in groups {
+        match g {
+            MenuGroup::Entry(c) => entry(ui, c, actions),
+            MenuGroup::Submenu(name, list) => {
+                ui.menu_button(format!("⚡ {name}"), |ui| {
+                    for c in list {
+                        entry(ui, c, actions);
+                    }
+                });
+            }
+        }
     }
 }
 
-/// The custom commands for the selected items (right-click menu).
-pub fn item_menu(ui: &mut Ui, selection: &[PathBuf], actions: &mut Vec<Action>) {
+/// The commands at `place`, set apart where they aren't under an entry.
+fn with_separators(ui: &mut Ui, place: MenuPlace, add: impl FnOnce(&mut Ui)) {
+    if matches!(place, MenuPlace::Tools | MenuPlace::Bottom) {
+        ui.separator();
+    }
+    add(ui);
+    if place == MenuPlace::Top {
+        ui.separator();
+    }
+}
+
+/// The custom commands for the selected items that are listed at `place` of
+/// the right-click menu.
+pub fn item_menu(ui: &mut Ui, selection: &[PathBuf], place: MenuPlace, actions: &mut Vec<Action>) {
     if CURRENT.read().unwrap().is_empty() {
         return;
     }
     let items = with_kinds(selection);
-    let commands = matching(Target::Items(&items));
-    if commands.is_empty() {
+    let groups = at_place(Target::Items(&items), place);
+    if groups.is_empty() {
         return;
     }
-    ui.separator();
     let paths = selection.to_vec();
     let run = |index| CommandAction::Run {
         index,
         items: paths.clone(),
         folder: None,
     };
-    entries(ui, &commands, run, actions);
+    with_separators(ui, place, |ui| entries(ui, &groups, run, actions));
 }
 
-/// The custom commands for a folder's background (right-click menu).
-pub fn background_menu(ui: &mut Ui, folder: &Path, actions: &mut Vec<Action>) {
-    let commands = matching(Target::Background);
-    if commands.is_empty() {
+/// The custom commands for a folder's background that are listed at
+/// `place` of its right-click menu.
+pub fn background_menu(ui: &mut Ui, folder: &Path, place: MenuPlace, actions: &mut Vec<Action>) {
+    if CURRENT.read().unwrap().is_empty() {
+        return;
+    }
+    let groups = at_place(Target::Background, place);
+    if groups.is_empty() {
         return;
     }
     let run = |index| CommandAction::Run {
@@ -122,7 +149,7 @@ pub fn background_menu(ui: &mut Ui, folder: &Path, actions: &mut Vec<Action>) {
         items: Vec::new(),
         folder: Some(folder.to_path_buf()),
     };
-    entries(ui, &commands, run, actions);
+    with_separators(ui, place, |ui| entries(ui, &groups, run, actions));
 }
 
 /// The question before a command runs and the output windows.

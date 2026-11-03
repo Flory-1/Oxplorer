@@ -112,9 +112,13 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     let preview_shown =
         app.settings.browsing.show_preview && app.tabs.active().location().shows_files();
     let as_window = app.settings.preview.as_window;
+    // Disk usage can take the pane's place (Settings → Browsing).
+    let disk_usage_shown = disk_usage::in_panel(app);
     // The pane only opens for a selection (the window stays open).
-    let pane_shown =
-        preview_shown && !as_window && !app.tabs.active().view.selected_entries().is_empty();
+    let pane_shown = preview_shown
+        && !as_window
+        && !disk_usage_shown
+        && !app.tabs.active().view.selected_entries().is_empty();
     if !pane_shown && !(preview_shown && as_window) {
         // Nothing plays where it can't be seen (or stopped).
         app.preview.stop_playback();
@@ -132,6 +136,18 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::same(10)))
             .show(ui, |ui| preview::show(app, ui));
     }
+    if disk_usage_shown {
+        let width = app
+            .ui
+            .preview_edge
+            .map_or(PREVIEW_WIDTH, |x| area.right() - x + 0.5);
+        egui::Panel::right("disk_usage_panel")
+            .resizable(true)
+            .default_size(width.max(460.0))
+            .min_size(300.0)
+            .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::same(10)))
+            .show(ui, |ui| disk_usage::panel(app, ui));
+    }
 
     let central = egui::Frame::central_panel(ui.style())
         .inner_margin(egui::Margin::same(0))
@@ -148,6 +164,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     }
     quick_look::show(app, ui.ctx());
     text_compare::show(app, ui.ctx());
+    disk_usage::window(app, ui.ctx());
     dialogs::show(app, ui.ctx());
     remote::show(app, ui.ctx());
     mirror::show(app, ui.ctx());

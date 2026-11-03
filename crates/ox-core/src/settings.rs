@@ -43,6 +43,30 @@ pub enum ViewMode {
     Grid,
 }
 
+/// Where "Disk usage" shows what fills a folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum DiskUsageOpen {
+    /// As the page of the tab, with Back and Up to zoom out.
+    #[default]
+    Tab,
+    /// In a window over the app.
+    Window,
+    /// In a panel at the right, where the preview is.
+    Preview,
+}
+
+impl DiskUsageOpen {
+    pub const ALL: [Self; 3] = [Self::Tab, Self::Window, Self::Preview];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Tab => "In the tab",
+            Self::Window => "In a window",
+            Self::Preview => "In the preview panel",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum StartPage {
     /// The Quick Access / Favorites page.
@@ -133,6 +157,8 @@ pub struct Browsing {
     pub git_status: bool,
     /// Each folder keeps the view it was last shown with (see `folder_views`).
     pub remember_folder_views: bool,
+    /// Where "Disk usage" opens.
+    pub disk_usage_opens: DiskUsageOpen,
     /// Columns of the details view.
     pub columns: crate::columns::ColumnLayout,
 }
@@ -159,6 +185,7 @@ impl Default for Browsing {
             open_archives: true,
             git_status: true,
             remember_folder_views: true,
+            disk_usage_opens: Default::default(),
             columns: Default::default(),
         }
     }

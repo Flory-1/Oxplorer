@@ -3,6 +3,7 @@
 mod animation;
 mod data;
 mod document;
+mod embed;
 mod font;
 mod git_branches;
 mod git_changes;
@@ -18,10 +19,11 @@ mod picture;
 pub(crate) mod player;
 mod table;
 mod tree;
+pub use embed::{DialogTab, Embedded};
 use font::*;
 use git_graph::*;
 use info::{checksums, info_grid};
-pub use info::{info_rows, other_attributes, type_facts};
+pub use info::{info_rows, other_attributes};
 use load::*;
 use ox_core::i18n::t as tr;
 pub(crate) use picture::{is_picture, still};
@@ -111,7 +113,7 @@ pub enum PreviewTab {
 }
 
 impl PreviewTab {
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             PreviewTab::Info => tr("ℹ Info"),
             PreviewTab::Image => tr("🖼 Image"),
@@ -556,8 +558,24 @@ fn tabbed(
         }
     });
     ui.separator();
+    tab_body(ui, state, e, tab, total, git_state, date_fmt, actions);
+}
 
-    let content = state.content.as_ref().expect("checked above");
+/// The content of `tab` (the item is loaded).
+#[allow(clippy::too_many_arguments)]
+fn tab_body(
+    ui: &mut Ui,
+    state: &mut PreviewState,
+    e: &FileEntry,
+    tab: PreviewTab,
+    total: Option<DirSize>,
+    git_state: Option<&'static str>,
+    date_fmt: &str,
+    actions: &mut Vec<Action>,
+) {
+    let Some(content) = state.content.as_ref() else {
+        return;
+    };
     if large::show(ui, state.quick_look, tab, content) {
         return;
     }

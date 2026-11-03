@@ -5,6 +5,26 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+### Added
+- **Custom commands where you want them**: each command can be placed under an entry of the
+  right-click menu (at the top, under Open, Copy, Delete, Tags, Compress to ZIP, Copy path or
+  Properties) and, optionally, in a submenu with a name of your choice. Commands with the same
+  submenu name share it.
+- **Disk usage in a window or the preview panel**: Settings → Browsing → *Disk usage opens*
+  chooses between the tab (as before), a window over the app, or a panel at the right where
+  the preview is. The window and the panel zoom into folders in place, and can move their
+  view to a tab.
+- **Properties in tabs**: the Properties dialog of a single item has *General*, *Details*
+  (full path, dimensions, length, encoding, camera details, Git, a map for photos with a
+  location, checksums) and the tabs of the preview: Image, Text, Markdown, Table, Tree, Hex,
+  Player, Git, Diff and so on.
+
+### Changed
+- The custom command form is laid out in sections with the labels at the top of each field.
+  The icon picker shows the icons as buttons of the same size (they were cut off at the
+  bottom), and there are twice as many icons to choose from. The command line says what goes
+  into it and shows an example.
+
 ## [1.1.3] - 2026-11-01
 
 ### Changed

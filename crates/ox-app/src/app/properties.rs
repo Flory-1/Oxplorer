@@ -20,22 +20,15 @@ pub struct Properties {
     pub totals: Option<(u64, u64, u64)>,
     pub rx: Option<Receiver<(u64, u64, u64)>>,
     pub cancel: Arc<AtomicBool>,
-    /// More about a single item, found out in the background.
-    pub more: Option<MoreProperties>,
-    pub more_rx: Option<Receiver<MoreProperties>>,
+    /// A single item's preview, for its Details and the preview's tabs.
+    pub preview: Option<Box<ui::preview::Embedded>>,
+    /// The tab shown.
+    pub tab: ui::preview::DialogTab,
     /// The item's state in its Git repository.
     pub git: Option<&'static str>,
     /// The Read-only and Hidden boxes: `None` while the items differ.
     pub readonly: Option<bool>,
     pub hidden: Option<bool>,
-}
-
-/// What the Properties dialog shows of a single item besides its listing.
-pub struct MoreProperties {
-    pub details: ox_core::details::Details,
-    /// The file type's own details (dimensions, length, artist, …).
-    pub facts: Vec<(&'static str, String)>,
-    pub last_commit: Option<ox_core::git::Commit>,
 }
 
 impl OxApp {
@@ -65,23 +58,7 @@ impl OxApp {
             let _ = tx.send(totals);
             ctx.request_repaint();
         });
-        let mut more_rx = None;
-        if let [e] = entries.as_slice() {
-            let (tx, rx) = crossbeam_channel::bounded(1);
-            let (e, ctx) = (e.clone(), self.ctx.clone());
-            std::thread::spawn(move || {
-                let more = MoreProperties {
-                    details: ox_core::details::read(&e.path, e.is_dir),
-                    facts: ui::preview::type_facts(&e),
-                    last_commit: ox_core::git::repo_root(&e.path)
-                        .and_then(|root| ox_core::git::last_commit(&root, &e.path).ok())
-                        .flatten(),
-                };
-                let _ = tx.send(more);
-                ctx.request_repaint();
-            });
-            more_rx = Some(rx);
-        }
+        let preview = (entries.len() == 1).then(Box::default);
         let git = match (self.tabs.active().view.git.as_ref(), entries.as_slice()) {
             (Some(git), [e]) if e.path.starts_with(&git.root) => Some(
                 git.state(&e.path)
@@ -102,8 +79,8 @@ impl OxApp {
             totals: None,
             rx: Some(rx),
             cancel,
-            more: None,
-            more_rx,
+            preview,
+            tab: ui::preview::DialogTab::General,
             git,
         })));
     }
