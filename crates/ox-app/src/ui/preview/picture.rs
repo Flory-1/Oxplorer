@@ -4,7 +4,6 @@
 //! the Info tab's button showing where a photo was taken.
 
 use std::io::{BufRead, Cursor, Seek};
-use std::path::Path;
 
 use egui::{ColorImage, Ui};
 use image::{DynamicImage, ImageDecoder, ImageReader};
@@ -83,17 +82,6 @@ pub(super) fn load(src: Source, ext: &str, side: u32) -> Loaded {
         Ok((img, full)) => Loaded::Image(img, full),
         Err(e) => Loaded::Error(e),
     }
-}
-
-/// The picture's size without decoding it (as it is shown).
-pub(super) fn dimensions(path: &Path, ext: &str) -> Option<[u32; 2]> {
-    if picture::own_decoder(ext) {
-        return picture::dimensions(path, ext);
-    }
-    let (w, h) = image::image_dimensions(path).ok()?;
-    let turned = ox_core::exif_info::may_have_exif(ext)
-        && ox_core::exif_info::orientation(path).is_some_and(picture::swaps_sides);
-    Some(if turned { [h, w] } else { [w, h] })
 }
 
 /// Below the Info tab's rows: where the photo was taken, on a map. Nothing

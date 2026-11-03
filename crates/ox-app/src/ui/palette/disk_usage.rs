@@ -17,7 +17,7 @@ pub(super) fn entries(app: &OxApp, v: &mut Vec<Entry>) {
         cmd(
             tr("Show disk usage of this folder").to_owned(),
             folder.display().to_string(),
-            act(move || Action::Navigate(Location::DiskUsage(folder))),
+            act(move || Action::DiskUsage(DiskUsageAction::Open(folder))),
         );
     }
     for d in app.drives.iter().filter(|d| d.remote.is_none()) {
@@ -25,19 +25,24 @@ pub(super) fn entries(app: &OxApp, v: &mut Vec<Entry>) {
         cmd(
             ox_core::trf!("Disk usage: {name}", name = d.title()),
             d.mount.display().to_string(),
-            act(move || Action::Navigate(Location::DiskUsage(mount))),
+            act(move || Action::DiskUsage(DiskUsageAction::Open(mount))),
         );
     }
-    if let Location::DiskUsage(_) = app.tabs.active().location() {
+    let shown = match app.tabs.active().location() {
+        Location::DiskUsage(p) => Some(p.clone()),
+        _ => app.disk_usage.panel.clone(),
+    };
+    if let Some(path) = shown {
+        let again = path.clone();
         cmd(
             tr("Scan disk usage again").to_owned(),
             String::new(),
-            act(|| Action::DiskUsage(DiskUsageAction::Rescan)),
+            act(move || Action::DiskUsage(DiskUsageAction::Rescan(again))),
         );
         cmd(
             tr("Stop disk usage scan").to_owned(),
             String::new(),
-            act(|| Action::DiskUsage(DiskUsageAction::Stop)),
+            act(move || Action::DiskUsage(DiskUsageAction::Stop(path))),
         );
     }
 }

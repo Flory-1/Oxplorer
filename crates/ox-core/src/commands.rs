@@ -69,6 +69,65 @@ impl Window {
     }
 }
 
+/// Where in the right-click menu a command is listed: under one of its
+/// entries. The menu of a folder's background, which lacks some of them,
+/// uses the nearest place it has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum MenuPlace {
+    /// First in the menu.
+    Top,
+    /// Under Open, Open with and Quick Look (background: under New).
+    Open,
+    /// Under Cut, Copy, Copy to and Move to (background: under Paste).
+    Copy,
+    /// Under Rename and Delete (background: under Select).
+    Delete,
+    /// Under Tags (background: under Select).
+    Tags,
+    /// With the tools, after Compress to ZIP.
+    #[default]
+    Tools,
+    /// Under Copy path (background: with the tools).
+    CopyPath,
+    /// Last, under Properties.
+    Bottom,
+}
+
+impl MenuPlace {
+    pub const ALL: [Self; 8] = [
+        Self::Top,
+        Self::Open,
+        Self::Copy,
+        Self::Delete,
+        Self::Tags,
+        Self::Tools,
+        Self::CopyPath,
+        Self::Bottom,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Top => "At the top",
+            Self::Open => "Under “Open”",
+            Self::Copy => "Under “Copy”",
+            Self::Delete => "Under “Delete”",
+            Self::Tags => "Under “Tags”",
+            Self::Tools => "Under “Compress to ZIP” (with the tools)",
+            Self::CopyPath => "Under “Copy path”",
+            Self::Bottom => "Under “Properties” (at the bottom)",
+        }
+    }
+
+    /// Where the place is in the menu of a folder's background.
+    pub fn on_background(self) -> Self {
+        match self {
+            Self::Tags => Self::Delete,
+            Self::CopyPath => Self::Tools,
+            p => p,
+        }
+    }
+}
+
 /// One custom command, as stored in `[[commands]]` in settings.toml.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -94,6 +153,11 @@ pub struct CustomCommand {
     pub confirm: bool,
     /// Keys that run it ("Ctrl+Alt+H"); empty = none.
     pub shortcut: String,
+    /// Where it is in the right-click menu.
+    pub menu_place: MenuPlace,
+    /// Listed in a submenu of this name there (commands with the same name
+    /// share it); empty = in the menu itself.
+    pub submenu: String,
 }
 
 impl Default for CustomCommand {
@@ -111,8 +175,77 @@ impl Default for CustomCommand {
             window: Window::Hidden,
             confirm: false,
             shortcut: String::new(),
+            menu_place: MenuPlace::Tools,
+            submenu: String::new(),
         }
     }
+}
+
+/// How the commands at one place of a menu are listed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MenuGroup<T> {
+    /// In the menu itself.
+    Entry(T),
+    /// In a submenu with this name.
+    Submenu(String, Vec<T>),
+}
+
+/// Up to this many commands without a submenu of their own are listed with
+/// the tools; more go to a "Commands" submenu (named by the caller).
+pub const TOOLS_TOP_LEVEL: usize = 3;
+
+/// Groups the commands at one `place` (`commands` are in their order, with
+/// something to tell them apart): submenus where the first of them is.
+/// Commands with the tools and without a submenu of their own go to one
+/// named `overflow` when there are more than [`TOOLS_TOP_LEVEL`].
+pub fn menu_groups<'a, T: Clone>(
+    commands: impl IntoIterator<Item = (&'a CustomCommand, T)>,
+    place: MenuPlace,
+    overflow: &str,
+) -> Vec<MenuGroup<T>> {
+    let mut groups: Vec<MenuGroup<T>> = Vec::new();
+    let mut loose = 0;
+    for (c, t) in commands {
+        if c.menu_place != place {
+            continue;
+        }
+        let name = c.submenu.trim();
+        if name.is_empty() {
+            loose += 1;
+            groups.push(MenuGroup::Entry(t));
+            continue;
+        }
+        let shared = groups.iter_mut().find_map(|g| match g {
+            MenuGroup::Submenu(n, list) if n.eq_ignore_ascii_case(name) => Some(list),
+            _ => None,
+        });
+        match shared {
+            Some(list) => list.push(t),
+            None => groups.push(MenuGroup::Submenu(name.to_owned(), vec![t])),
+        }
+    }
+    if place == MenuPlace::Tools && loose > TOOLS_TOP_LEVEL {
+        let mut rest = Vec::new();
+        let mut first = None;
+        let mut kept = Vec::new();
+        for (i, g) in groups.into_iter().enumerate() {
+            match g {
+                MenuGroup::Entry(t) => {
+                    first.get_or_insert(i);
+                    rest.push(t);
+                }
+                g => kept.push((i, g)),
+            }
+        }
+        let at = kept
+            .iter()
+            .position(|(i, _)| Some(*i) > first)
+            .unwrap_or(kept.len());
+        let mut groups: Vec<MenuGroup<T>> = kept.into_iter().map(|(_, g)| g).collect();
+        groups.insert(at, MenuGroup::Submenu(overflow.to_owned(), rest));
+        return groups;
+    }
+    groups
 }
 
 /// The user's custom commands, in the order they are listed.
@@ -416,6 +549,58 @@ mod tests {
     }
 
     #[test]
+    fn menu_places_and_submenus() {
+        let cmd = |place, submenu: &str| CustomCommand {
+            menu_place: place,
+            submenu: submenu.into(),
+            ..Default::default()
+        };
+        let list = [
+            cmd(MenuPlace::Open, ""),
+            cmd(MenuPlace::Open, "Media"),
+            cmd(MenuPlace::Top, ""),
+            cmd(MenuPlace::Open, "media "),
+            cmd(MenuPlace::Open, "Git"),
+        ];
+        let numbered = || list.iter().zip(0..);
+        assert_eq!(
+            menu_groups(numbered(), MenuPlace::Open, "Commands"),
+            [
+                MenuGroup::Entry(0),
+                MenuGroup::Submenu("Media".into(), vec![1, 3]),
+                MenuGroup::Submenu("Git".into(), vec![4]),
+            ]
+        );
+        assert_eq!(
+            menu_groups(numbered(), MenuPlace::Top, "Commands"),
+            [MenuGroup::Entry(2)]
+        );
+        assert!(menu_groups(numbered(), MenuPlace::Bottom, "Commands").is_empty());
+
+        // More than three with the tools: those without a submenu share one.
+        let tools = [
+            cmd(MenuPlace::Tools, "Own"),
+            cmd(MenuPlace::Tools, ""),
+            cmd(MenuPlace::Tools, ""),
+            cmd(MenuPlace::Tools, ""),
+            cmd(MenuPlace::Tools, ""),
+        ];
+        assert_eq!(
+            menu_groups(tools.iter().zip(0..), MenuPlace::Tools, "Commands"),
+            [
+                MenuGroup::Submenu("Own".into(), vec![0]),
+                MenuGroup::Submenu("Commands".into(), vec![1, 2, 3, 4]),
+            ]
+        );
+        assert_eq!(
+            menu_groups(tools[..4].iter().zip(0..), MenuPlace::Tools, "C").len(),
+            4,
+            "three are listed as they are"
+        );
+        assert_eq!(MenuPlace::Tags.on_background(), MenuPlace::Delete);
+    }
+
+    #[test]
     fn examples_are_complete_and_round_trip() {
         let list = CustomCommands(examples());
         assert!(list.0.len() >= 3);
@@ -434,5 +619,7 @@ mod tests {
         let partial: File = toml::from_str("[[commands]]\nname = \"x\"\n").unwrap();
         assert_eq!(partial.commands.0[0].name, "x");
         assert!(partial.commands.0[0].files);
+        assert_eq!(partial.commands.0[0].menu_place, MenuPlace::Tools);
+        assert!(partial.commands.0[0].submenu.is_empty());
     }
 }

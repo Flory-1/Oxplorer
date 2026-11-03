@@ -3,11 +3,11 @@
 
 use egui::{RichText, Ui};
 use ox_core::details::Details;
-use ox_core::entry::{FileEntry, FileKind};
+use ox_core::entry::FileEntry;
 use ox_core::format;
 use ox_core::i18n::t as tr;
 
-use super::{font_info, is_image, media_info, Checksums, Loaded};
+use super::Checksums;
 use crate::app::Action;
 
 /// Name, size, place, dates and attributes, then the type's own details.
@@ -114,29 +114,6 @@ pub(super) fn group_digits(n: u64) -> String {
         out.push(c);
     }
     out
-}
-
-/// The details of a file's type (dimensions, length, artist, …) without
-/// loading its preview, for the Properties dialog. Reads the file.
-pub fn type_facts(e: &FileEntry) -> Vec<(&'static str, String)> {
-    // Online-only files aren't read: that would download them.
-    if e.is_dir || std::fs::metadata(&e.path).is_ok_and(|m| ox_core::cloud::online(&m)) {
-        return Vec::new();
-    }
-    if is_image(e) {
-        return super::picture::dimensions(&e.path, &e.extension())
-            .map(|[w, h]| vec![(tr("Dimensions"), format!("{w} × {h} px"))])
-            .unwrap_or_default();
-    }
-    let loaded = match e.kind() {
-        FileKind::Audio | FileKind::Video => media_info(&e.path, e.kind() == FileKind::Video),
-        FileKind::Font => font_info(&e.path),
-        _ => None,
-    };
-    match loaded {
-        Some(Loaded::Media { info, .. } | Loaded::Font { info, .. }) => info,
-        _ => Vec::new(),
-    }
 }
 
 /// SHA-256 and MD5 of the file, computed when asked for (big files take a

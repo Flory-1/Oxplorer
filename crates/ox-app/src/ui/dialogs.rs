@@ -20,7 +20,8 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
 
     let width = match dialog {
         Dialog::BulkRename { .. } => 680.0,
-        Dialog::Properties(_) | Dialog::DeleteFailed(_) => 460.0,
+        Dialog::Properties(_) => 620.0,
+        Dialog::DeleteFailed(_) => 460.0,
         _ => 420.0,
     };
     let modal = egui::Modal::new(Id::unique("dialog")).show(ctx, |ui| {
@@ -321,10 +322,9 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
                 });
             }
             Dialog::Properties(p) => {
-                if !properties(ui, p, &date_fmt, &mut actions) {
-                    p.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-                    keep = false;
-                }
+                let show_hidden = app.settings.browsing.show_hidden;
+                let git = app.tabs.active().view.git.clone();
+                keep = properties(ui, p, show_hidden, git, &date_fmt, &mut actions);
             }
             Dialog::NewLink(d) => keep = super::link_dialog::show(ui, d, app),
             Dialog::Pictures(d) => keep = super::picture_tools::dialog(ui, d, &mut actions),
@@ -370,10 +370,13 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
         }
     });
     if modal.should_close() {
-        if let Dialog::Properties(p) = &dialog {
-            p.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-        }
         keep = false;
+    }
+    if let (false, Dialog::Properties(p)) = (keep, &mut dialog) {
+        p.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(preview) = &mut p.preview {
+            preview.release(ctx);
+        }
     }
     if keep {
         app.dialog = Some(dialog);
@@ -381,28 +384,144 @@ pub fn show(app: &mut OxApp, ctx: &Context) {
     app.actions.extend(actions);
 }
 
-/// The Properties dialog: what the items are, their size and dates, the
-/// Read-only and Hidden attributes to change, and the details of the type.
-/// Returns whether it stays open.
-fn properties(ui: &mut Ui, p: &mut Properties, date_fmt: &str, actions: &mut Vec<Action>) -> bool {
+/// Height of the Properties dialog's tabs, the same for all of them.
+const PROPERTIES_HEIGHT: f32 = 400.0;
+
+/// The Properties dialog: for one item, its General and Details tabs and
+/// those of its preview; for several, what they are together. Read-only
+/// and Hidden can be changed. Returns whether it stays open.
+fn properties(
+    ui: &mut Ui,
+    p: &mut Properties,
+    show_hidden: bool,
+    git: Option<std::sync::Arc<ox_core::git::RepoStatus>>,
+    date_fmt: &str,
+    actions: &mut Vec<Action>,
+) -> bool {
+    use preview::DialogTab;
     if let Some(t) = p.rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
         p.totals = Some(t);
         p.rx = None;
-    }
-    if let Some(more) = p.more_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
-        p.more = Some(more);
-        p.more_rx = None;
     }
     let title = match p.paths.as_slice() {
         [one] => display_name(one),
         many => ox_core::i18n::count(many.len() as u64, "item"),
     };
     ui.heading(ox_core::trf!("ℹ {title}", title = title));
-    ui.add_space(6.0);
+    if let [e] = p.entries.as_slice() {
+        ui.label(RichText::new(e.type_label()).weak());
+    }
+    ui.add_space(4.0);
 
-    let details = p.more.as_ref().map(|m| &m.details);
+    // Out of `p` while the tabs are drawn, which change `p` too.
+    let mut embedded = p.preview.take();
+    let single = match (p.entries.as_slice(), embedded.as_mut()) {
+        ([e], Some(preview)) => {
+            preview.update(ui.ctx(), e, show_hidden, git);
+            let tabs = preview.tabs(e);
+            if !tabs.contains(&p.tab) {
+                p.tab = DialogTab::General;
+            }
+            ui.horizontal_wrapped(|ui| {
+                for t in tabs {
+                    if ui.selectable_label(p.tab == t, t.label()).clicked() {
+                        p.tab = t;
+                    }
+                }
+            });
+            ui.separator();
+            Some((e.clone(), preview))
+        }
+        _ => None,
+    };
+    let size = egui::vec2(ui.available_width(), PROPERTIES_HEIGHT);
+    ui.allocate_ui(size, |ui| {
+        ui.set_min_size(size);
+        match (p.tab, single) {
+            (DialogTab::Preview(tab), Some((e, preview))) => {
+                preview.show(ui, &e, tab, date_fmt, actions);
+            }
+            (DialogTab::Details, Some((e, preview))) => {
+                egui::ScrollArea::vertical()
+                    .id_salt("props_details")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        preview.details_tab(ui, &e, p.git, date_fmt, actions)
+                    });
+            }
+            (_, single) => {
+                let details = single.as_ref().and_then(|(_, preview)| preview.details());
+                let details = details.cloned();
+                egui::ScrollArea::vertical()
+                    .id_salt("props_general")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        general(ui, p, details.as_ref(), date_fmt);
+                    });
+            }
+        }
+    });
+    p.preview = embedded;
+
+    ui.separator();
+    let (readonly, hidden) = pending_attributes(p);
+    let changed = readonly.is_some() || hidden.is_some();
+    let mut apply = false;
+    let mut keep = true;
+    ui.horizontal(|ui| {
+        if ui.button(tr("OK")).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
+            apply = true;
+            keep = false;
+        }
+        if ui.button(tr("Cancel")).clicked() {
+            keep = false;
+        }
+        if ui
+            .add_enabled(changed, egui::Button::new(tr("Apply")))
+            .clicked()
+        {
+            apply = true;
+        }
+    });
+    if apply && changed {
+        actions.push(Action::SetAttributes(p.paths.clone(), readonly, hidden));
+        // What the boxes compare against from now on.
+        for e in &mut p.entries {
+            e.readonly = readonly.unwrap_or(e.readonly);
+            e.hidden = hidden.unwrap_or(e.hidden);
+        }
+    }
+    keep
+}
+
+/// The Read-only and Hidden boxes where they differ from the items (what
+/// Apply would change).
+fn pending_attributes(p: &Properties) -> (Option<bool>, Option<bool>) {
+    // Checked when all items are, empty when none is, mixed otherwise.
+    let initial = |on: fn(&FileEntry) -> bool| {
+        let n = p.entries.iter().filter(|e| on(e)).count();
+        (n == 0 || n == p.entries.len()).then_some(n > 0)
+    };
+    let (readonly0, hidden0) = (initial(|e| e.readonly), initial(|e| e.hidden));
+    (
+        p.readonly.filter(|_| p.readonly != readonly0),
+        p.hidden.filter(|_| p.hidden != hidden0),
+    )
+}
+
+/// The General tab: name, type, size, place and dates, and the attributes.
+fn general(
+    ui: &mut Ui,
+    p: &mut Properties,
+    details: Option<&ox_core::details::Details>,
+    date_fmt: &str,
+) {
     let mut rows = match p.entries.as_slice() {
-        [e] => preview::info_rows(e, details, date_fmt),
+        [e] => {
+            let mut rows = vec![(tr("Name"), e.name.clone())];
+            rows.extend(preview::info_rows(e, details, date_fmt));
+            rows
+        }
         many => {
             let first = many.first().map(FileEntry::type_label).unwrap_or_default();
             let same = many.iter().all(|e| e.type_label() == first);
@@ -457,12 +576,6 @@ fn properties(ui: &mut Ui, p: &mut Properties, date_fmt: &str, actions: &mut Vec
     }
 
     ui.separator();
-    // Checked when all items are, empty when none is, mixed otherwise.
-    let initial = |on: fn(&FileEntry) -> bool| {
-        let n = p.entries.iter().filter(|e| on(e)).count();
-        (n == 0 || n == p.entries.len()).then_some(n > 0)
-    };
-    let (readonly0, hidden0) = (initial(|e| e.readonly), initial(|e| e.hidden));
     ui.horizontal(|ui| {
         ui.label(RichText::new(tr("Attributes")).weak());
         ui.add_space(8.0);
@@ -476,67 +589,6 @@ fn properties(ui: &mut Ui, p: &mut Properties, date_fmt: &str, actions: &mut Vec
     if !others.is_empty() {
         ui.label(RichText::new(others.join(", ")).weak());
     }
-
-    // The type's details and Git.
-    let mut more: Vec<(&str, String)> = Vec::new();
-    if let Some(m) = &p.more {
-        more.extend(m.facts.iter().cloned());
-        more.extend(m.details.facts.iter().cloned());
-    }
-    if let Some(state) = p.git {
-        more.push((tr("Git"), state.to_owned()));
-    }
-    if let Some(c) = p.more.as_ref().and_then(|m| m.last_commit.as_ref()) {
-        let when = std::time::SystemTime::UNIX_EPOCH
-            + std::time::Duration::from_secs(c.time.max(0) as u64);
-        more.push((
-            tr("Last commit"),
-            format!(
-                "{} {}\n{}, {}",
-                c.short(),
-                c.subject,
-                c.author,
-                format::time(when, date_fmt)
-            ),
-        ));
-    }
-    if !more.is_empty() {
-        ui.separator();
-        grid(ui, "props_more", &more);
-    } else if p.more_rx.is_some() {
-        ui.spinner();
-    }
-
-    ui.add_space(8.0);
-    let readonly = p.readonly.filter(|_| p.readonly != readonly0);
-    let hidden = p.hidden.filter(|_| p.hidden != hidden0);
-    let changed = readonly.is_some() || hidden.is_some();
-    let mut apply = false;
-    let mut keep = true;
-    ui.horizontal(|ui| {
-        if ui.button(tr("OK")).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
-            apply = true;
-            keep = false;
-        }
-        if ui.button(tr("Cancel")).clicked() {
-            keep = false;
-        }
-        if ui
-            .add_enabled(changed, egui::Button::new(tr("Apply")))
-            .clicked()
-        {
-            apply = true;
-        }
-    });
-    if apply && changed {
-        actions.push(Action::SetAttributes(p.paths.clone(), readonly, hidden));
-        // What the boxes compare against from now on.
-        for e in &mut p.entries {
-            e.readonly = readonly.unwrap_or(e.readonly);
-            e.hidden = hidden.unwrap_or(e.hidden);
-        }
-    }
-    keep
 }
 
 /// A check box that can also show "some are, some aren't" (`None`).

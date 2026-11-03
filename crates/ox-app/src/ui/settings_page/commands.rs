@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use egui::{vec2, Color32, RichText, Ui};
 use ox_core::commands::line::PLACEHOLDERS;
 use ox_core::commands::run::{self, Launch};
-use ox_core::commands::{examples, CustomCommand, Invocation, Many, Target, TypeFilter, Window};
+use ox_core::commands::{
+    examples, CustomCommand, Invocation, Many, MenuPlace, Target, TypeFilter, Window,
+};
 use ox_core::i18n::t as tr;
 use ox_core::trf;
 
@@ -141,6 +143,13 @@ fn summary(c: &CustomCommand) -> String {
     if c.files && !c.types.trim().is_empty() {
         s.push_str(&format!(" ({})", c.types.trim()));
     }
+    if c.menu_place != MenuPlace::default() {
+        s.push_str(" · ");
+        s.push_str(tr(c.menu_place.label()));
+    }
+    if !c.submenu.trim().is_empty() {
+        s.push_str(&format!(" › {}", c.submenu.trim()));
+    }
     if let Some(k) = shortcut_of(c) {
         s.push_str(" · ");
         s.push_str(&shortcuts::display(&k));
@@ -235,6 +244,57 @@ fn launch_of(inv: &Invocation) -> Result<Launch, String> {
     })
 }
 
+/// Width of the labels in front of the fields.
+const LABEL_WIDTH: f32 = 130.0;
+
+/// A field of the form: its label at the top left, the inputs to the right.
+fn field(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui)) {
+    ui.horizontal_top(|ui| {
+        ui.allocate_ui_with_layout(
+            vec2(LABEL_WIDTH, 0.0),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                ui.set_width(LABEL_WIDTH);
+                ui.add_space(3.0);
+                ui.label(label);
+            },
+        );
+        ui.vertical(add);
+    });
+    ui.add_space(8.0);
+}
+
+/// A heading over a group of fields.
+fn section(ui: &mut Ui, title: &str) {
+    ui.add_space(4.0);
+    ui.label(RichText::new(title).strong());
+    ui.add_space(6.0);
+}
+
+fn help(ui: &mut Ui, text: &str) {
+    ui.label(RichText::new(text).small().weak());
+}
+
+/// The icons as a grid of buttons of the same size.
+fn icon_picker(ui: &mut Ui, c: &mut CustomCommand) {
+    const CELL: f32 = 30.0;
+    let per_row = ((ui.available_width() + 3.0) / (CELL + 3.0)).floor() as usize;
+    let current = icon(c);
+    ui.spacing_mut().item_spacing = vec2(3.0, 3.0);
+    for row in ICONS.chunks(per_row.clamp(6, 17)) {
+        ui.horizontal(|ui| {
+            for sym in row {
+                let text = RichText::new(*sym).size(16.0);
+                let button =
+                    egui::Button::selectable(current == *sym, text).min_size(vec2(CELL, CELL));
+                if ui.add(button).clicked() {
+                    c.icon = (*sym).to_owned();
+                }
+            }
+        });
+    }
+}
+
 fn form(ui: &mut Ui, app: &mut OxApp, i: usize, preview: &PreviewItems) {
     record_shortcut(ui, app, i);
     let keymap = app.keymap.clone();
@@ -246,182 +306,192 @@ fn form(ui: &mut Ui, app: &mut OxApp, i: usize, preview: &PreviewItems) {
         .iter()
         .map(|c| c.name.clone())
         .collect();
+    // The submenus other commands are in, to pick one of them.
+    let mut submenus: Vec<String> = Vec::new();
+    for (j, c) in app.settings.commands.0.iter().enumerate() {
+        let name = c.submenu.trim();
+        if j != i && !name.is_empty() && !submenus.iter().any(|s| s.eq_ignore_ascii_case(name)) {
+            submenus.push(name.to_owned());
+        }
+    }
     let recording = app.commands.recording;
     let mut toggle_recording = false;
     let c = &mut app.settings.commands.0[i];
-    egui::Grid::new(("command_form", i))
-        .num_columns(2)
-        .spacing(vec2(12.0, 8.0))
-        .show(ui, |ui| {
-            ui.label(tr("Name"));
-            ui.add(egui::TextEdit::singleline(&mut c.name).desired_width(260.0));
-            ui.end_row();
 
-            ui.label(tr("Icon"));
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing.x = 2.0;
-                let current = icon(c);
-                for sym in ICONS {
-                    if ui.selectable_label(current == *sym, *sym).clicked() {
-                        c.icon = (*sym).to_owned();
+    section(ui, tr("Command"));
+    field(ui, tr("Name"), |ui| {
+        ui.add(
+            egui::TextEdit::singleline(&mut c.name)
+                .hint_text(tr("Shown in the menu and the palette"))
+                .desired_width(300.0),
+        );
+    });
+    field(ui, tr("Icon"), |ui| icon_picker(ui, c));
+    field(ui, tr("Command line"), |ui| {
+        help(
+            ui,
+            tr("The program to start and its arguments. The placeholders below become the selected items."),
+        );
+        ui.add_space(2.0);
+        ui.add(
+            egui::TextEdit::multiline(&mut c.command)
+                .code_editor()
+                .desired_rows(2)
+                .desired_width(f32::INFINITY)
+                .hint_text(tr("e.g. code {paths}")),
+        );
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(tr("Insert:")).small().weak());
+            for p in PLACEHOLDERS {
+                if ui
+                    .small_button(RichText::new(*p).monospace())
+                    .on_hover_text(tr(placeholder_help(p)))
+                    .clicked()
+                {
+                    if !c.command.is_empty() && !c.command.ends_with(' ') {
+                        c.command.push(' ');
                     }
+                    c.command.push_str(p);
                 }
-            });
-            ui.end_row();
-
-            ui.label(tr("Command line"));
-            ui.vertical(|ui| {
-                ui.add(
-                    egui::TextEdit::multiline(&mut c.command)
-                        .code_editor()
-                        .desired_rows(2)
-                        .desired_width(f32::INFINITY)
-                        .hint_text("code {paths}"),
-                );
-                ui.horizontal_wrapped(|ui| {
-                    for p in PLACEHOLDERS {
-                        if ui
-                            .small_button(RichText::new(*p).monospace())
-                            .on_hover_text(tr(placeholder_help(p)))
-                            .clicked()
-                        {
-                            if !c.command.is_empty() && !c.command.ends_with(' ') {
-                                c.command.push(' ');
-                            }
-                            c.command.push_str(p);
-                        }
-                    }
-                });
-                ui.label(
-                    RichText::new(tr(
-                        "Also in the environment: OX_PATH, OX_PATHS (one per line) and OX_FOLDER, e.g. $env:OX_PATH in PowerShell.",
-                    ))
-                    .small()
-                    .weak(),
-                );
-            });
-            ui.end_row();
-
-            ui.label(tr("Working folder"));
-            ui.add(
-                egui::TextEdit::singleline(&mut c.working_dir)
-                    .font(egui::TextStyle::Monospace)
-                    .hint_text(tr("the current folder"))
-                    .desired_width(260.0),
-            );
-            ui.end_row();
-
-            ui.label(tr("For"));
-            ui.horizontal(|ui| {
-                ui.checkbox(&mut c.files, tr("Files"));
-                ui.checkbox(&mut c.folders, tr("Folders"));
-                ui.checkbox(&mut c.background, tr("Folder background"));
-            });
-            ui.end_row();
-
-            ui.label(tr("File types"));
-            ui.vertical(|ui| {
-                ui.add_enabled(
-                    c.files,
-                    egui::TextEdit::singleline(&mut c.types)
-                        .hint_text(tr("all files"))
-                        .desired_width(260.0),
-                );
-                let kinds = ox_core::commands::KINDS
-                    .iter()
-                    .map(|(w, _)| *w)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                ui.label(
-                    RichText::new(trf!(
-                        "Extensions (jpg, png) or kinds: {kinds}",
-                        kinds = kinds
-                    ))
-                    .small()
-                    .weak(),
-                );
-            });
-            ui.end_row();
-
-            ui.label(tr("Selection"));
-            egui::ComboBox::from_id_salt(("command_many", i))
-                .selected_text(tr(c.many.label()))
-                .width(260.0)
-                .show_ui(ui, |ui| {
-                    for m in Many::ALL {
-                        ui.selectable_value(&mut c.many, m, tr(m.label()));
-                    }
-                });
-            ui.end_row();
-
-            ui.label(tr("Window"));
-            ui.vertical(|ui| {
-                for w in Window::ALL {
-                    ui.radio_value(&mut c.window, w, tr(w.label()));
-                }
-                if c.window == Window::Console {
-                    ui.label(
-                        RichText::new(tr(
-                            "The console closes when the command ends; add & pause to keep it open.",
-                        ))
-                        .small()
-                        .weak(),
-                    );
-                }
-            });
-            ui.end_row();
-
-            ui.label(tr("Ask first"));
-            ui.checkbox(&mut c.confirm, tr("Ask before running it"));
-            ui.end_row();
-
-            ui.label(tr("Shortcut"));
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    let text = if recording {
-                        tr("Press keys…").to_owned()
-                    } else {
-                        shortcut_of(c).map_or("—".to_owned(), |k| shortcuts::display(&k))
-                    };
-                    let button = egui::Button::new(RichText::new(text).monospace())
-                        .selected(recording)
-                        .min_size(vec2(170.0, 0.0));
-                    if ui.add(button).clicked() {
-                        toggle_recording = true;
-                    }
-                    if !c.shortcut.is_empty()
-                        && ui
-                            .small_button("✖")
-                            .on_hover_text(tr("No shortcut"))
-                            .clicked()
-                    {
-                        c.shortcut.clear();
-                    }
-                });
-                // The same clash the Shortcuts page shows.
-                let clash = shortcut_of(c).and_then(|k| keymap.conflict(Binding::Custom(i), &k));
-                match clash {
-                    Some(Binding::Builtin(b)) => {
-                        ui.colored_label(
-                            WARN,
-                            trf!(
-                                "⚠ Already the shortcut of “{other}”, which goes first. Change it in Settings → Shortcuts or pick other keys.",
-                                other = tr(shortcuts::command_info(b).label)
-                            ),
-                        );
-                    }
-                    Some(Binding::Custom(j)) => {
-                        let name = others.get(j).cloned().unwrap_or_default();
-                        ui.colored_label(
-                            WARN,
-                            trf!("⚠ Also the shortcut of “{other}”", other = name),
-                        );
-                    }
-                    None => {}
-                }
-            });
-            ui.end_row();
+            }
         });
+        help(
+            ui,
+            tr("Also in the environment: OX_PATH, OX_PATHS (one per line) and OX_FOLDER, e.g. $env:OX_PATH in PowerShell."),
+        );
+    });
+    field(ui, tr("Working folder"), |ui| {
+        ui.add(
+            egui::TextEdit::singleline(&mut c.working_dir)
+                .font(egui::TextStyle::Monospace)
+                .hint_text(tr("the current folder"))
+                .desired_width(300.0),
+        );
+    });
+
+    section(ui, tr("Where it is offered"));
+    field(ui, tr("For"), |ui| {
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut c.files, tr("Files"));
+            ui.checkbox(&mut c.folders, tr("Folders"));
+            ui.checkbox(&mut c.background, tr("Folder background"));
+        });
+    });
+    field(ui, tr("File types"), |ui| {
+        ui.add_enabled(
+            c.files,
+            egui::TextEdit::singleline(&mut c.types)
+                .hint_text(tr("all files"))
+                .desired_width(300.0),
+        );
+        let kinds = ox_core::commands::KINDS
+            .iter()
+            .map(|(w, _)| *w)
+            .collect::<Vec<_>>()
+            .join(", ");
+        help(
+            ui,
+            &trf!("Extensions (jpg, png) or kinds: {kinds}", kinds = kinds),
+        );
+    });
+    field(ui, tr("Selection"), |ui| {
+        egui::ComboBox::from_id_salt(("command_many", i))
+            .selected_text(tr(c.many.label()))
+            .width(300.0)
+            .show_ui(ui, |ui| {
+                for m in Many::ALL {
+                    ui.selectable_value(&mut c.many, m, tr(m.label()));
+                }
+            });
+    });
+    field(ui, tr("In the menu"), |ui| {
+        egui::ComboBox::from_id_salt(("command_place", i))
+            .selected_text(tr(c.menu_place.label()))
+            .width(300.0)
+            .show_ui(ui, |ui| {
+                for p in MenuPlace::ALL {
+                    ui.selectable_value(&mut c.menu_place, p, tr(p.label()));
+                }
+            });
+        ui.horizontal(|ui| {
+            ui.label(tr("In the submenu"));
+            ui.add(
+                egui::TextEdit::singleline(&mut c.submenu)
+                    .hint_text(tr("none (in the menu itself)"))
+                    .desired_width(180.0),
+            );
+            for name in &submenus {
+                if ui
+                    .small_button(name)
+                    .on_hover_text(tr("Put it in this submenu too"))
+                    .clicked()
+                {
+                    c.submenu = name.clone();
+                }
+            }
+        });
+        help(
+            ui,
+            tr("Commands with the same submenu name share it. The menu of a folder's background uses the nearest place it has."),
+        );
+    });
+    field(ui, tr("Shortcut"), |ui| {
+        ui.horizontal(|ui| {
+            let text = if recording {
+                tr("Press keys…").to_owned()
+            } else {
+                shortcut_of(c).map_or("—".to_owned(), |k| shortcuts::display(&k))
+            };
+            let button = egui::Button::new(RichText::new(text).monospace())
+                .selected(recording)
+                .min_size(vec2(170.0, 0.0));
+            if ui.add(button).clicked() {
+                toggle_recording = true;
+            }
+            if !c.shortcut.is_empty()
+                && ui
+                    .small_button("✖")
+                    .on_hover_text(tr("No shortcut"))
+                    .clicked()
+            {
+                c.shortcut.clear();
+            }
+        });
+        // The same clash the Shortcuts page shows.
+        let clash = shortcut_of(c).and_then(|k| keymap.conflict(Binding::Custom(i), &k));
+        match clash {
+            Some(Binding::Builtin(b)) => {
+                ui.colored_label(
+                    WARN,
+                    trf!(
+                        "⚠ Already the shortcut of “{other}”, which goes first. Change it in Settings → Shortcuts or pick other keys.",
+                        other = tr(shortcuts::command_info(b).label)
+                    ),
+                );
+            }
+            Some(Binding::Custom(j)) => {
+                let name = others.get(j).cloned().unwrap_or_default();
+                ui.colored_label(WARN, trf!("⚠ Also the shortcut of “{other}”", other = name));
+            }
+            None => {}
+        }
+    });
+
+    section(ui, tr("How it runs"));
+    field(ui, tr("Window"), |ui| {
+        for w in Window::ALL {
+            ui.radio_value(&mut c.window, w, tr(w.label()));
+        }
+        if c.window == Window::Console {
+            help(
+                ui,
+                tr("The console closes when the command ends; add & pause to keep it open."),
+            );
+        }
+    });
+    field(ui, tr("Ask first"), |ui| {
+        ui.checkbox(&mut c.confirm, tr("Ask before running it"));
+    });
     if toggle_recording {
         app.commands.recording = !recording;
     }
@@ -510,6 +580,7 @@ mod tests {
             .map(Many::label)
             .into_iter()
             .chain(Window::ALL.map(Window::label))
+            .chain(MenuPlace::ALL.map(MenuPlace::label))
             .chain(PLACEHOLDERS.iter().map(|p| placeholder_help(p)));
         for l in labels {
             assert!(ox_core::i18n::german(l).is_some(), "no German for {l:?}");

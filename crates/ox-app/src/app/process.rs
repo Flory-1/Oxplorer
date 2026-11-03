@@ -35,7 +35,9 @@ impl OxApp {
                 }
             }
             Action::Refresh if self.in_disk_usage() => {
-                self.disk_usage_action(DiskUsageAction::Rescan);
+                if let Some(path) = self.tab_disk_usage() {
+                    self.disk_usage_action(DiskUsageAction::Rescan(path));
+                }
             }
             Action::Refresh => {
                 if let Some(folder) = self.current_folder() {

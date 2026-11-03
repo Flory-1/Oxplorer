@@ -3,7 +3,7 @@
 use egui::{vec2, Color32, RichText, Ui};
 use ox_core::entry::{SortKey, SortOrder};
 use ox_core::i18n::t as tr;
-use ox_core::settings::{Backdrop, Settings, StartPage, Theme, ViewMode};
+use ox_core::settings::{Backdrop, DiskUsageOpen, Settings, StartPage, Theme, ViewMode};
 
 mod commands;
 mod fulltext;
@@ -385,6 +385,16 @@ fn browsing(ui: &mut Ui, s: &mut Settings) {
     toggle(ui, &mut b.show_status_bar, tr("Show status bar"), "");
     row(
         ui,
+        tr("Disk usage opens"),
+        tr("Where “Disk usage” in the right-click menu shows what fills a folder."),
+        |ui| {
+            for o in DiskUsageOpen::ALL {
+                ui.selectable_value(&mut b.disk_usage_opens, o, tr(o.label()));
+            }
+        },
+    );
+    row(
+        ui,
         tr("Date format"),
         tr("chrono format, e.g. %d.%m.%Y %H:%M or %Y-%m-%d"),
         |ui| {
@@ -732,6 +742,14 @@ mod tests {
     fn sections_are_translated() {
         for s in SECTIONS.map(|(_, name)| name) {
             assert!(ox_core::i18n::german(s).is_some(), "no German for {s:?}");
+        }
+    }
+
+    #[test]
+    fn disk_usage_places_are_translated() {
+        for o in DiskUsageOpen::ALL {
+            let l = o.label();
+            assert!(ox_core::i18n::german(l).is_some(), "no German for {l:?}");
         }
     }
 }

@@ -108,6 +108,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("ui/palette/views.rs"),
     app!("ui/preview.rs"),
     app!("ui/preview/document.rs"),
+    app!("ui/preview/embed.rs"),
     app!("ui/preview/data.rs"),
     app!("ui/preview/font.rs"),
     app!("ui/preview/git_branches.rs"),
