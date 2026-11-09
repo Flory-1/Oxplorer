@@ -5,6 +5,11 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+### Fixed
+- Going back with the mouse's Back button sometimes copied or moved the file under the
+  pointer into the folder that was under it after going back. Files and tabs are now only
+  dragged with the left button, and only releasing the left button drops them.
+
 ## [1.1.4] - 2026-11-03
 
 ### Added

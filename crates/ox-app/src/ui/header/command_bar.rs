@@ -350,7 +350,7 @@ fn recycle_bin_button(ui: &mut Ui, accent: Color32, actions: &mut Vec<Action>) {
             egui::StrokeKind::Inside,
         );
     }
-    if let Some(items) = bin.dnd_release_payload::<crate::ui::DragItems>() {
+    if let Some(items) = crate::ui::dropped::<crate::ui::DragItems>(&bin) {
         actions.push(Action::MoveToBin(items.0.clone()));
     }
 }

@@ -52,6 +52,30 @@ pub struct DragItems(pub Vec<PathBuf>);
 #[derive(Clone, Copy)]
 pub struct DragTab(pub TabId);
 
+/// Start dragging `payload` from `response`, but only with the left button.
+/// egui starts drags with any button, so pressing the mouse's Back/Forward
+/// side button on an item and moving slightly would drag it.
+pub fn start_drag<P: std::any::Any + Send + Sync>(response: &Response, payload: P) {
+    if response.drag_started_by(egui::PointerButton::Primary) {
+        response.dnd_set_drag_payload(payload);
+    }
+}
+
+/// The payload dropped onto `response` this frame. Only releasing the left
+/// button drops: egui drops on any button's release, so pressing Back during
+/// a drag (or right after one started) would drop the items into whatever
+/// folder ends up under the pointer after navigating.
+pub fn dropped<P: std::any::Any + Send + Sync>(response: &Response) -> Option<std::sync::Arc<P>> {
+    let primary = response
+        .ctx
+        .input(|i| i.pointer.button_released(egui::PointerButton::Primary));
+    if primary {
+        response.dnd_release_payload::<P>()
+    } else {
+        None
+    }
+}
+
 pub fn show(app: &mut OxApp, ui: &mut Ui) {
     egui::Panel::top("header")
         .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(8, 6)))
@@ -546,7 +570,7 @@ fn drag_preview(ctx: &egui::Context) {
 /// Returns true while files are hovering over it.
 pub fn drop_target(actions: &mut Vec<Action>, response: &Response, dest: &Path) -> bool {
     let hovering = response.dnd_hover_payload::<DragItems>().is_some();
-    if let Some(items) = response.dnd_release_payload::<DragItems>() {
+    if let Some(items) = dropped::<DragItems>(response) {
         actions.push(Action::Drop(items.0.clone(), dest.to_path_buf()));
     }
     hovering

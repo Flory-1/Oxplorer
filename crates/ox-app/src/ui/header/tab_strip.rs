@@ -206,13 +206,13 @@ fn tab_widget(
 
     // Reordering and dropping files onto tabs.
     if !home {
-        resp.dnd_set_drag_payload(DragTab(id));
+        crate::ui::start_drag(&resp, DragTab(id));
     }
     // Pinned and other tabs don't mix, so only show where it can go.
     let tab_hover = resp
         .dnd_hover_payload::<DragTab>()
         .is_some_and(|d| d.0 != id && app.tabs.is_pinned(d.0) == pinned && !home);
-    if let Some(dragged) = resp.dnd_release_payload::<DragTab>() {
+    if let Some(dragged) = crate::ui::dropped::<DragTab>(&resp) {
         if dragged.0 != id {
             actions.push(Action::Tab(TabAction::Move(dragged.0, idx)));
         }
