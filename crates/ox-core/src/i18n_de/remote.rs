@@ -23,6 +23,12 @@ pub const TABLE: &[(&str, &str)] = &[
     ("The saved password was removed.", "Das gespeicherte Passwort wurde entfernt."),
     // In remote folders
     ("This isn't available in remote locations.", "Das ist an Remotespeicherorten nicht verfügbar."),
+    ("Phones are read-only in Oxplorer for now: copy files from them to your PC.", "Handys sind in Oxplorer vorerst schreibgeschützt: Kopieren Sie Dateien von dort auf Ihren PC."),
+    ("Phone (read-only)", "Handy (schreibgeschützt)"),
+    ("Phone or camera on a USB cable (read-only)", "Handy oder Kamera am USB-Kabel (schreibgeschützt)"),
+    ("Phones can only be opened on Windows.", "Handys lassen sich nur unter Windows öffnen."),
+    ("The phone isn't connected (or is locked).", "Das Handy ist nicht verbunden (oder gesperrt)."),
+    ("Phones are read-only in Oxplorer for now.", "Handys sind in Oxplorer vorerst schreibgeschützt."),
     ("This file is too large to preview from the server.", "Diese Datei ist zu groß für eine Vorschau vom Server."),
     ("Downloading the preview…", "Vorschau wird heruntergeladen …"),
     ("📤 Download to", "📤 Herunterladen nach"),

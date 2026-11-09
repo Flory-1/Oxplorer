@@ -194,6 +194,15 @@ fn any_remote(paths: &[PathBuf]) -> bool {
     paths.iter().any(|p| is_remote(p))
 }
 
+/// On a phone (read-only for now, see `ox_core::remote::mtp`).
+fn is_phone(p: &Path) -> bool {
+    RemoteAddr::from_path(p).is_some_and(|a| a.is_phone())
+}
+
+fn any_phone(paths: &[PathBuf]) -> bool {
+    paths.iter().any(|p| is_phone(p))
+}
+
 /// The folder an item is in (`/` for items at the top).
 fn parent_dir(addr: &RemoteAddr) -> RemoteAddr {
     addr.parent().unwrap_or_else(|| addr.with_path("/"))
@@ -234,6 +243,23 @@ impl OxApp {
                 self.remote_connect(addr, After::Open(true));
             }
             Action::Open(path) if is_remote(&path) => self.remote_open(path),
+            // Nothing on a phone changes (yet).
+            Action::Delete(paths, _)
+            | Action::MoveToBin(paths)
+            | Action::DeleteConfirmed(paths, _)
+                if any_phone(&paths) =>
+            {
+                self.phone_read_only()
+            }
+            Action::Rename(p)
+            | Action::NewFolder(p)
+            | Action::NewFile(p)
+            | Action::NewFromItem(p, _)
+            | Action::Pin(p)
+                if is_phone(&p) =>
+            {
+                self.phone_read_only()
+            }
             Action::Delete(paths, _) | Action::MoveToBin(paths) if any_remote(&paths) => {
                 // Nothing on a server goes to the Recycle Bin.
                 self.dialog = Some(Dialog::ConfirmDelete {
@@ -254,8 +280,10 @@ impl OxApp {
             Action::Pin(path) if is_remote(&path) => {
                 self.remote_action(RemoteAction::Add(RemoteAddr::from_path(&path)));
             }
-            // The search box only filters a remote folder.
-            Action::Search(..) | Action::SearchLive(..) if here_remote => {}
+            // The search box only filters a remote folder (an empty search
+            // tab, opened by the search button, searches This PC).
+            Action::Search(_, q) if here_remote && !q.trim().is_empty() => {}
+            Action::SearchLive(..) if here_remote => {}
             Action::ToggleFlatView if here_remote => self.remote_unsupported(),
             Action::NewFile(p)
             | Action::NewFromItem(p, _)
@@ -282,6 +310,12 @@ impl OxApp {
             other => return Some(other),
         }
         None
+    }
+
+    fn phone_read_only(&mut self) {
+        self.toast(tr(
+            "Phones are read-only in Oxplorer for now: copy files from them to your PC.",
+        ));
     }
 
     fn remote_unsupported(&mut self) {
@@ -569,7 +603,9 @@ impl OxApp {
         }
         // A copy of its own, followed to upload its changes.
         let local = remote::edits::copy_path(&addr);
-        if self.remote_edit_unsent(&local) {
+        // Changes to a phone's file can't go back to it (read-only).
+        let follow = !addr.is_phone();
+        if follow && self.remote_edit_unsent(&local) {
             // Opened before and changed: not downloaded over.
             if let Err(e) = fsops::open_default(&local) {
                 self.toast(e.to_string());
@@ -610,7 +646,9 @@ impl OxApp {
         };
         let job = self.engine.submit(req);
         self.remote.open_after.push((job.id, local.clone()));
-        self.remote_edit_download(job.id, local, addr, stamp);
+        if follow {
+            self.remote_edit_download(job.id, local, addr, stamp);
+        }
         self.ui.show_transfers = true;
     }
 
@@ -716,6 +754,17 @@ impl OxApp {
         if remote_src.is_empty() && dest_remote.is_none() {
             return Some(local_src);
         }
+        if dest_remote.as_ref().is_some_and(|a| a.is_phone()) {
+            self.phone_read_only();
+            return None;
+        }
+        // Nothing is deleted on a phone: moving from one copies.
+        let kind = if kind == TransferKind::Move && any_phone(&remote_src) {
+            self.phone_read_only();
+            TransferKind::Copy
+        } else {
+            kind
+        };
         let conflict = self.settings.transfer.default_conflict;
         let mut requests = Vec::new();
         let mut rest = Vec::new();

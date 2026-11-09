@@ -133,6 +133,7 @@ pub fn host() -> &'static str {
 }
 
 /// `\\wsl.localhost` came with Windows 11 (build 22000) and the Store WSL.
+#[cfg_attr(not(windows), allow(dead_code))]
 fn prefer_localhost(build: Option<u32>, store_wsl: bool) -> bool {
     store_wsl || build.is_some_and(|b| b >= 22000)
 }

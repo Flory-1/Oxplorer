@@ -51,6 +51,7 @@ impl Location {
         match self {
             Location::Home => tr("Home").into(),
             Location::Folder(p) => entry::display_name(p),
+            Location::Search { query, .. } if query.trim().is_empty() => tr("Search").into(),
             Location::Search { query, .. } => ox_core::trf!("Search: {query}", query = query),
             Location::Settings => tr("Settings").into(),
             Location::Help => tr("Help").into(),
@@ -174,7 +175,12 @@ impl Location {
 
     /// Items here can't be changed (inside an archive).
     pub fn is_read_only(&self) -> bool {
-        matches!(self, Location::Archive { .. })
+        match self {
+            Location::Archive { .. } => true,
+            // Phones are read-only for now (see `ox_core::remote::mtp`).
+            Location::Remote(addr) => addr.is_phone(),
+            _ => false,
+        }
     }
 }
 

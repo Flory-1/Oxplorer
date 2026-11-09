@@ -59,6 +59,20 @@ impl TransferKind {
     }
 }
 
+/// The folder all `paths` are directly in, if they share one.
+pub fn common_parent<'a>(paths: impl IntoIterator<Item = &'a Path>) -> Option<PathBuf> {
+    let mut common: Option<&Path> = None;
+    for path in paths {
+        let parent = path.parent()?;
+        match common {
+            None => common = Some(parent),
+            Some(c) if c == parent => {}
+            Some(_) => return None,
+        }
+    }
+    common.map(Path::to_path_buf)
+}
+
 /// What to do when a file already exists at the destination.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ConflictPolicy {
@@ -391,6 +405,19 @@ impl Job {
     /// Total number of items the job was started with.
     pub fn item_count(&self) -> usize {
         self.sources.len() + self.pairs.len()
+    }
+
+    /// The items the job copies or moves: its sources and those of its pairs.
+    pub fn source_paths(&self) -> impl Iterator<Item = &Path> {
+        self.sources
+            .iter()
+            .chain(self.pairs.iter().map(|(src, _)| src))
+            .map(PathBuf::as_path)
+    }
+
+    /// The folder all items come from, if they come from one.
+    pub fn source_folder(&self) -> Option<PathBuf> {
+        common_parent(self.source_paths())
     }
 
     /// The file currently being scanned or copied.

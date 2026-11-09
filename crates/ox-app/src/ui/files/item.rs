@@ -56,11 +56,11 @@ pub(super) fn item_interact(
             false,
         ));
     }
-    if resp.drag_started() {
+    if resp.drag_started_by(egui::PointerButton::Primary) {
         if !view.selection.contains(&e.path) {
             view.select_only(i);
         }
-        resp.dnd_set_drag_payload(DragItems(view.selected_paths()));
+        crate::ui::start_drag(resp, DragItems(view.selected_paths()));
     }
     if e.is_dir && !(cx.is_search && in_archive(e)) {
         super::super::drop_target(actions, resp, &e.path)

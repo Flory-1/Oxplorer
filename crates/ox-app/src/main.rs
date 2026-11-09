@@ -42,11 +42,14 @@ fn main() -> eframe::Result {
     // `oxplorer C:\some\folder` opens that folder in a new tab.
     // Opened as the default folder handler, `"C:\"` arrives as `C:"`.
     let launch = ox_core::instance::parse(std::env::args().skip(1));
-    let open = launch
-        .folder
-        .as_deref()
-        .map(|a| PathBuf::from(ox_core::default_app::folder_argument(a)))
-        .filter(|p| ox_core::network::is_dir(p));
+    // The Recycle Bin on the desktop opens Oxplorer with `::{645FF040-…}`.
+    let open = launch.folder.as_deref().and_then(|a| {
+        if ox_core::default_app::is_recycle_bin_argument(a) {
+            return Some(tabs::Location::RecycleBin);
+        }
+        let path = PathBuf::from(ox_core::default_app::folder_argument(a));
+        ox_core::network::is_dir(&path).then_some(tabs::Location::Folder(path))
+    });
     ox_core::default_app::refresh();
     // Every window is a process of its own. The first one started normally
     // owns the saved session; windows opened from another one don't.

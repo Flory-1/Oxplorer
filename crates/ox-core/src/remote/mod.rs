@@ -13,6 +13,7 @@ pub mod edits;
 mod ftp;
 mod ftp_list;
 pub mod known_hosts;
+pub mod mtp;
 mod sftp;
 pub mod thumbs;
 mod tls;
@@ -355,6 +356,7 @@ fn connect(login: Login) -> RemoteResult<Arc<dyn RemoteFs>> {
         Protocol::Sftp => Arc::new(sftp::SftpFs::connect(login)?),
         Protocol::Ftp | Protocol::Ftps => Arc::new(ftp::FtpFs::connect(login)?),
         Protocol::WebDav | Protocol::WebDavs => Arc::new(webdav::DavFs::connect(login)?),
+        Protocol::Mtp => mtp::connect(&login.addr)?,
     })
 }
 

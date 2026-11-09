@@ -288,7 +288,7 @@ pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 "🔍",
                 &shortcuts::hint(tr("Search"), Command::Search),
             ) {
-                app.ui.focus_search = true;
+                search_button(app, &mut actions);
             }
             if keyboard_button(ui)
                 .on_hover_text(shortcuts::hint(tr("Command palette"), Command::Palette))
@@ -321,6 +321,7 @@ pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                     .clicked()
                 {
                     app.ui.show_transfers = !app.ui.show_transfers;
+                    app.ui.transfers_opened = false;
                 }
             }
         });
@@ -350,9 +351,23 @@ fn recycle_bin_button(ui: &mut Ui, accent: Color32, actions: &mut Vec<Action>) {
             egui::StrokeKind::Inside,
         );
     }
-    if let Some(items) = bin.dnd_release_payload::<crate::ui::DragItems>() {
+    if let Some(items) = crate::ui::dropped::<crate::ui::DragItems>(&bin) {
         actions.push(Action::MoveToBin(items.0.clone()));
     }
+}
+
+/// The search button opens a search tab: with the search box's query (as
+/// Enter does), or an empty one to type in or pick filters.
+fn search_button(app: &OxApp, actions: &mut Vec<Action>) {
+    let location = app.tabs.active().location();
+    // The Recycle Bin and servers can't be searched: an empty search of This PC.
+    if location.is_bin() || location.is_remote() {
+        actions.push(Action::Search(None, String::new()));
+        return;
+    }
+    let (root, _) = super::nav::search_scope(app);
+    let query = app.tabs.active().filter.trim().to_owned();
+    actions.push(Action::Search(root, query));
 }
 
 /// The command palette button: a small drawn keyboard, as wide as the

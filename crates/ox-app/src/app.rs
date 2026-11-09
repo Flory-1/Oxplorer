@@ -21,6 +21,7 @@ mod library;
 mod links;
 mod load;
 pub mod mirror;
+mod phones;
 mod picture_tools;
 mod player;
 mod poll;
@@ -147,12 +148,17 @@ pub struct UiState {
     pub focus_address: bool,
     pub focus_search: bool,
     pub show_transfers: bool,
+    /// The transfers panel was opened on purpose (command palette): it is
+    /// shown even when there are no transfers, until it is hidden.
+    pub transfers_opened: bool,
     pub settings_section: usize,
     /// Where the sidebar's and the preview pane's edges go (x in points),
     /// measured in the header this frame: under the command bar's separator
     /// after the edit buttons, and in the gap before the search box.
     pub sidebar_edge: Option<f32>,
     pub preview_edge: Option<f32>,
+    /// The preview pane was shown last frame (see `ui::pane_settled`).
+    pub preview_pane: bool,
     /// Whether folders open in Oxplorer (read from the registry when needed).
     pub default_folder_handler: Option<bool>,
     pub palette: Option<crate::ui::palette::PaletteState>,
@@ -274,6 +280,8 @@ pub struct OxApp {
     pub pictures: PictureTools,
     /// The WSL distributions (for the sidebar and the Home page).
     pub wsl: wsl::Wsl,
+    /// Phones and cameras on a USB cable (for the sidebar and the Home page).
+    pub phones: phones::Phones,
     /// Custom commands: the question before one runs, output windows.
     pub commands: CustomCommands,
     /// SFTP/FTP/WebDAV connections and their dialogs.
@@ -376,6 +384,7 @@ impl OxApp {
         self.poll_cloud();
         self.poll_libraries();
         self.poll_wsl();
+        self.poll_phones();
         self.poll_player(ctx);
         self.poll_watcher();
         self.poll_jobs();

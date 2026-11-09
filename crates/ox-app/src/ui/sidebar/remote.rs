@@ -63,6 +63,9 @@ pub(super) fn show(
     let mut unsaved: Vec<RemoteAddr> = Vec::new();
     for tab in app.tabs.tabs.iter() {
         if let Location::Remote(a) = tab.location() {
+            if a.is_phone() {
+                continue;
+            }
             let saved = places.iter().any(|p| p.addr.same_server(a));
             if !saved && !unsaved.iter().any(|u| u.same_server(a)) {
                 unsaved.push(a.with_path("/"));

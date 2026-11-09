@@ -19,6 +19,11 @@ pub const TABLE: &[(&str, &str)] = &[
     ("A folder opens with the view, sort order and columns it was last shown with. Other folders use the default view and sort.", "Ein Ordner öffnet sich mit der Ansicht, Sortierung und den Spalten, mit denen er zuletzt angezeigt wurde. Andere Ordner verwenden die Standardansicht und -sortierung."),
     ("Folders with a view of their own", "Ordner mit eigener Ansicht"),
     ("Forget all", "Alle vergessen"),
+    ("View", "Ansicht"),
+    ("Sort by", "Sortieren nach"),
+    ("Own", "Eigene"),
+    ("Default", "Standard"),
+    ("Forget the view of this folder", "Ansicht dieses Ordners vergessen"),
     // Group by
     ("Group by", "Gruppieren nach"),
     ("Group by: {name}", "Gruppieren nach: {name}"),

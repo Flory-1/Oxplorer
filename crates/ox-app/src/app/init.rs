@@ -44,8 +44,8 @@ impl OxApp {
             StartPage::Home => None,
         }
         .unwrap_or_else(|| Tabs::new(Location::Home, &settings));
-        if let Some(path) = start.open {
-            tabs.open(Location::Folder(path), None, true, &settings);
+        if let Some(location) = start.open {
+            tabs.open(location, None, true, &settings);
         }
 
         let watcher = || {
@@ -75,9 +75,11 @@ impl OxApp {
                 focus_address: false,
                 focus_search: false,
                 show_transfers: true,
+                transfers_opened: false,
                 settings_section: 0,
                 sidebar_edge: None,
                 preview_edge: None,
+                preview_pane: false,
                 default_folder_handler: None,
                 palette: None,
                 recording: None,
@@ -154,6 +156,7 @@ impl OxApp {
             fulltext: fulltext::FullText::new(&cc.egui_ctx),
             pictures: Default::default(),
             wsl: Default::default(),
+            phones: Default::default(),
             commands: Default::default(),
             remote: Default::default(),
         }

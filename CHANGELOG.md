@@ -5,6 +5,41 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+### Added
+- **Phones and cameras on a USB cable**: Android phones (and other MTP devices) connected by
+  cable show up under *This PC* in the sidebar and on the Home page. Open one to browse its
+  storage, open and preview its files, and copy or drag them to your PC. Phones are read-only
+  for now: copying to a phone, renaming and deleting on it come later. Unlock the phone and
+  allow file transfer on it for it to appear.
+- **List of folders with a view of their own**: Settings → Browsing lists every folder (and
+  library) whose view is remembered, with its view mode, sort order, grouping and whether it
+  has its own columns. Click a folder to open it, or ✖ to forget its view.
+
+### Changed
+- The transfers panel sits under the files like the terminal, so it no longer covers the
+  sidebar. Each transfer shows where it copies or moves from and to (full paths), the names of
+  its items, the files done, how many are copied at a time and for how long it has run. Its
+  buttons have their icons centred.
+- The search button in the command bar always opens a search tab: with what is typed in the
+  search box (as Enter does), or an empty one. Enter in an empty search box opens an empty
+  search tab too. An empty search tab searches nothing until you type or pick a filter.
+
+### Fixed
+- With *Open folders in Oxplorer* on, the Recycle Bin on the desktop (and anywhere else it is
+  opened from) opened in Explorer. It now opens in Oxplorer. Turned on by an older version, the
+  setting picks this up at the next start.
+- *Show transfers* in the command palette did nothing when no transfers were running. It now
+  opens the transfers panel even then (with the history of finished transfers), until it is
+  hidden again.
+- *Remember the view of each folder* now works in Windows libraries too: each library keeps
+  its own view mode, sort order, columns and grouping.
+- Double-clicking a picture while the preview pane was open sometimes opened another picture:
+  the first click opened or closed the pane, the items moved, and the second click landed on
+  another one. The pane now waits until a double-click can no longer follow.
+- Going back with the mouse's Back button sometimes copied or moved the file under the
+  pointer into the folder that was under it after going back. Files and tabs are now only
+  dragged with the left button, and only releasing the left button drops them.
+
 ## [1.1.4] - 2026-11-03
 
 ### Added

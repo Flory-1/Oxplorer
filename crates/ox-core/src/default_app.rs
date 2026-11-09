@@ -8,6 +8,8 @@
 //!   the default one.
 //! - `CLSID\{52205fd8-…}\shell\opennewwindow\command`: Win+E (the "This PC"
 //!   / Home window) starts Oxplorer.
+//! - `CLSID\{645FF040-…}\shell\open\command`: the Recycle Bin (on the
+//!   desktop, in the Start menu) opens in Oxplorer.
 
 use std::io;
 #[cfg(windows)]
@@ -18,6 +20,25 @@ pub const VERB: &str = "oxplorer";
 
 /// The shell folder Win+E opens.
 pub const WIN_E_CLSID: &str = "{52205fd8-5dfb-447d-801a-d0b52f2e83e1}";
+
+/// The Recycle Bin's shell folder.
+pub const RECYCLE_BIN_CLSID: &str = "{645FF040-5081-101B-9F08-00AA002F954E}";
+
+/// Whether a command-line argument asks for the Recycle Bin: what our own
+/// registration passes (`::{645FF040-…}`), or `shell:RecycleBinFolder`.
+pub fn is_recycle_bin_argument(arg: &str) -> bool {
+    let arg = arg.trim().trim_matches('"');
+    arg.eq_ignore_ascii_case("shell:RecycleBinFolder")
+        || arg
+            .strip_prefix("::")
+            .is_some_and(|clsid| clsid.eq_ignore_ascii_case(RECYCLE_BIN_CLSID))
+}
+
+/// The command line that opens the Recycle Bin in `exe`.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn recycle_bin_command(exe: &str) -> String {
+    format!("\"{exe}\" \"::{RECYCLE_BIN_CLSID}\"")
+}
 
 /// Is the Windows registry available?
 pub fn supported() -> bool {
@@ -98,7 +119,7 @@ pub(crate) fn delete_class_key(key: &str) {
 
 #[cfg(windows)]
 mod imp {
-    use super::{open_command, Path, VERB, WIN_E_CLSID};
+    use super::{open_command, recycle_bin_command, Path, RECYCLE_BIN_CLSID, VERB, WIN_E_CLSID};
     use std::io;
     use std::os::windows::ffi::OsStrExt;
     use windows::core::PCWSTR;
@@ -222,13 +243,19 @@ mod imp {
         format!(r"CLSID\{WIN_E_CLSID}\shell\opennewwindow\command")
     }
 
+    fn recycle_bin_key() -> String {
+        format!(r"CLSID\{RECYCLE_BIN_CLSID}\shell\open\command")
+    }
+
     pub(super) fn is_enabled() -> bool {
         get(r"Directory\shell", None).as_deref() == Some(VERB)
     }
 
     pub(super) fn points_to(exe: &Path) -> bool {
-        let command = open_command(&exe.display().to_string());
-        get(&format!(r"Directory\shell\{VERB}\command"), None).as_deref() == Some(&command)
+        let exe = exe.display().to_string();
+        get(&format!(r"Directory\shell\{VERB}\command"), None) == Some(open_command(&exe))
+            // Registered by an older version without the Recycle Bin.
+            && get(&recycle_bin_key(), None) == Some(recycle_bin_command(&exe))
     }
 
     pub(super) fn enable(exe: &Path) -> io::Result<()> {
@@ -244,6 +271,8 @@ mod imp {
         set(&win_e_key(), None, &format!("\"{exe}\""))?;
         // An empty DelegateExecute makes Windows run the command above.
         set(&win_e_key(), Some("DelegateExecute"), "")?;
+        set(&recycle_bin_key(), None, &recycle_bin_command(&exe))?;
+        set(&recycle_bin_key(), Some("DelegateExecute"), "")?;
         notify();
         Ok(())
     }
@@ -259,6 +288,9 @@ mod imp {
         delete_tree(&format!(r"CLSID\{WIN_E_CLSID}\shell\opennewwindow"))?;
         delete_if_empty(&format!(r"CLSID\{WIN_E_CLSID}\shell"));
         delete_if_empty(&format!(r"CLSID\{WIN_E_CLSID}"));
+        delete_tree(&format!(r"CLSID\{RECYCLE_BIN_CLSID}\shell\open"))?;
+        delete_if_empty(&format!(r"CLSID\{RECYCLE_BIN_CLSID}\shell"));
+        delete_if_empty(&format!(r"CLSID\{RECYCLE_BIN_CLSID}"));
         notify();
         Ok(())
     }
@@ -278,5 +310,22 @@ mod tests {
         assert_eq!(folder_argument(r"D:"), r"D:\");
         assert_eq!(folder_argument(r#""C:\Users\me""#), r"C:\Users\me");
         assert_eq!(folder_argument(r"\\nas\media"), r"\\nas\media");
+    }
+
+    #[test]
+    fn recycle_bin_arguments() {
+        let command = recycle_bin_command(r"C:\Apps\oxplorer.exe");
+        assert_eq!(
+            command,
+            r#""C:\Apps\oxplorer.exe" "::{645FF040-5081-101B-9F08-00AA002F954E}""#
+        );
+        assert!(is_recycle_bin_argument(
+            r#""::{645ff040-5081-101b-9f08-00aa002f954e}""#
+        ));
+        assert!(is_recycle_bin_argument("shell:RecycleBinFolder"));
+        assert!(!is_recycle_bin_argument(r"C:\Users"));
+        assert!(!is_recycle_bin_argument(
+            "::{52205fd8-5dfb-447d-801a-d0b52f2e83e1}"
+        ));
     }
 }

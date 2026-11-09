@@ -52,6 +52,30 @@ pub struct DragItems(pub Vec<PathBuf>);
 #[derive(Clone, Copy)]
 pub struct DragTab(pub TabId);
 
+/// Start dragging `payload` from `response`, but only with the left button.
+/// egui starts drags with any button, so pressing the mouse's Back/Forward
+/// side button on an item and moving slightly would drag it.
+pub fn start_drag<P: std::any::Any + Send + Sync>(response: &Response, payload: P) {
+    if response.drag_started_by(egui::PointerButton::Primary) {
+        response.dnd_set_drag_payload(payload);
+    }
+}
+
+/// The payload dropped onto `response` this frame. Only releasing the left
+/// button drops: egui drops on any button's release, so pressing Back during
+/// a drag (or right after one started) would drop the items into whatever
+/// folder ends up under the pointer after navigating.
+pub fn dropped<P: std::any::Any + Send + Sync>(response: &Response) -> Option<std::sync::Arc<P>> {
+    let primary = response
+        .ctx
+        .input(|i| i.pointer.button_released(egui::PointerButton::Primary));
+    if primary {
+        response.dnd_release_payload::<P>()
+    } else {
+        None
+    }
+}
+
 pub fn show(app: &mut OxApp, ui: &mut Ui) {
     egui::Panel::top("header")
         .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(8, 6)))
@@ -66,18 +90,6 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             .show(ui, |ui| status_bar(app, ui));
     }
     mini_player::show(app, ui);
-
-    if app.ui.show_transfers
-        && (!app.engine.jobs().is_empty()
-            || !app.engine.resumable().is_empty()
-            || transfers::deletes::any(app))
-    {
-        egui::Panel::bottom("transfers")
-            .resizable(true)
-            .default_size(150.0)
-            .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::same(8)))
-            .show(ui, |ui| transfers::show(app, ui));
-    }
 
     // The side panels have fixed widths that line up with the header. egui
     // draws a panel's edge line half a point inside the panel.
@@ -94,6 +106,20 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(6, 8)),
             )
             .show(ui, |ui| sidebar::show(app, ui));
+    }
+
+    // Under the files, like the terminal: the sidebar keeps its full height.
+    if app.ui.show_transfers
+        && (app.ui.transfers_opened
+            || !app.engine.jobs().is_empty()
+            || !app.engine.resumable().is_empty()
+            || transfers::deletes::any(app))
+    {
+        egui::Panel::bottom("transfers")
+            .resizable(true)
+            .default_size(150.0)
+            .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::same(8)))
+            .show(ui, |ui| transfers::show(app, ui));
     }
 
     if app.ui.show_terminal {
@@ -115,10 +141,12 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     // Disk usage can take the pane's place (Settings → Browsing).
     let disk_usage_shown = disk_usage::in_panel(app);
     // The pane only opens for a selection (the window stays open).
-    let pane_shown = preview_shown
+    let pane_wanted = preview_shown
         && !as_window
         && !disk_usage_shown
         && !app.tabs.active().view.selected_entries().is_empty();
+    let pane_shown = pane_settled(ui.ctx(), app.ui.preview_pane, pane_wanted);
+    app.ui.preview_pane = pane_shown;
     if !pane_shown && !(preview_shown && as_window) {
         // Nothing plays where it can't be seen (or stopped).
         app.preview.stop_playback();
@@ -257,6 +285,33 @@ pub fn nav_item(ui: &mut Ui, name: &str, selected: bool) -> Response {
         color,
     );
     resp
+}
+
+/// A small button showing only `icon`, centred on its visible pixels. In a
+/// `small_button` the symbol sits too high or too low: most come from the
+/// emoji fonts, whose line metrics differ from the UI font's.
+pub fn icon_button(ui: &mut Ui, enabled: bool, icon: &str) -> Response {
+    ui.add_enabled(enabled, |ui: &mut Ui| {
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(22.0, 20.0), egui::Sense::click());
+        if ui.is_rect_visible(rect) {
+            let v = ui.style().interact(&resp);
+            ui.painter().rect(
+                rect,
+                v.corner_radius,
+                v.weak_bg_fill,
+                v.bg_stroke,
+                egui::StrokeKind::Inside,
+            );
+            crate::icons::paint_glyph_centered(
+                ui.painter(),
+                rect.center(),
+                icon,
+                FontId::proportional(12.0),
+                v.text_color(),
+            );
+        }
+        resp
+    })
 }
 
 /// A small "✖" without a background (highlighted on hover), like on tabs.
@@ -498,6 +553,24 @@ const SIDEBAR_WIDTH: f32 = 180.0;
 const PREVIEW_WIDTH: f32 = 280.0;
 
 /// The preview as a separate window (Settings → Preview pane → Open as a window).
+/// Whether the preview pane is shown: as `wanted`, but not while a click
+/// could still become a double-click. The pane opens and closes with the
+/// selection, and the first click of a double-click changes it: the items
+/// would move, and the second click would land on (and open) another one.
+fn pane_settled(ctx: &egui::Context, was_shown: bool, wanted: bool) -> bool {
+    if was_shown == wanted {
+        return wanted;
+    }
+    let since = ctx.input(|i| f64::from(i.pointer.time_since_last_click()));
+    let delay = ctx.options(|o| o.input_options.max_double_click_delay);
+    if since < delay {
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(delay - since));
+        was_shown
+    } else {
+        wanted
+    }
+}
+
 fn preview_window(app: &mut OxApp, ctx: &egui::Context) {
     let mut open = true;
     let screen = ctx.content_rect();
@@ -546,7 +619,7 @@ fn drag_preview(ctx: &egui::Context) {
 /// Returns true while files are hovering over it.
 pub fn drop_target(actions: &mut Vec<Action>, response: &Response, dest: &Path) -> bool {
     let hovering = response.dnd_hover_payload::<DragItems>().is_some();
-    if let Some(items) = response.dnd_release_payload::<DragItems>() {
+    if let Some(items) = dropped::<DragItems>(response) {
         actions.push(Action::Drop(items.0.clone(), dest.to_path_buf()));
     }
     hovering

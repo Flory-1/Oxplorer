@@ -148,6 +148,17 @@ impl FolderViews {
         self.folders.is_empty()
     }
 
+    /// Every folder with a view of its own and that view, the most recently
+    /// used first.
+    pub fn list(&self) -> Vec<(&Path, &SavedView)> {
+        let mut folders: Vec<&Folder> = self.folders.values().collect();
+        folders.sort_by(|a, b| b.used.cmp(&a.used).then_with(|| a.path.cmp(&b.path)));
+        folders
+            .into_iter()
+            .map(|f| (f.path.as_path(), &f.view))
+            .collect()
+    }
+
     /// The view `folder` has of its own.
     pub fn get(&self, folder: &Path) -> Option<&SavedView> {
         self.folders.get(&key(folder)).map(|f| &f.view)
@@ -249,6 +260,19 @@ mod tests {
         v.set(pictures, grid(), &defaults);
         assert!(v.remove(pictures));
         assert!(!v.remove(pictures));
+    }
+
+    #[test]
+    fn lists_the_most_recently_used_first() {
+        let defaults = SavedView::default();
+        let mut v = FolderViews::default();
+        assert!(v.list().is_empty());
+        let (a, b) = (Path::new("/a"), Path::new("/b"));
+        v.set(a, grid(), &defaults);
+        v.set(b, grid(), &defaults);
+        v.folders.get_mut(&key(a)).unwrap().used += 10;
+        let list = v.list();
+        assert_eq!(list, vec![(a, &grid()), (b, &grid())]);
     }
 
     #[test]

@@ -55,7 +55,10 @@ fn row(ui: &mut Ui, job: &DeleteJob, accent: Color32) {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(title).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("⏹").on_hover_text(tr("Cancel")).clicked() {
+                    if crate::ui::icon_button(ui, true, "⏹")
+                        .on_hover_text(tr("Cancel"))
+                        .clicked()
+                    {
                         job.cancel();
                     }
                     let (icon, tip) = if job.is_paused() {
@@ -63,7 +66,10 @@ fn row(ui: &mut Ui, job: &DeleteJob, accent: Color32) {
                     } else {
                         ("⏸", tr("Pause"))
                     };
-                    if ui.small_button(icon).on_hover_text(tip).clicked() {
+                    if crate::ui::icon_button(ui, true, icon)
+                        .on_hover_text(tip)
+                        .clicked()
+                    {
                         if job.is_paused() {
                             job.resume();
                         } else {

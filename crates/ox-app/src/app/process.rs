@@ -451,6 +451,12 @@ impl OxApp {
             Action::OpenWith(path) => self.icons.shell.open_with(path),
             Action::Search(root, query) => {
                 if query.trim().is_empty() {
+                    // An empty search tab: type there or pick a filter.
+                    self.navigate(Location::Search {
+                        root,
+                        query: String::new(),
+                    });
+                    self.ui.focus_search = true;
                     return;
                 }
                 self.process_history(HistoryAction::Remember(query.clone()));

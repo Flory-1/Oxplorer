@@ -16,6 +16,8 @@ pub enum ViewAction {
     ResetFolder,
     /// The current view becomes the default for all folders without one of their own.
     MakeDefault,
+    /// Forget the view of this folder (or library); it gets the default view again.
+    Forget(PathBuf),
     /// Forget the views of all folders.
     ForgetAll,
     /// Group the items of the active tab.
@@ -73,17 +75,24 @@ fn show_view(tab: &mut Tab, view: &SavedView) {
     }
 }
 
+/// What a location's view is remembered under: a folder's path, or a
+/// library's `.library-ms` file. Elsewhere the tab keeps the view it has.
+fn view_key(location: &Location) -> Option<&Path> {
+    match location {
+        Location::Folder(p) => Some(p),
+        Location::Library { file, .. } => Some(file),
+        _ => None,
+    }
+}
+
 /// Give `tab` its folder's view when it opened another folder, or remember
 /// how its view changed. Returns whether the view changed (re-sort then).
 fn sync_tab(tab: &mut Tab, views: &mut FolderViews, defaults: &SavedView, remember: bool) -> bool {
-    let folder = match tab.location() {
-        Location::Folder(p) if remember => p.clone(),
-        // Elsewhere the tab keeps the view it has.
-        _ => {
-            tab.remembered = None;
-            return false;
-        }
+    let Some(folder) = view_key(tab.location()).filter(|_| remember) else {
+        tab.remembered = None;
+        return false;
     };
+    let folder = folder.to_path_buf();
     let current = view_of(tab);
     match &tab.remembered {
         Some((f, applied)) if *f == folder => {
@@ -115,12 +124,11 @@ impl OxApp {
             .unwrap_or(&self.settings.browsing.columns)
     }
 
-    /// The folder the active tab shows, if its view is remembered.
+    /// The folder (or library) the active tab shows, if its view is remembered.
     pub fn remembered_folder(&self) -> Option<PathBuf> {
-        match self.tabs.active().location() {
-            Location::Folder(p) if self.settings.browsing.remember_folder_views => Some(p.clone()),
-            _ => None,
-        }
+        view_key(self.tabs.active().location())
+            .filter(|_| self.settings.browsing.remember_folder_views)
+            .map(Path::to_path_buf)
     }
 
     /// Once per frame, before the tabs load: a tab that opened a folder
@@ -219,6 +227,19 @@ impl OxApp {
                 let tab = self.tabs.active_mut();
                 tab.collapse_all(collapse, &self.tags);
             }
+            ViewAction::Forget(folder) => {
+                self.folder_views.remove(&folder);
+                let key = ox_core::folder_views::key(&folder);
+                for tab in &mut self.tabs.tabs {
+                    let shown = view_key(tab.location())
+                        .is_some_and(|f| ox_core::folder_views::key(f) == key);
+                    if shown {
+                        // Shown with the default view from the next frame.
+                        tab.remembered = None;
+                    }
+                }
+                self.save_folder_views();
+            }
             ViewAction::ForgetAll => {
                 self.folder_views.clear();
                 for tab in &mut self.tabs.tabs {
@@ -314,6 +335,30 @@ mod tests {
         sync_tab(&mut tab, &mut views, &defaults, true);
         assert!(views.get(&docs).is_none());
         assert!(views.get(&pictures).is_some());
+    }
+
+    #[test]
+    fn libraries_keep_their_view() {
+        let settings = Settings::default();
+        let defaults = SavedView::defaults(&settings.browsing);
+        let mut views = FolderViews::default();
+        let file = PathBuf::from("/libraries/Pictures.library-ms");
+        let library = Location::Library {
+            name: "Pictures".into(),
+            file: file.clone(),
+        };
+        let mut tab = Tab::new(2, library.clone(), &settings);
+        let mut sync = |tab: &mut Tab| sync_tab(tab, &mut views, &defaults, true);
+        sync(&mut tab);
+        tab.view_mode = ViewMode::Grid;
+        sync(&mut tab);
+        tab.navigate(Location::Folder("/docs".into()));
+        assert!(sync(&mut tab));
+        assert_eq!(tab.view_mode, ViewMode::Details);
+        tab.navigate(library);
+        assert!(sync(&mut tab));
+        assert_eq!(tab.view_mode, ViewMode::Grid);
+        assert!(views.get(&file).is_some());
     }
 
     #[test]
