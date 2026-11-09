@@ -91,19 +91,6 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     }
     mini_player::show(app, ui);
 
-    if app.ui.show_transfers
-        && (app.ui.transfers_opened
-            || !app.engine.jobs().is_empty()
-            || !app.engine.resumable().is_empty()
-            || transfers::deletes::any(app))
-    {
-        egui::Panel::bottom("transfers")
-            .resizable(true)
-            .default_size(150.0)
-            .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::same(8)))
-            .show(ui, |ui| transfers::show(app, ui));
-    }
-
     // The side panels have fixed widths that line up with the header. egui
     // draws a panel's edge line half a point inside the panel.
     let area = ui.available_rect_before_wrap();
@@ -119,6 +106,20 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                 egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::symmetric(6, 8)),
             )
             .show(ui, |ui| sidebar::show(app, ui));
+    }
+
+    // Under the files, like the terminal: the sidebar keeps its full height.
+    if app.ui.show_transfers
+        && (app.ui.transfers_opened
+            || !app.engine.jobs().is_empty()
+            || !app.engine.resumable().is_empty()
+            || transfers::deletes::any(app))
+    {
+        egui::Panel::bottom("transfers")
+            .resizable(true)
+            .default_size(150.0)
+            .frame(egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::same(8)))
+            .show(ui, |ui| transfers::show(app, ui));
     }
 
     if app.ui.show_terminal {
@@ -284,6 +285,33 @@ pub fn nav_item(ui: &mut Ui, name: &str, selected: bool) -> Response {
         color,
     );
     resp
+}
+
+/// A small button showing only `icon`, centred on its visible pixels. In a
+/// `small_button` the symbol sits too high or too low: most come from the
+/// emoji fonts, whose line metrics differ from the UI font's.
+pub fn icon_button(ui: &mut Ui, enabled: bool, icon: &str) -> Response {
+    ui.add_enabled(enabled, |ui: &mut Ui| {
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(22.0, 20.0), egui::Sense::click());
+        if ui.is_rect_visible(rect) {
+            let v = ui.style().interact(&resp);
+            ui.painter().rect(
+                rect,
+                v.corner_radius,
+                v.weak_bg_fill,
+                v.bg_stroke,
+                egui::StrokeKind::Inside,
+            );
+            crate::icons::paint_glyph_centered(
+                ui.painter(),
+                rect.center(),
+                icon,
+                FontId::proportional(12.0),
+                v.text_color(),
+            );
+        }
+        resp
+    })
 }
 
 /// A small "✖" without a background (highlighted on hover), like on tabs.

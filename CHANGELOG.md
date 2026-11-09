@@ -11,6 +11,10 @@ The release workflow publishes the section of the tagged version as the release 
   has its own columns. Click a folder to open it, or ✖ to forget its view.
 
 ### Changed
+- The transfers panel sits under the files like the terminal, so it no longer covers the
+  sidebar. Each transfer shows where it copies or moves from and to (full paths), the names of
+  its items, the files done, how many are copied at a time and for how long it has run. Its
+  buttons have their icons centred.
 - The search button in the command bar always opens a search tab: with what is typed in the
   search box (as Enter does), or an empty one. Enter in an empty search box opens an empty
   search tab too. An empty search tab searches nothing until you type or pick a filter.

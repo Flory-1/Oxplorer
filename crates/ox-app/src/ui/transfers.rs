@@ -2,6 +2,7 @@
 
 mod ask;
 pub mod deletes;
+mod details;
 mod queue;
 mod when_done;
 pub use when_done::countdown;
@@ -28,7 +29,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     ui.horizontal(|ui| {
         ui.label(RichText::new(tr("Transfers")).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.small_button("✖").on_hover_text(tr("Hide")).clicked() {
+            if crate::ui::icon_button(ui, true, "✖")
+                .on_hover_text(tr("Hide"))
+                .clicked()
+            {
                 app.ui.show_transfers = false;
                 app.ui.transfers_opened = false;
             }
@@ -167,11 +171,17 @@ fn job_row(
                 ui.label(RichText::new(title).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if state.is_finished() {
-                        if ui.small_button("✖").on_hover_text(tr("Dismiss")).clicked() {
+                        if crate::ui::icon_button(ui, true, "✖")
+                            .on_hover_text(tr("Dismiss"))
+                            .clicked()
+                        {
                             remove.push(job.id);
                         }
                     } else {
-                        if ui.small_button("⏹").on_hover_text(tr("Cancel")).clicked() {
+                        if crate::ui::icon_button(ui, true, "⏹")
+                            .on_hover_text(tr("Cancel"))
+                            .clicked()
+                        {
                             job.cancel();
                         }
                         if matches!(state, JobState::Running | JobState::Queued) {
@@ -180,7 +190,10 @@ fn job_row(
                             } else {
                                 ("⏸", tr("Pause"))
                             };
-                            if ui.small_button(icon).on_hover_text(tip).clicked() {
+                            if crate::ui::icon_button(ui, true, icon)
+                                .on_hover_text(tip)
+                                .clicked()
+                            {
                                 if job.is_paused() {
                                     job.resume();
                                 } else {
@@ -193,6 +206,8 @@ fn job_row(
                     }
                 });
             });
+
+            details::route(ui, job);
 
             if state == JobState::AwaitingDecision {
                 let conflicts = job.conflicts();
@@ -256,6 +271,7 @@ fn job_row(
                         })
                         .animate(state == JobState::Scanning),
                 );
+                details::progress(ui, job, state);
                 let current = job.current_item();
                 if !current.as_os_str().is_empty() {
                     ui.label(RichText::new(current.display().to_string()).small().weak());

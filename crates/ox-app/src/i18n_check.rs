@@ -149,6 +149,7 @@ pub(crate) const SOURCES: &[(&str, &str)] = &[
     app!("ui/transfers/when_done.rs"),
     app!("ui/transfers/resume.rs"),
     app!("ui/transfers/deletes.rs"),
+    app!("ui/transfers/details.rs"),
     app!("ui/wsl.rs"),
     core!("archive.rs"),
     core!("columns.rs"),

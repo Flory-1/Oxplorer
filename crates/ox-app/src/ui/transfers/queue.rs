@@ -69,7 +69,8 @@ pub(super) fn controls(ui: &mut Ui, job: &Job, place: Place, moves: &mut Vec<(u6
     let Some((index, len)) = place else {
         return;
     };
-    ui.menu_button("⋯", |ui| {
+    let menu = crate::ui::icon_button(ui, true, "⋯");
+    egui::Popup::menu(&menu).show(|ui| {
         let mut after = job.runs_after_current();
         if ui
             .checkbox(&mut after, tr("Run after the current transfers"))
@@ -95,15 +96,13 @@ pub(super) fn controls(ui: &mut Ui, job: &Job, place: Place, moves: &mut Vec<(u6
             moves.push((job.id, len as isize));
         }
     });
-    if ui
-        .add_enabled(index + 1 < len, egui::Button::new("⏷").small())
+    if crate::ui::icon_button(ui, index + 1 < len, "⏷")
         .on_hover_text(tr("Start later"))
         .clicked()
     {
         moves.push((job.id, 1));
     }
-    if ui
-        .add_enabled(index > 0, egui::Button::new("⏶").small())
+    if crate::ui::icon_button(ui, index > 0, "⏶")
         .on_hover_text(tr("Start earlier"))
         .clicked()
     {

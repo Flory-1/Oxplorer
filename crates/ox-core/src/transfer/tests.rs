@@ -519,3 +519,12 @@ fn folder_pairs_move_whole_folders_to_an_exact_target() {
     assert!(!tmp.path().join("src").exists());
     assert_eq!(job.created(), vec![(tmp.path().join("src"), target)]);
 }
+
+#[test]
+fn items_from_one_folder_have_a_common_parent() {
+    let (a, b) = (Path::new("/src/a.txt"), Path::new("/src/sub"));
+    assert_eq!(common_parent([a, b]), Some(PathBuf::from("/src")));
+    assert_eq!(common_parent([a, Path::new("/other/c.txt")]), None);
+    assert_eq!(common_parent([]), None);
+    assert_eq!(common_parent([Path::new("/")]), None);
+}
