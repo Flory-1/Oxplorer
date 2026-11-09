@@ -20,6 +20,9 @@ The release workflow publishes the section of the tagged version as the release 
   search tab too. An empty search tab searches nothing until you type or pick a filter.
 
 ### Fixed
+- With *Open folders in Oxplorer* on, the Recycle Bin on the desktop (and anywhere else it is
+  opened from) opened in Explorer. It now opens in Oxplorer. Turned on by an older version, the
+  setting picks this up at the next start.
 - *Show transfers* in the command palette did nothing when no transfers were running. It now
   opens the transfers panel even then (with the history of finished transfers), until it is
   hidden again.

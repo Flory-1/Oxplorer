@@ -494,7 +494,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Start folder", "Startordner"),
     ("C:\\Users\\…", "C:\\Benutzer\\…"),
     ("Open folders in Oxplorer", "Ordner in Oxplorer öffnen"),
-    ("Folders and drives opened anywhere else (desktop, other programs, Win+E) open in Oxplorer instead of Explorer. Turn off to go back to Explorer.", "Ordner und Laufwerke, die anderswo geöffnet werden (Desktop, andere Programme, Win+E), öffnen sich in Oxplorer statt im Explorer. Ausschalten, um zum Explorer zurückzukehren."),
+    ("Folders, drives and the Recycle Bin opened anywhere else (desktop, other programs, Win+E) open in Oxplorer instead of Explorer. Turn off to go back to Explorer.", "Ordner, Laufwerke und der Papierkorb, die anderswo geöffnet werden (Desktop, andere Programme, Win+E), öffnen sich in Oxplorer statt im Explorer. Ausschalten, um zum Explorer zurückzukehren."),
     ("Show sidebar", "Seitenleiste anzeigen"),
     ("Favorites section", "Bereich „Favoriten“"),
     ("Drives section", "Bereich „Laufwerke“"),

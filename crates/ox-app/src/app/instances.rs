@@ -12,8 +12,8 @@ use ox_core::tags::TagFile;
 /// How this window was started (from the command line, see `main.rs`).
 #[derive(Default)]
 pub struct Start {
-    /// A folder to open in a new tab.
-    pub open: Option<PathBuf>,
+    /// A folder (or the Recycle Bin) to open in a new tab.
+    pub open: Option<Location>,
     /// Tabs handed over by the window that opened this one.
     pub tabs: Option<Session>,
     /// Held if this window owns the saved session.

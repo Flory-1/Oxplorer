@@ -44,8 +44,8 @@ impl OxApp {
             StartPage::Home => None,
         }
         .unwrap_or_else(|| Tabs::new(Location::Home, &settings));
-        if let Some(path) = start.open {
-            tabs.open(Location::Folder(path), None, true, &settings);
+        if let Some(location) = start.open {
+            tabs.open(location, None, true, &settings);
         }
 
         let watcher = || {

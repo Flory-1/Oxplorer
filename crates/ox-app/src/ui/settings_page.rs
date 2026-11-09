@@ -505,7 +505,7 @@ fn default_folder_handler(ui: &mut Ui, app: &mut OxApp) {
         ui,
         &mut on,
         tr("Open folders in Oxplorer"),
-        tr("Folders and drives opened anywhere else (desktop, other programs, Win+E) open in Oxplorer instead of Explorer. Turn off to go back to Explorer."),
+        tr("Folders, drives and the Recycle Bin opened anywhere else (desktop, other programs, Win+E) open in Oxplorer instead of Explorer. Turn off to go back to Explorer."),
     );
     if on != was {
         app.push(Action::SetDefaultFolderHandler(on));
