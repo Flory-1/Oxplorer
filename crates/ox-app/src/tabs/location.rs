@@ -175,7 +175,12 @@ impl Location {
 
     /// Items here can't be changed (inside an archive).
     pub fn is_read_only(&self) -> bool {
-        matches!(self, Location::Archive { .. })
+        match self {
+            Location::Archive { .. } => true,
+            // Phones are read-only for now (see `ox_core::remote::mtp`).
+            Location::Remote(addr) => addr.is_phone(),
+            _ => false,
+        }
     }
 }
 

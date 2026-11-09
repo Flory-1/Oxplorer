@@ -6,6 +6,11 @@ The release workflow publishes the section of the tagged version as the release 
 ## [Unreleased]
 
 ### Added
+- **Phones and cameras on a USB cable**: Android phones (and other MTP devices) connected by
+  cable show up under *This PC* in the sidebar and on the Home page. Open one to browse its
+  storage, open and preview its files, and copy or drag them to your PC. Phones are read-only
+  for now: copying to a phone, renaming and deleting on it come later. Unlock the phone and
+  allow file transfer on it for it to appear.
 - **List of folders with a view of their own**: Settings → Browsing lists every folder (and
   library) whose view is remembered, with its view mode, sort order, grouping and whether it
   has its own columns. Click a folder to open it, or ✖ to forget its view.

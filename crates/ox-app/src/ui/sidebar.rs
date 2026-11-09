@@ -1,6 +1,7 @@
 //! Left sidebar: Home, Favorites, Libraries, Drives and Recent folders.
 
 mod libraries;
+mod phones;
 mod remote;
 mod wsl;
 
@@ -113,6 +114,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                     });
                 }
                 wsl::show(app, ui, &current, accent, &mut actions);
+                phones::show(app, ui, &current, accent, &mut actions);
             }
 
             remote::show(app, ui, &current, accent, &mut actions);

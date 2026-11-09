@@ -21,6 +21,7 @@ mod library;
 mod links;
 mod load;
 pub mod mirror;
+mod phones;
 mod picture_tools;
 mod player;
 mod poll;
@@ -279,6 +280,8 @@ pub struct OxApp {
     pub pictures: PictureTools,
     /// The WSL distributions (for the sidebar and the Home page).
     pub wsl: wsl::Wsl,
+    /// Phones and cameras on a USB cable (for the sidebar and the Home page).
+    pub phones: phones::Phones,
     /// Custom commands: the question before one runs, output windows.
     pub commands: CustomCommands,
     /// SFTP/FTP/WebDAV connections and their dialogs.
@@ -381,6 +384,7 @@ impl OxApp {
         self.poll_cloud();
         self.poll_libraries();
         self.poll_wsl();
+        self.poll_phones();
         self.poll_player(ctx);
         self.poll_watcher();
         self.poll_jobs();

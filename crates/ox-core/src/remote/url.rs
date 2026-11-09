@@ -1,5 +1,7 @@
 //! Addresses of remote places: `sftp://user@host:22/path`, `ftp://…`,
-//! `ftps://…` (explicit TLS), `webdav://…` (http) and `webdavs://…` (https).
+//! `ftps://…` (explicit TLS), `webdav://…` (http) and `webdavs://…` (https),
+//! and phones on a USB cable: `mtp://<device key>/Internal storage/DCIM`
+//! (see `mtp.rs`).
 //!
 //! Remote items are shown with their address as their path (a `PathBuf`
 //! holding the URL), so the file view, the selection and the transfer
@@ -20,6 +22,9 @@ pub enum Protocol {
     WebDav,
     /// WebDAV over https.
     WebDavs,
+    /// A phone or camera on a USB cable (MTP), through the Windows Shell.
+    /// Not in [`Protocol::ALL`]: phones are found, not added.
+    Mtp,
 }
 
 impl Protocol {
@@ -38,6 +43,7 @@ impl Protocol {
             Self::Ftps => "ftps",
             Self::WebDav => "webdav",
             Self::WebDavs => "webdavs",
+            Self::Mtp => "mtp",
         }
     }
 
@@ -49,6 +55,7 @@ impl Protocol {
             "ftps" | "ftpes" => Self::Ftps,
             "webdav" | "dav" | "http" => Self::WebDav,
             "webdavs" | "davs" | "https" => Self::WebDavs,
+            "mtp" => Self::Mtp,
             _ => return None,
         })
     }
@@ -59,6 +66,7 @@ impl Protocol {
             Self::Ftp | Self::Ftps => 21,
             Self::WebDav => 80,
             Self::WebDavs => 443,
+            Self::Mtp => 0,
         }
     }
 
@@ -70,6 +78,7 @@ impl Protocol {
             Self::Ftps => "FTPS",
             Self::WebDav => "WebDAV (http)",
             Self::WebDavs => "WebDAV (https)",
+            Self::Mtp => "MTP",
         }
     }
 
@@ -215,15 +224,30 @@ impl RemoteAddr {
     /// The last part of the path, or the host at the top.
     pub fn name(&self) -> String {
         match file_name(&self.path) {
-            "" => self.host.clone(),
+            "" => self.host_name(),
             name => name.to_owned(),
         }
+    }
+
+    /// The host, or a phone's name (its address holds a key instead).
+    pub fn host_name(&self) -> String {
+        if self.protocol == Protocol::Mtp {
+            if let Some(name) = super::mtp::device_name(&self.host) {
+                return name;
+            }
+        }
+        self.host.clone()
+    }
+
+    /// A phone on a USB cable (read-only, see `mtp.rs`).
+    pub fn is_phone(&self) -> bool {
+        self.protocol == Protocol::Mtp
     }
 
     /// `name on host`-style title for tabs and the sidebar.
     pub fn title(&self) -> String {
         match file_name(&self.path) {
-            "" if self.user.is_empty() => self.host.clone(),
+            "" if self.user.is_empty() => self.host_name(),
             "" => format!("{}@{}", self.user, self.host),
             name => name.to_owned(),
         }

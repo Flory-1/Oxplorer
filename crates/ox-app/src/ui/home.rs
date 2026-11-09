@@ -1,5 +1,6 @@
 //! Home / Quick Access start page: favorites, drives and recent items.
 
+mod phones;
 mod wsl;
 
 use ox_core::i18n::t as tr;
@@ -69,6 +70,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                     resp.context_menu(|ui| super::folder_link_menu(ui, &d.mount, pinned, &mut actions));
                 }
                 wsl::cards(app, ui, accent, &mut actions);
+                phones::cards(app, ui, accent, &mut actions);
             });
             ui.add_space(22.0);
 

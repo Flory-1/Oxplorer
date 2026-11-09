@@ -156,6 +156,7 @@ impl OxApp {
             fulltext: fulltext::FullText::new(&cc.egui_ctx),
             pictures: Default::default(),
             wsl: Default::default(),
+            phones: Default::default(),
             commands: Default::default(),
             remote: Default::default(),
         }

@@ -106,6 +106,7 @@ ICONS = {
     "⇄": "arrow-left-right",
     "⇆": "arrow-right-left",
     "⋯": "ellipsis",
+    "📱": "smartphone",
     "⌨": "keyboard",
     # Player
     "▶": "play",
