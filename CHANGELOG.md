@@ -16,6 +16,9 @@ The release workflow publishes the section of the tagged version as the release 
   search tab too. An empty search tab searches nothing until you type or pick a filter.
 
 ### Fixed
+- *Show transfers* in the command palette did nothing when no transfers were running. It now
+  opens the transfers panel even then (with the history of finished transfers), until it is
+  hidden again.
 - *Remember the view of each folder* now works in Windows libraries too: each library keeps
   its own view mode, sort order, columns and grouping.
 - Double-clicking a picture while the preview pane was open sometimes opened another picture:

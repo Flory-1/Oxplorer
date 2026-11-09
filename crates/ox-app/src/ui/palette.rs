@@ -545,7 +545,10 @@ fn entries(app: &OxApp) -> Vec<Entry> {
         "⇄",
         tr("Show transfers"),
         "",
-        Box::new(|a: &mut OxApp| a.ui.show_transfers = true),
+        Box::new(|a: &mut OxApp| {
+            a.ui.show_transfers = true;
+            a.ui.transfers_opened = true;
+        }),
     );
     cmd(
         "🗑",

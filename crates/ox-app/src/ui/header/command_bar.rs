@@ -321,6 +321,7 @@ pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                     .clicked()
                 {
                     app.ui.show_transfers = !app.ui.show_transfers;
+                    app.ui.transfers_opened = false;
                 }
             }
         });

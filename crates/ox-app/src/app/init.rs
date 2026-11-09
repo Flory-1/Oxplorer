@@ -75,6 +75,7 @@ impl OxApp {
                 focus_address: false,
                 focus_search: false,
                 show_transfers: true,
+                transfers_opened: false,
                 settings_section: 0,
                 sidebar_edge: None,
                 preview_edge: None,

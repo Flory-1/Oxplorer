@@ -30,6 +30,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.small_button("✖").on_hover_text(tr("Hide")).clicked() {
                 app.ui.show_transfers = false;
+                app.ui.transfers_opened = false;
             }
             if ui
                 .small_button(tr("📜 History"))
@@ -54,6 +55,10 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
+            if rows.is_empty() && app.engine.resumable().is_empty() && !deletes::any(app) {
+                ui.add_space(8.0);
+                ui.label(RichText::new(tr("No transfers right now.")).weak());
+            }
             resume::interrupted(app, ui);
             deletes::rows(app, ui, accent);
             for (job, place) in &rows {

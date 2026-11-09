@@ -147,6 +147,9 @@ pub struct UiState {
     pub focus_address: bool,
     pub focus_search: bool,
     pub show_transfers: bool,
+    /// The transfers panel was opened on purpose (command palette): it is
+    /// shown even when there are no transfers, until it is hidden.
+    pub transfers_opened: bool,
     pub settings_section: usize,
     /// Where the sidebar's and the preview pane's edges go (x in points),
     /// measured in the header this frame: under the command bar's separator

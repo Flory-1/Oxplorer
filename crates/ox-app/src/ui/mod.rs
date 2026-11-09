@@ -92,7 +92,8 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     mini_player::show(app, ui);
 
     if app.ui.show_transfers
-        && (!app.engine.jobs().is_empty()
+        && (app.ui.transfers_opened
+            || !app.engine.jobs().is_empty()
             || !app.engine.resumable().is_empty()
             || transfers::deletes::any(app))
     {

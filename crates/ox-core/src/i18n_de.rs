@@ -612,6 +612,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("📜 History", "📜 Verlauf"),
     ("Open the log of finished transfers", "Protokoll der abgeschlossenen Übertragungen öffnen"),
     ("No transfers have finished yet.", "Noch keine Übertragung abgeschlossen."),
+    ("No transfers right now.", "Zurzeit keine Übertragungen."),
     ("Couldn't open the transfer log: {e}", "Das Übertragungsprotokoll konnte nicht geöffnet werden: {e}"),
     ("Clear finished", "Fertige entfernen"),
     ("Waiting for the drive · {v1} {v2} to {dest}", "Wartet auf das Laufwerk · {v1} {v2} nach {dest}"),
