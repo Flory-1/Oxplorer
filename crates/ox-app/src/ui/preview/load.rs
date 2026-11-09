@@ -58,13 +58,24 @@ pub(super) enum Loaded {
     Error(String),
 }
 
+/// The last commit that changed an item, with its whole message.
+pub(crate) struct LastCommit {
+    pub commit: Commit,
+    pub message: String,
+}
+
 /// The last commit that changed `e` (not for items inside archives).
-pub(super) fn last_commit(e: &FileEntry) -> Option<Commit> {
+pub(super) fn last_commit(e: &FileEntry) -> Option<LastCommit> {
     if ox_core::archive::split_virtual(&e.path).is_some() {
         return None;
     }
     let root = ox_core::git::repo_root(&e.path)?;
-    ox_core::git::last_commit(&root, &e.path).ok().flatten()
+    let commit = ox_core::git::last_commit(&root, &e.path).ok().flatten()?;
+    let message = ox_core::git::commit_message(&root, &commit.hash)
+        .ok()
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| commit.subject.clone());
+    Some(LastCommit { commit, message })
 }
 
 pub(super) fn is_markdown(e: &FileEntry) -> bool {

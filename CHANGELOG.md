@@ -20,6 +20,8 @@ The release workflow publishes the section of the tagged version as the release 
   sidebar. Each transfer shows where it copies or moves from and to (full paths), the names of
   its items, the files done, how many are copied at a time and for how long it has run. Its
   buttons have their icons centred.
+- *Last commit* in the preview pane and the Properties dialog keeps the commit's subject on one
+  line, cut with "…" when it is too long; the whole commit message shows when you hover it.
 - The search button in the command bar always opens a search tab: with what is typed in the
   search box (as Enter does), or an empty one. Enter in an empty search box opens an empty
   search tab too. An empty search tab searches nothing until you type or pick a filter.

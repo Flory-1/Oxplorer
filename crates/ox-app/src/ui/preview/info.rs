@@ -7,6 +7,7 @@ use ox_core::entry::FileEntry;
 use ox_core::format;
 use ox_core::i18n::t as tr;
 
+use super::load::LastCommit;
 use super::Checksums;
 use crate::app::Action;
 
@@ -16,6 +17,7 @@ pub(super) fn info_grid(
     e: &FileEntry,
     details: Option<&Details>,
     facts: Vec<(&'static str, String)>,
+    commit: Option<&LastCommit>,
     date_fmt: &str,
 ) {
     let mut rows = vec![(tr("Name"), e.name.clone())];
@@ -34,17 +36,47 @@ pub(super) fn info_grid(
         rows.push((tr("Attributes"), attrs.join(", ")));
     }
     rows.extend(facts);
-    rows.extend(details.into_iter().flat_map(|d| d.facts.iter().cloned()));
+    let type_facts = details.into_iter().flat_map(|d| d.facts.iter().cloned());
     egui::Grid::new("preview_info")
         .num_columns(2)
         .spacing(egui::vec2(12.0, 4.0))
         .show(ui, |ui| {
-            for (name, value) in rows {
+            let row = |ui: &mut Ui, (name, value): (&str, String)| {
                 ui.label(RichText::new(name).weak());
                 ui.add(egui::Label::new(value).wrap());
                 ui.end_row();
+            };
+            for r in rows {
+                row(ui, r);
+            }
+            if let Some(c) = commit {
+                commit_row(ui, c, date_fmt);
+            }
+            for r in type_facts {
+                row(ui, r);
             }
         });
+}
+
+/// The "Last commit" row of a grid: the hash and subject on one line (cut
+/// to fit, the whole message on hover), the author and date under it.
+pub(super) fn commit_row(ui: &mut Ui, c: &LastCommit, date_fmt: &str) {
+    ui.label(RichText::new(tr("Last commit")).weak());
+    ui.vertical(|ui| {
+        let line = format!("{} {}", c.commit.short(), c.commit.subject);
+        ui.add(
+            egui::Label::new(line)
+                .truncate()
+                .show_tooltip_when_elided(false),
+        )
+        .on_hover_text(&c.message);
+        ui.label(format!(
+            "{}, {}",
+            c.commit.author,
+            super::commit_time(&c.commit, date_fmt)
+        ));
+    });
+    ui.end_row();
 }
 
 /// Type, size, place and dates of an item (the Info tab and the Properties
