@@ -254,8 +254,10 @@ impl OxApp {
             Action::Pin(path) if is_remote(&path) => {
                 self.remote_action(RemoteAction::Add(RemoteAddr::from_path(&path)));
             }
-            // The search box only filters a remote folder.
-            Action::Search(..) | Action::SearchLive(..) if here_remote => {}
+            // The search box only filters a remote folder (an empty search
+            // tab, opened by the search button, searches This PC).
+            Action::Search(_, q) if here_remote && !q.trim().is_empty() => {}
+            Action::SearchLive(..) if here_remote => {}
             Action::ToggleFlatView if here_remote => self.remote_unsupported(),
             Action::NewFile(p)
             | Action::NewFromItem(p, _)

@@ -355,19 +355,17 @@ fn recycle_bin_button(ui: &mut Ui, accent: Color32, actions: &mut Vec<Action>) {
     }
 }
 
-/// The search button runs the search box's query in a search tab (as Enter
-/// does), searching all sub-folders. With nothing typed there is nothing to
-/// search yet: it puts the cursor into the search box.
-fn search_button(app: &mut OxApp, actions: &mut Vec<Action>) {
+/// The search button opens a search tab: with the search box's query (as
+/// Enter does), or an empty one to type in or pick filters.
+fn search_button(app: &OxApp, actions: &mut Vec<Action>) {
     let location = app.tabs.active().location();
-    // No search in the Recycle Bin or on a server.
-    let searchable = !location.is_bin() && !location.is_remote();
-    let query = app.tabs.active().filter.trim().to_owned();
-    if query.is_empty() || !searchable {
-        app.ui.focus_search = true;
+    // The Recycle Bin and servers can't be searched: an empty search of This PC.
+    if location.is_bin() || location.is_remote() {
+        actions.push(Action::Search(None, String::new()));
         return;
     }
     let (root, _) = super::nav::search_scope(app);
+    let query = app.tabs.active().filter.trim().to_owned();
     actions.push(Action::Search(root, query));
 }
 

@@ -16,6 +16,8 @@ pub enum ViewAction {
     ResetFolder,
     /// The current view becomes the default for all folders without one of their own.
     MakeDefault,
+    /// Forget the view of this folder (or library); it gets the default view again.
+    Forget(PathBuf),
     /// Forget the views of all folders.
     ForgetAll,
     /// Group the items of the active tab.
@@ -224,6 +226,19 @@ impl OxApp {
             ViewAction::CollapseAll(collapse) => {
                 let tab = self.tabs.active_mut();
                 tab.collapse_all(collapse, &self.tags);
+            }
+            ViewAction::Forget(folder) => {
+                self.folder_views.remove(&folder);
+                let key = ox_core::folder_views::key(&folder);
+                for tab in &mut self.tabs.tabs {
+                    let shown = view_key(tab.location())
+                        .is_some_and(|f| ox_core::folder_views::key(f) == key);
+                    if shown {
+                        // Shown with the default view from the next frame.
+                        tab.remembered = None;
+                    }
+                }
+                self.save_folder_views();
             }
             ViewAction::ForgetAll => {
                 self.folder_views.clear();

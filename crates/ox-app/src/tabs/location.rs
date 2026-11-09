@@ -51,6 +51,7 @@ impl Location {
         match self {
             Location::Home => tr("Home").into(),
             Location::Folder(p) => entry::display_name(p),
+            Location::Search { query, .. } if query.trim().is_empty() => tr("Search").into(),
             Location::Search { query, .. } => ox_core::trf!("Search: {query}", query = query),
             Location::Settings => tr("Settings").into(),
             Location::Help => tr("Help").into(),

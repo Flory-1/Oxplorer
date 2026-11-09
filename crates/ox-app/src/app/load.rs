@@ -53,6 +53,10 @@ impl OxApp {
                 });
                 tab.view.loading = Some(rx);
             }
+            // An empty search tab: nothing is searched until there is a query.
+            Location::Search { query, .. } if query.trim().is_empty() => {
+                tab.view = Default::default();
+            }
             Location::Search { root, query } => {
                 let mut q = Query::parse(&query, search_opts.case_sensitive);
                 q.resolve_tags(&self.tags);

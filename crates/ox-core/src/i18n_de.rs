@@ -104,6 +104,7 @@ pub const TABLE: &[(&str, &str)] = &[
     ("Can't open this folder.\n{err}", "Dieser Ordner kann nicht geöffnet werden.\n{err}"),
     ("Nothing is tagged \"{v1}\" yet.\nRight-click files or folders → Tags.", "Noch nichts ist mit „{v1}“ markiert.\nRechtsklick auf Dateien oder Ordner → Tags."),
     ("No results.", "Keine Ergebnisse."),
+    ("Type what to search for in the search box, or pick a filter above.", "Geben Sie in das Suchfeld ein, wonach Sie suchen, oder wählen Sie oben einen Filter."),
     ("The Recycle Bin is empty.", "Der Papierkorb ist leer."),
     ("No items match your filter.\nPress Enter to search sub-folders too.", "Keine Elemente passen zum Filter.\nMit Eingabe auch Unterordner durchsuchen."),
     ("This folder is empty.", "Dieser Ordner ist leer."),

@@ -243,6 +243,13 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
         } else if let Location::Library { name, .. } = tab.location() {
             let text = ox_core::trf!("The library \"{name}\" is empty.", name = name);
             centered_message(ui, "📚", &text);
+        } else if matches!(tab.location(), Location::Search { query, .. } if query.trim().is_empty())
+        {
+            centered_message(
+                ui,
+                "🔍",
+                tr("Type what to search for in the search box, or pick a filter above."),
+            );
         } else if cx.is_search {
             centered_message(ui, "🔍", tr("No results."));
         } else if cx.is_bin && tab.filter.is_empty() {

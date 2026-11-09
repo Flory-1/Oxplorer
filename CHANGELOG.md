@@ -5,10 +5,15 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+### Added
+- **List of folders with a view of their own**: Settings → Browsing lists every folder (and
+  library) whose view is remembered, with its view mode, sort order, grouping and whether it
+  has its own columns. Click a folder to open it, or ✖ to forget its view.
+
 ### Changed
-- The search button in the command bar searches for what is typed in the search box and shows
-  the results in a search tab (as Enter does). With nothing typed, it still puts the cursor
-  into the search box.
+- The search button in the command bar always opens a search tab: with what is typed in the
+  search box (as Enter does), or an empty one. Enter in an empty search box opens an empty
+  search tab too. An empty search tab searches nothing until you type or pick a filter.
 
 ### Fixed
 - *Remember the view of each folder* now works in Windows libraries too: each library keeps
