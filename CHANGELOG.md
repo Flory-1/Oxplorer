@@ -5,6 +5,8 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-11-09
+
 ### Added
 - **Phones and cameras on a USB cable**: Android phones (and other MTP devices) connected by
   cable show up under *This PC* in the sidebar and on the Home page. Open one to browse its
