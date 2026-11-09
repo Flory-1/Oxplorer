@@ -78,6 +78,7 @@ impl OxApp {
                 settings_section: 0,
                 sidebar_edge: None,
                 preview_edge: None,
+                preview_pane: false,
                 default_folder_handler: None,
                 palette: None,
                 recording: None,

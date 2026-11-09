@@ -153,6 +153,8 @@ pub struct UiState {
     /// after the edit buttons, and in the gap before the search box.
     pub sidebar_edge: Option<f32>,
     pub preview_edge: Option<f32>,
+    /// The preview pane was shown last frame (see `ui::pane_settled`).
+    pub preview_pane: bool,
     /// Whether folders open in Oxplorer (read from the registry when needed).
     pub default_folder_handler: Option<bool>,
     pub palette: Option<crate::ui::palette::PaletteState>,

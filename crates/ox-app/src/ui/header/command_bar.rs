@@ -288,7 +288,7 @@ pub(super) fn command_bar(app: &mut OxApp, ui: &mut Ui) {
                 "🔍",
                 &shortcuts::hint(tr("Search"), Command::Search),
             ) {
-                app.ui.focus_search = true;
+                search_button(app, &mut actions);
             }
             if keyboard_button(ui)
                 .on_hover_text(shortcuts::hint(tr("Command palette"), Command::Palette))
@@ -353,6 +353,22 @@ fn recycle_bin_button(ui: &mut Ui, accent: Color32, actions: &mut Vec<Action>) {
     if let Some(items) = crate::ui::dropped::<crate::ui::DragItems>(&bin) {
         actions.push(Action::MoveToBin(items.0.clone()));
     }
+}
+
+/// The search button runs the search box's query in a search tab (as Enter
+/// does), searching all sub-folders. With nothing typed there is nothing to
+/// search yet: it puts the cursor into the search box.
+fn search_button(app: &mut OxApp, actions: &mut Vec<Action>) {
+    let location = app.tabs.active().location();
+    // No search in the Recycle Bin or on a server.
+    let searchable = !location.is_bin() && !location.is_remote();
+    let query = app.tabs.active().filter.trim().to_owned();
+    if query.is_empty() || !searchable {
+        app.ui.focus_search = true;
+        return;
+    }
+    let (root, _) = super::nav::search_scope(app);
+    actions.push(Action::Search(root, query));
 }
 
 /// The command palette button: a small drawn keyboard, as wide as the

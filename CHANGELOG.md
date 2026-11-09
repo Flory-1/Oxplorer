@@ -5,7 +5,17 @@ The release workflow publishes the section of the tagged version as the release 
 
 ## [Unreleased]
 
+### Changed
+- The search button in the command bar searches for what is typed in the search box and shows
+  the results in a search tab (as Enter does). With nothing typed, it still puts the cursor
+  into the search box.
+
 ### Fixed
+- *Remember the view of each folder* now works in Windows libraries too: each library keeps
+  its own view mode, sort order, columns and grouping.
+- Double-clicking a picture while the preview pane was open sometimes opened another picture:
+  the first click opened or closed the pane, the items moved, and the second click landed on
+  another one. The pane now waits until a double-click can no longer follow.
 - Going back with the mouse's Back button sometimes copied or moved the file under the
   pointer into the folder that was under it after going back. Files and tabs are now only
   dragged with the left button, and only releasing the left button drops them.

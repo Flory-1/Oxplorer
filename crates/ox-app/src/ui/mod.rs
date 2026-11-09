@@ -139,10 +139,12 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
     // Disk usage can take the pane's place (Settings → Browsing).
     let disk_usage_shown = disk_usage::in_panel(app);
     // The pane only opens for a selection (the window stays open).
-    let pane_shown = preview_shown
+    let pane_wanted = preview_shown
         && !as_window
         && !disk_usage_shown
         && !app.tabs.active().view.selected_entries().is_empty();
+    let pane_shown = pane_settled(ui.ctx(), app.ui.preview_pane, pane_wanted);
+    app.ui.preview_pane = pane_shown;
     if !pane_shown && !(preview_shown && as_window) {
         // Nothing plays where it can't be seen (or stopped).
         app.preview.stop_playback();
@@ -522,6 +524,24 @@ const SIDEBAR_WIDTH: f32 = 180.0;
 const PREVIEW_WIDTH: f32 = 280.0;
 
 /// The preview as a separate window (Settings → Preview pane → Open as a window).
+/// Whether the preview pane is shown: as `wanted`, but not while a click
+/// could still become a double-click. The pane opens and closes with the
+/// selection, and the first click of a double-click changes it: the items
+/// would move, and the second click would land on (and open) another one.
+fn pane_settled(ctx: &egui::Context, was_shown: bool, wanted: bool) -> bool {
+    if was_shown == wanted {
+        return wanted;
+    }
+    let since = ctx.input(|i| f64::from(i.pointer.time_since_last_click()));
+    let delay = ctx.options(|o| o.input_options.max_double_click_delay);
+    if since < delay {
+        ctx.request_repaint_after(std::time::Duration::from_secs_f64(delay - since));
+        was_shown
+    } else {
+        wanted
+    }
+}
+
 fn preview_window(app: &mut OxApp, ctx: &egui::Context) {
     let mut open = true;
     let screen = ctx.content_rect();

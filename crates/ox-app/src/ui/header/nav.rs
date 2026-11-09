@@ -395,6 +395,25 @@ fn subfolders(p: &Path) -> Vec<PathBuf> {
     dirs
 }
 
+/// Where the search box searches from the active tab (`None`: all drives),
+/// and the name of that place.
+pub(super) fn search_scope(app: &OxApp) -> (Option<PathBuf>, String) {
+    match app.tabs.active().location() {
+        Location::Folder(p) => (Some(p.clone()), display_name(p)),
+        Location::Search { root, .. } => (
+            root.clone(),
+            root.as_deref()
+                .map(|r| app.search_place(r))
+                .unwrap_or(tr("This PC").into()),
+        ),
+        // A library searches all its folders.
+        Location::Library { name, file } => (Some(file.clone()), name.clone()),
+        Location::RecycleBin => (None, tr("Recycle Bin").into()),
+        Location::Remote(a) => (None, a.title()),
+        _ => (None, tr("This PC").into()),
+    }
+}
+
 /// Returns the field's rectangle.
 fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action>) -> Rect {
     let accent = crate::theme::accent(&app.settings);
@@ -415,21 +434,7 @@ fn search_box(app: &mut OxApp, ui: &mut Ui, width: f32, actions: &mut Vec<Action
     } else {
         &[]
     };
-    let search_place = |r: &Path| app.search_place(r);
-    let (root, place) = match app.tabs.active().location() {
-        Location::Folder(p) => (Some(p.clone()), display_name(p)),
-        Location::Search { root, .. } => (
-            root.clone(),
-            root.as_deref()
-                .map(search_place)
-                .unwrap_or(tr("This PC").into()),
-        ),
-        // A library searches all its folders.
-        Location::Library { name, file } => (Some(file.clone()), name.clone()),
-        Location::RecycleBin => (None, tr("Recycle Bin").into()),
-        Location::Remote(a) => (None, a.title()),
-        _ => (None, tr("This PC").into()),
-    };
+    let (root, place) = search_scope(app);
     let tab = app.tabs.active_mut();
     let live_here = live && matches!(tab.location(), Location::Home | Location::Search { .. });
     let in_search = matches!(tab.location(), Location::Search { .. });
