@@ -224,9 +224,9 @@ pub struct PreviewState {
     /// The last commit that changed the item (in Git repositories) and the
     /// item's details. Looked up on their own, so a slow preview doesn't
     /// hold them back.
-    last_commit: Option<Commit>,
+    last_commit: Option<LastCommit>,
     details: Option<Details>,
-    extra_rx: Option<Receiver<(Option<Commit>, Details)>>,
+    extra_rx: Option<Receiver<(Option<LastCommit>, Details)>>,
     /// SHA-256 and MD5, once asked for.
     checksums: Option<Checksums>,
     play: PlayerState,
@@ -443,7 +443,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
                     app.preview.clear();
                     header(ui, entry);
                     ui.separator();
-                    info_grid(ui, entry, None, Vec::new(), &date_fmt);
+                    info_grid(ui, entry, None, Vec::new(), None, &date_fmt);
                     if let Some(text) = text {
                         ui.label(RichText::new(text).weak());
                     }
@@ -475,7 +475,7 @@ pub fn show(app: &mut OxApp, ui: &mut Ui) {
             app.preview.clear();
             header(ui, entry);
             ui.separator();
-            info_grid(ui, entry, None, Vec::new(), &date_fmt);
+            info_grid(ui, entry, None, Vec::new(), None, &date_fmt);
         }
         many => {
             app.preview.clear();
@@ -621,19 +621,8 @@ fn tab_body(
                 if let Some(s) = git_state {
                     facts.push((tr("Git"), s.to_owned()));
                 }
-                if let Some(c) = &state.last_commit {
-                    facts.push((
-                        tr("Last commit"),
-                        format!(
-                            "{} {}\n{}, {}",
-                            c.short(),
-                            c.subject,
-                            c.author,
-                            commit_time(c, date_fmt)
-                        ),
-                    ));
-                }
-                info_grid(ui, e, state.details.as_ref(), facts, date_fmt);
+                let commit = state.last_commit.as_ref();
+                info_grid(ui, e, state.details.as_ref(), facts, commit, date_fmt);
                 picture::map_button(ui, state.details.as_ref());
                 if !e.is_dir && ox_core::archive::split_virtual(&e.path).is_none() {
                     ui.add_space(6.0);

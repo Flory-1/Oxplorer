@@ -9,7 +9,7 @@ use ox_core::entry::FileEntry;
 use ox_core::git::RepoStatus;
 use ox_core::i18n::t as tr;
 
-use super::{checksums, commit_time, picture, tab_body, Content, PreviewState, PreviewTab};
+use super::{checksums, picture, tab_body, Content, PreviewState, PreviewTab};
 use crate::app::Action;
 
 /// A tab of the Properties dialog.
@@ -110,18 +110,7 @@ impl Embedded {
         if let Some(state) = git_state {
             rows.push((tr("Git"), state.to_owned()));
         }
-        if let Some(c) = &s.last_commit {
-            rows.push((
-                tr("Last commit"),
-                format!(
-                    "{} {}\n{}, {}",
-                    c.short(),
-                    c.subject,
-                    c.author,
-                    commit_time(c, date_fmt)
-                ),
-            ));
-        }
+
         egui::Grid::new("props_details")
             .num_columns(2)
             .spacing([16.0, 6.0])
@@ -130,6 +119,9 @@ impl Embedded {
                     ui.label(RichText::new(name).weak());
                     ui.add(egui::Label::new(value).wrap());
                     ui.end_row();
+                }
+                if let Some(c) = &s.last_commit {
+                    super::info::commit_row(ui, c, date_fmt);
                 }
             });
         let loading = matches!(s.content, None | Some(Content::Loading(_))) || s.extra_rx.is_some();

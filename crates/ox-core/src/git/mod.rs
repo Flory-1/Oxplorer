@@ -331,6 +331,12 @@ pub fn last_commit(root: &Path, path: &Path) -> io::Result<Option<Commit>> {
     Ok(parse_log(&String::from_utf8_lossy(&out)).into_iter().next())
 }
 
+/// The whole message of the commit `hash` (subject, blank line, body).
+pub fn commit_message(root: &Path, hash: &str) -> io::Result<String> {
+    let out = run(root, &["log", "-1", "--format=%B", hash, "--"])?;
+    Ok(String::from_utf8_lossy(&out).trim_end().to_owned())
+}
+
 /// One commit of the history.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Commit {
@@ -700,7 +706,7 @@ mod tests {
                 msg,
             ])
         };
-        assert!(commit("Add a"));
+        assert!(commit("Add a\n\nThe first file, in src."));
         std::fs::write(root.join("b.txt"), "b").unwrap();
         assert!(git(&["add", "b.txt"]));
         assert!(commit("Add b"));
@@ -709,6 +715,10 @@ mod tests {
         assert_eq!(
             (last.subject.as_str(), last.author.as_str()),
             ("Add a", "Ada")
+        );
+        assert_eq!(
+            commit_message(root, &last.hash).unwrap(),
+            "Add a\n\nThe first file, in src."
         );
         let log = log(root, 10).unwrap();
         assert_eq!(log.len(), 2);
